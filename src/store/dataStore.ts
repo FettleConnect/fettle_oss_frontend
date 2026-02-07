@@ -114,6 +114,10 @@ export const setPaymentPaid = (id: string) => {
   return updateConversation(id, { paymentStatus: 'paid', mode: 'post_payment_intake' });
 };
 
+export const setDraftResponse = (id: string, draft: string) => {
+  return updateConversation(id, { draftResponse: draft });
+};
+
 export const completeConversation = (id: string) => {
   return updateConversation(id, { status: 'completed', mode: 'final_output' });
 };

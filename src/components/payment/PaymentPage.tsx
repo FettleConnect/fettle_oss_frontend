@@ -80,7 +80,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
       setStep('checkout');
     } catch (err) {
       console.error("Error creating payment intent:", err);
-      setError("Failed to initialize payment. Please try again.");
+      setError("Failed to initialize payment. Please check your connection or try again.");
     } finally {
       setLoading(false);
     }

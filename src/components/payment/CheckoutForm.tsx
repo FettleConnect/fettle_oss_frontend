@@ -113,6 +113,18 @@ export default function CheckoutForm({ onSuccess, onCancel, billingDetails }: Ch
           )}
         </Button>
 
+        {/* Development Helper: Bypass Payment */}
+        {process.env.NODE_ENV === 'development' && (
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-xs text-muted-foreground hover:text-green-600"
+            onClick={onSuccess}
+          >
+            [DEV] Simulate Payment Success
+          </Button>
+        )}
+
         <Button
           type="button"
           variant="outline"

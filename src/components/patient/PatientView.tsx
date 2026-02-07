@@ -29,6 +29,24 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
+  const [intakeStep, setIntakeStep] = useState(0);
+  const [intakeData, setIntakeData] = useState({
+    duration: '',
+    symptoms: '',
+    location: '',
+    meds: '',
+    history: '',
+    images: [] as string[]
+  });
+
+  const INTAKE_QUESTIONS = [
+    "1. How long has this skin concern been present? (Duration)",
+    "2. What symptoms are you experiencing? (e.g. itching, pain, bleeding, spreading)",
+    "3. Where on your body is this located?",
+    "4. Have you tried any medications or creams for this? If so, which ones?",
+    "5. Have you had any prior diagnoses for this or other skin conditions?",
+    "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you haven't already)",
+  ];
 
   // Fetch chat history on mount
   const fetchChatHistory = useCallback(async () => {
@@ -68,7 +86,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     // If images included, add note about them
     let messageContent = content;
     if (images && images.length > 0) {
-      messageContent += `\n\n[${images.length} image(s) attached for review]`;
+      messageContent += `\n\n[${images.length} image(s) attached]`;
+      if (mode === 'post_payment_intake') {
+        setIntakeData(prev => ({ ...prev, images: [...prev.images, ...images] }));
+      }
     }
 
     // Add user message to UI immediately
@@ -78,8 +99,65 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       content: messageContent,
     };
     setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
 
+    // Handle Guided Intake
+    if (mode === 'post_payment_intake') {
+      const currentStepKey = ['duration', 'symptoms', 'location', 'meds', 'history', 'history'][intakeStep];
+      setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
+
+      if (content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1) {
+        setIsLoading(true);
+        try {
+          const authToken = localStorage.getItem('authToken');
+          // Send final DONE to backend to trigger review mode
+          const formData = new FormData();
+          formData.append('question', `INTAKE COMPLETE. Summary: 
+Duration: ${intakeData.duration}
+Symptoms: ${intakeData.symptoms}
+Location: ${intakeData.location}
+Meds: ${intakeData.meds}
+History: ${intakeData.history}
+Images: ${intakeData.images.length} attached.
+DONE`);
+          
+          await fetch(`${BASE_URL}:8000/api/chat_view/`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            body: formData,
+          });
+
+          setMode('dermatologist_review');
+          const aiMessage: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: "Thank you. I have collected all the necessary information. Our dermatologist, Dr. Attili, will now review your case. You will be notified once the review is complete.",
+          };
+          setMessages(prev => [...prev, aiMessage]);
+        } catch (error) {
+          console.error('Error completing intake:', error);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // Next question
+      const nextStep = intakeStep + 1;
+      setIntakeStep(nextStep);
+      setIsLoading(true);
+      setTimeout(() => {
+        const aiMessage: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: INTAKE_QUESTIONS[nextStep],
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        setIsLoading(false);
+      }, 500);
+      return;
+    }
+
+    setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
@@ -134,14 +212,52 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setMode(newMode);
   };
 
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
     setMode('post_payment_intake');
+    setIntakeStep(0);
+    setIntakeData({
+      duration: '',
+      symptoms: '',
+      location: '',
+      meds: '',
+      history: '',
+      images: []
+    });
+    
     const paymentMessage: ChatMessage = {
       id: `system-${Date.now()}`,
       role: 'system',
-      content: "Thank you for your payment! You're now connected to our intake process.\n\nPlease describe your skin concern in detail. I'll ask you some follow-up questions to gather all the information our dermatologist needs.\n\nWhen you've shared everything, type DONE to submit your case for review.",
+      content: "Thank you for your payment! You're now connected to our intake process.",
     };
     setMessages(prev => [...prev, paymentMessage]);
+
+    // Show first question
+    setTimeout(() => {
+      const aiMessage: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        role: 'AI',
+        content: "To help our dermatologist provide an accurate review, please answer a few questions.\n\n" + INTAKE_QUESTIONS[0],
+      };
+      setMessages(prev => [...prev, aiMessage]);
+    }, 1000);
+
+    // Inform backend of payment confirmation
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'PAYMENT_CONFIRMED');
+      
+      await fetch(`${BASE_URL}:8000/api/chat_view/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: formData,
+      });
+    } catch (error) {
+      console.error('Error confirming payment to backend:', error);
+    }
+
     toast({
       title: 'Payment Successful',
       description: 'You can now provide details for your consultation.',
@@ -166,13 +282,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   // Transform messages to match ChatContainer expected format
   const transformedMessages = messages.map(msg => {
-    // Role can be: 'user' (patient), 'AI', 'doctor'
-    let role: 'patient' | 'ai' | 'doctor' = 'patient';
+    // Role can be: 'user' (patient), 'AI', 'doctor', 'system'
+    let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
     
     if (msg.role === 'AI' || msg.role === 'ai') {
       role = 'ai';
     } else if (msg.role === 'doctor') {
       role = 'doctor';
+    } else if (msg.role === 'system') {
+      role = 'system';
     }
     // 'user' or any other role (like email) is treated as patient
     

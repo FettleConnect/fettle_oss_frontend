@@ -24,8 +24,36 @@ export const useAIChat = ({ conversationId, mode, onModeChange }: UseAIChatProps
     
     if (upperContent === 'DONE' && mode === 'post_payment_intake') {
       addMessage(conversationId, 'patient', content);
+      
+      // Simulate Backend: Generate Draft Response for Doctor
+      // In a real implementation, the backend would generate this when mode changes to 'dermatologist_review'
+      const mockDraftResponse = `Dr. Attili's Review (Draft):
+
+Based on the images and history provided, the presentation is most consistent with **Nummular Eczema (Discoid Eczema)**.
+
+**Morphologic Reasoning:**
+The photos show well-defined, coin-shaped plaques with erythema (redness) and some scaling. The distribution on the [Location provided] is classic. The patient reports itching, which correlates with the inflammatory nature of eczema.
+
+**Differential Diagnoses:**
+1. **Tinea Corporis (Ringworm):** Usually has a more active border and central clearing.
+2. **Psoriasis:** Typically has thicker, silvery scales and is often on extensor surfaces.
+3. **Contact Dermatitis:** Pattern would match specific exposure, which is less likely here given the discrete round shape.
+
+**Plan:**
+- **Moisturize:** Apply thick emollients (e.g., Vaseline, CeraVe) frequently.
+- **Topical Steroids:** A mid-potency steroid (like Triamcinolone) is often prescribed for 2 weeks to reduce inflammation.
+- **Avoid Irritants:** Harsh soaps and hot water can exacerbate the condition.
+
+**Red Flags:**
+If signs of infection appear (increased warmth, pus, spreading redness), please seek in-person care immediately.`;
+
+      // Update store with draft response (this would normally be fetched from backend)
+      import('@/store/dataStore').then(({ setDraftResponse }) => {
+        setDraftResponse(conversationId, mockDraftResponse);
+      });
+
       addMessage(conversationId, 'ai', 
-        "Thank you for providing all that information! Your case has been submitted for review by our board-certified dermatologist. They will carefully review everything you've shared and provide their professional assessment. You'll receive their response soon.");
+        "Thank you. I have compiled your medical case. A board-certified dermatologist will now review your images and history. You will receive a detailed notification and response once the review is complete.");
       onModeChange('dermatologist_review');
       return;
     }

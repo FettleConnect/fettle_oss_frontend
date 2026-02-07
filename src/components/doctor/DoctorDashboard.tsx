@@ -25,6 +25,9 @@ interface TabDoc {
   email: string;
   payment_status: string; // PAID or UNPAID
   active: boolean;
+  intake_data?: any;
+  doctor_draft?: string;
+  total_paid?: number;
 }
 
 interface ConvMessage {
@@ -65,13 +68,28 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
           // Handle various payment_status formats from API (PAID, UNPAID, paid, unpaid, etc.)
           const paymentStatusUpper = String(tab.payment_status).toUpperCase();
           const isPaid = paymentStatusUpper === 'PAID';
+          
+          // Map backend snake_case to frontend camelCase
+          const rawIntake = tab.intake_data || {};
+          const intakeData = {
+            duration: rawIntake.duration || '',
+            symptoms: rawIntake.symptoms || '',
+            location: rawIntake.location || '',
+            medicationsTried: rawIntake.medications_tried || rawIntake.meds || '',
+            priorDiagnoses: rawIntake.prior_diagnoses || '',
+            relevantHealthHistory: rawIntake.relevant_health_history || rawIntake.history || '',
+            images: rawIntake.images || [],
+          };
+
           return {
             id: String(tab.id),
             patientEmail: tab.email,
             patientName: tab.name,
-            mode: 'general_education' as const,
+            mode: isPaid ? 'post_payment_intake' : 'general_education' as const,
             paymentStatus: isPaid ? 'paid' : 'unpaid',
             status: tab.active ? 'active' : 'not_active',
+            intakeData: Object.values(intakeData).some(v => v !== '' && (Array.isArray(v) ? v.length > 0 : true)) ? intakeData : undefined,
+            draftResponse: tab.doctor_draft || undefined,
           };
         });
         setConversations(convs);
@@ -224,7 +242,10 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
               conversation={selectedConversation}
               messages={selectedMessages}
               onUpdate={handleUpdate}
-              onRefresh={() => loadConversationMessages(selectedId!)}
+              onRefresh={() => {
+                loadConversations(); // Reload intake data and payment status
+                loadConversationMessages(selectedId!); // Reload messages
+              }}
             />
           ) : (
             <div className="h-full flex items-center justify-center text-muted-foreground">

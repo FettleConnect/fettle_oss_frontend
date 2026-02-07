@@ -32,13 +32,17 @@ export interface Conversation {
   // updatedAt: Date;
   intakeData?: IntakeData;
   doctorNotes?: string; // Internal notes (not visible to patient)
+  draftResponse?: string; // AI-generated draft for doctor review
 }
 
 // Intake data collected post-payment
 export interface IntakeData {
   duration: string;
   symptoms: string;
-  changes: string;
+  location: string;
+  medicationsTried: string;
+  priorDiagnoses: string;
+  relevantHealthHistory: string;
   images: string[]; // Base64 preview URLs
 }
 
