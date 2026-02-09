@@ -1,73 +1,53 @@
-# Welcome to your Lovable project
+# Fettle OSS Frontend 🩺
 
-## Project info
+Fettle is an AI-powered teledermatology platform designed to bridge the gap between general skin health education and professional clinical consultation. This repository contains the **React + Vite** frontend, featuring responsive portals for both patients and healthcare providers.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 🚀 Features
 
-## How can I edit this code?
+- **Dual-Mode AI Assistant**: Seamlessly transitions from general educational chat to high-precision clinical intake post-payment.
+- **Guided Clinical Intake**: A structured 6-step AI-led process to collect symptoms, history, and imagery.
+- **Doctor Dashboard**: A comprehensive multi-consultation interface with:
+  - Real-time unread tagging (Blue dot indicators).
+  - Absolute recency sorting (Activity-based ordering).
+  - AI-led peer review assistant for drafting responses.
+- **Flexible Authentication**: Support for both **Google OAuth** and **Supabase Magic Link** (passwordless email login).
+- **Secure Payments**: Integrated **PayPal SDK** localized for **INR** (₹499) with server-side integrity verification.
+- **Mobile First**: Fully responsive design utilizing slide-out drawers for history and patient management on smaller viewports.
+- **Markdown Support**: Rich rendering of clinical assessments and diagnostic plans.
 
-There are several ways of editing your application.
+## 🛠️ Tech Stack
 
-**Use Lovable**
+- **Framework**: React 18 + Vite 5
+- **Styling**: Tailwind CSS + shadcn/ui (Radix Primitives)
+- **State Management**: React Query (Server State) + Custom Persistence Store
+- **Auth**: Google OAuth + Supabase Auth
+- **Icons**: Lucide React
+- **Verification**: Playwright E2E Testing Suite
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 📦 Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+1. **Clone & Install**:
+   ```bash
+   npm install
+   ```
 
-**Use your preferred IDE**
+2. **Environment Setup**:
+   Create a `.env` file with the following:
+   ```bash
+   VITE_SUPABASE_URL=your_url
+   VITE_SUPABASE_PUBLISHABLE_KEY=your_key
+   VITE_PAYPAL_CLIENT_ID=your_paypal_id
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+3. **Development**:
+   ```bash
+   npm run dev
+   ```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+4. **Test**:
+   ```bash
+   npx playwright test
+   ```
 
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## 📄 License
+MIT
