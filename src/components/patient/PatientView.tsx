@@ -2,10 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { PaymentPage } from '@/components/payment/PaymentPage';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, CreditCard } from 'lucide-react';
+import { LogOut, RefreshCw, CreditCard, History, Plus, ChevronLeft, ChevronRight, MessageSquare, Clock } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 interface User {
   role: 'doctor' | 'patient';
@@ -24,12 +28,25 @@ interface ChatMessage {
   content: string;
 }
 
+interface ConsultationHistoryItem {
+  id: string;
+  name: string;
+  mode: string;
+  status: string;
+  created_at: string;
+}
+
 export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
   const [intakeStep, setIntakeStep] = useState(0);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(true);
+
   const [intakeData, setIntakeData] = useState({
     duration: '',
     symptoms: '',
@@ -48,11 +65,33 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you haven't already)",
   ];
 
-  // Fetch chat history on mount
-  const fetchChatHistory = useCallback(async () => {
+  const fetchConsultationHistory = useCallback(async () => {
     try {
       const authToken = localStorage.getItem('authToken');
-      const response = await fetch(`${BASE_URL}:8000/api/chat_history/`, {
+      const response = await fetch(`${BASE_URL}:8000/api/consultation_list/`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setHistory(data.history || []);
+      }
+    } catch (error) {
+      console.error('Error fetching history:', error);
+    }
+  }, []);
+
+  const fetchChatHistory = useCallback(async (threadId?: string) => {
+    try {
+      setIsLoading(true);
+      const authToken = localStorage.getItem('authToken');
+      const url = new URL(`${BASE_URL}:8000/api/chat_history/`);
+      if (threadId) url.searchParams.append('thread_id', threadId);
+
+      const response = await fetch(url.toString(), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -68,6 +107,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (data.conv && Array.isArray(data.conv)) {
         setMessages(data.conv);
       }
+      if (data.thread_id) setActiveThreadId(data.thread_id);
+      if (data.mode) setMode(data.mode as ConversationMode);
+
     } catch (error) {
       console.error('Error fetching chat history:', error);
       toast({
@@ -75,12 +117,45 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         description: 'Failed to load chat history.',
         variant: 'destructive',
       });
+    } finally {
+      setIsLoading(false);
     }
   }, [toast]);
 
   useEffect(() => {
     fetchChatHistory();
-  }, [fetchChatHistory]);
+    fetchConsultationHistory();
+  }, [fetchChatHistory, fetchConsultationHistory]);
+
+  const handleNewConsultation = async () => {
+    try {
+      setIsLoading(true);
+      const authToken = localStorage.getItem('authToken');
+      const response = await fetch(`${BASE_URL}:8000/api/archive_consultation/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setActiveThreadId(data.thread_id);
+        setMessages([]);
+        setMode('general_education');
+        fetchConsultationHistory();
+        toast({
+          title: 'New Consultation Started',
+          description: 'Your previous chat has been saved to history.',
+        });
+      }
+    } catch (error) {
+      console.error('Error starting new consultation:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
     // If images included, add note about them
@@ -111,7 +186,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           const authToken = localStorage.getItem('authToken');
           // Send final DONE to backend to trigger review mode
           const formData = new FormData();
-          formData.append('question', `INTAKE COMPLETE. Summary: 
+          formData.append('question', `INTAKE COMPLETE. Summary:
 Duration: ${intakeData.duration}
 Symptoms: ${intakeData.symptoms}
 Location: ${intakeData.location}
@@ -119,7 +194,8 @@ Meds: ${intakeData.meds}
 History: ${intakeData.history}
 Images: ${intakeData.images.length} attached.
 DONE`);
-          
+          formData.append('thread_id', activeThreadId || '');
+
           await fetch(`${BASE_URL}:8000/api/chat_view/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${authToken}` },
@@ -162,9 +238,9 @@ DONE`);
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', messageContent);
-      
+      formData.append('thread_id', activeThreadId || '');
+
       if (images && images.length > 0) {
-        // Convert each base64 data URL to Blob and append as file
         for (let i = 0; i < images.length; i++) {
           const dataUrl = images[i];
           const response_blob = await fetch(dataUrl);
@@ -172,7 +248,7 @@ DONE`);
           formData.append('image', blob, `image_${i + 1}.jpg`);
         }
       }
-      
+
       const response = await fetch(`${BASE_URL}:8000/api/chat_view/`, {
         method: 'POST',
         headers: {
@@ -186,12 +262,19 @@ DONE`);
       }
 
       const data = await response.json();
-      
+
+      // Update mode if backend transitioned
+      if (data.mode) {
+        setMode(data.mode as ConversationMode);
+      }
+
+      const aiContent = (data.result && data.result.trim()) || "I've processed your request. Please proceed based on the current mode.";
+
       // Add AI response to messages
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
-        role: data.role || 'AI',
-        content: data.result,
+        role: data.role || 'ai',
+        content: aiContent,
       };
       setMessages(prev => [...prev, aiMessage]);
     } catch (error) {
@@ -201,15 +284,10 @@ DONE`);
         description: 'Failed to send message. Please try again.',
         variant: 'destructive',
       });
-      // Remove the user message if the request failed
       setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleModeChange = (newMode: ConversationMode) => {
-    setMode(newMode);
   };
 
   const handlePaymentSuccess = async () => {
@@ -223,7 +301,7 @@ DONE`);
       history: '',
       images: []
     });
-    
+
     const paymentMessage: ChatMessage = {
       id: `system-${Date.now()}`,
       role: 'system',
@@ -246,14 +324,20 @@ DONE`);
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', 'PAYMENT_CONFIRMED');
-      
-      await fetch(`${BASE_URL}:8000/api/chat_view/`, {
+      formData.append('thread_id', activeThreadId || '');
+
+      const response = await fetch(`${BASE_URL}:8000/api/chat_view/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
         },
         body: formData,
       });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.mode) setMode(data.mode as ConversationMode);
+      }
     } catch (error) {
       console.error('Error confirming payment to backend:', error);
     }
@@ -264,88 +348,170 @@ DONE`);
     });
   };
 
-  const handlePaymentCancel = () => {
-    setMode('general_education');
-    toast({
-      title: 'Payment Cancelled',
-      description: 'You can continue with educational chat.',
-    });
-  };
-
-  const handleRefresh = () => {
-    fetchChatHistory();
-    toast({
-      title: 'Refreshed',
-      description: 'Chat history updated.',
-    });
-  };
+  // Check if doctor has responded in the current messages
+  const hasDoctorResponded = messages.some(m => m.role === 'doctor');
+  const isEducational = mode === 'general_education';
 
   // Transform messages to match ChatContainer expected format
   const transformedMessages = messages.map(msg => {
-    // Role can be: 'user' (patient), 'AI', 'doctor', 'system'
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
-    
-    if (msg.role === 'AI' || msg.role === 'ai') {
-      role = 'ai';
-    } else if (msg.role === 'doctor') {
-      role = 'doctor';
-    } else if (msg.role === 'system') {
-      role = 'system';
-    }
-    // 'user' or any other role (like email) is treated as patient
-    
+    if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
+    else if (msg.role === 'doctor') role = 'doctor';
+    else if (msg.role === 'system') role = 'system';
+
     return {
       id: msg.id,
       role,
       content: msg.content,
-      conversationId: '',
+      conversationId: activeThreadId || '',
       timestamp: new Date(),
       isVisible: true,
     };
   });
 
-  // Show payment page
+  const SidebarContent = () => (
+    <div className="flex flex-col h-full bg-card">
+      <div className="p-4 border-b border-border flex items-center justify-between">
+        <h2 className="font-semibold flex items-center gap-2">
+          <Clock className="h-4 w-4" />
+          History
+        </h2>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(false)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <ScrollArea className="flex-1 p-2">
+        <div className="space-y-2">
+          {history.length > 0 ? history.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                fetchChatHistory(item.id);
+                if (isMobile) setShowHistory(false);
+              }}
+              className={cn(
+                "w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group",
+                activeThreadId === item.id ? "bg-accent border border-primary/20" : "transparent"
+              )}
+            >
+              <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-primary transition-colors" />
+              <div className="flex-1 overflow-hidden">
+                <p className="font-medium truncate">{item.name}</p>
+                <p className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleDateString()}</p>
+              </div>
+            </button>
+          )) : (
+            <div className="text-center py-8 text-muted-foreground text-xs italic">
+              No previous consultations found.
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+
   if (mode === 'payment_page') {
     return (
       <div className="h-screen">
-        <PaymentPage onPaymentSuccess={handlePaymentSuccess} onCancel={handlePaymentCancel} />
+        <PaymentPage onPaymentSuccess={handlePaymentSuccess} onCancel={() => setMode('general_education')} />
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col">
-      {/* Top bar */}
-      <div className="bg-card border-b border-border px-4 py-2 flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">
-          Logged in as: <span className="font-medium text-foreground">{user?.email}</span>
-        </span>
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Refresh
-          </Button>
-          <Button variant="default" size="sm" onClick={() => setMode('payment_page')}>
-            <CreditCard className="h-4 w-4 mr-1" />
-            Payment
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onLogout}>
-            <LogOut className="h-4 w-4 mr-1" />
-            Logout
-          </Button>
+    <div className="h-screen flex bg-background overflow-hidden">
+      {/* Sidebar - Desktop */}
+      {!isMobile && showHistory && (
+        <div className="w-72 border-r border-border bg-card flex flex-col">
+          <SidebarContent />
         </div>
-      </div>
+      )}
 
-      {/* Chat */}
-      <div className="flex-1 min-h-0">
-        <ChatContainer
-          messages={transformedMessages}
-          streamingContent=""
-          onSendMessage={handleSendMessage}
-          isLoading={isLoading}
-          mode={mode}
-          showDisclaimer={messages.length === 0}
-        />
+      {/* Sidebar - Mobile (Sheet) */}
+      {isMobile && (
+        <Sheet open={showHistory} onOpenChange={setShowHistory}>
+          <SheetContent side="left" className="p-0 w-72">
+            <SidebarContent />
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
+        <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
+          <div className="flex items-center gap-2 md:gap-3">
+            {!showHistory && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8" 
+                onClick={() => setShowHistory(true)}
+              >
+                <Clock className="h-4 w-4" />
+              </Button>
+            )}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8" 
+              onClick={() => {
+                fetchChatHistory();
+                fetchConsultationHistory();
+                toast({ title: "Syncing...", description: "Updating consultation data." });
+              }}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0">
+              <p className="text-[10px] md:text-xs text-muted-foreground truncate max-w-[120px] md:max-w-none">
+                Logged in: <span className="font-medium text-foreground">{user?.email}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-1.5 md:gap-2">
+            {isEducational && (
+              <Button variant="default" size="sm" onClick={() => setMode('payment_page')} className="h-8 text-[10px] md:text-xs px-2 md:px-3">
+                <CreditCard className="h-3.5 w-3.5 md:mr-1.5" />
+                <span className="hidden xs:inline">Pay for Consultation</span>
+                <span className="xs:hidden text-[10px]">Pay</span>
+              </Button>
+            )}
+            {hasDoctorResponded && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleNewConsultation}
+                className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Plus className="h-3.5 w-3.5 md:mr-1.5" />
+                <span className="hidden xs:inline">New Consultation</span>
+                <span className="xs:hidden text-[10px]">New</span>
+              </Button>
+            )}
+
+            <Button variant="ghost" size="sm" className="h-8 md:h-10 text-[10px] md:text-sm" onClick={onLogout}>
+              <LogOut className="h-4 w-4 md:mr-1.5" />
+              <span>Logout</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Chat */}
+        <div className="flex-1 min-h-0">
+          <ChatContainer
+            messages={transformedMessages}
+            streamingContent=""
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+            mode={mode}
+            showDisclaimer={messages.length === 0}
+          />
+        </div>
       </div>
     </div>
   );

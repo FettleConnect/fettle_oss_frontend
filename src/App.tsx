@@ -11,6 +11,7 @@ import { PatientView } from "@/components/patient/PatientView";
 import { DoctorDashboard } from "@/components/doctor/DoctorDashboard";
 import NotFound from "./pages/NotFound";
 import { BASE_URL } from "@/base_url";
+import { PayPalScriptProvider } from "@paypal/react-paypal-js";
 
 const queryClient = new QueryClient();
 
@@ -138,7 +139,7 @@ const DoctorRoute = () => {
       </div>
     );
   }
-  console.log("doctor-->",user)
+  
   if (user) {
     return <DoctorDashboard user={user} onLogout={handleLogout} />;
   }
@@ -147,21 +148,24 @@ const DoctorRoute = () => {
 };
 
 const App = () => {
+  const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID || "test";
+  
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<PatientRoute />} />
-            <Route path="/doctor-login" element={<DoctorRoute />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <PayPalScriptProvider options={{ "client-id": paypalClientId, currency: "INR" }}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<PatientRoute />} />
+              <Route path="/doctor-login" element={<DoctorRoute />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+          <Toaster />
+          <Sonner />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </PayPalScriptProvider>
   );
 };
 

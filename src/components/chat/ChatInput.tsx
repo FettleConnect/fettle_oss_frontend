@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, ImagePlus, X } from 'lucide-react';
@@ -15,6 +15,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
   const [message, setMessage] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-focus logic: focus when AI stops typing or mode changes
+  useEffect(() => {
+    if (!isLoading && !disabled && textareaRef.current) {
+      // Small timeout to ensure DOM has settled and animations finished
+      const timer = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, disabled, mode]);
 
   const showImageUpload = true; // Always allow image uploads
 
@@ -108,6 +120,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
         )}
         
         <Textarea
+          ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}

@@ -8,10 +8,12 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Send, FileText, User, RefreshCw, ImagePlus, X, Bot, Sparkles, LayoutPanelLeft } from 'lucide-react';
+import { Send, FileText, User, RefreshCw, ImagePlus, X, Bot, Sparkles, LayoutPanelLeft, ChevronRight, MessageCircle, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { setDraftResponse } from '@/store/dataStore';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 interface DoctorChatViewProps {
   conversation: Conversation;
@@ -27,14 +29,19 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   onRefresh,
 }) => {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [internalNotes, setInternalNotes] = useState(conversation.doctorNotes || '');
   const [patientMessage, setPatientMessage] = useState(conversation.draftResponse || '');
   const [isSending, setIsSending] = useState(false);
   const [images, setImages] = useState<string[]>([]);
-  const [showAI, setShowAI] = useState(false);
+  const [showAI, setShowAI] = useState(false); 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync draft response if it arrives later
+  // Set initial AI sidebar state based on device
+  useEffect(() => {
+    setShowAI(!isMobile);
+  }, [isMobile]);
+
   useEffect(() => {
     if (conversation.draftResponse && !patientMessage) {
       setPatientMessage(conversation.draftResponse);
@@ -49,15 +56,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         description: 'AI-generated draft has been loaded into the editor.',
       });
     }
-  };
-
-  const handleRefineWithAI = () => {
-    setShowAI(true);
-    // This will be picked up by AIReviewAssistant if it's listening to parent state or via context
-    toast({
-      title: 'Consulting AI',
-      description: 'Opening AI assistant to refine your response.',
-    });
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -83,14 +81,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSaveNotes = () => {
-    // Notes are local for now
-    toast({
-      title: 'Notes Saved',
-      description: 'Internal notes have been saved.',
-    });
-  };
-
   const handleSendToPatient = async () => {
     if (!patientMessage.trim()) {
       toast({
@@ -110,7 +100,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       formData.append('question', patientMessage);
       
       if (images.length > 0) {
-        // Convert each base64 data URL to Blob and append as file
         for (let i = 0; i < images.length; i++) {
           const dataUrl = images[i];
           const response_blob = await fetch(dataUrl);
@@ -151,68 +140,107 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // Doctor can respond if patient has paid or if a draft exists
   const canRespond = conversation.paymentStatus === 'paid' || !!conversation.draftResponse;
   const isCompleted = conversation.status === 'completed';
 
+  const handleArchive = async () => {
+    try {
+      const authToken = localStorage.getItem('DoctorToken');
+      const response = await fetch(`${BASE_URL}:8000/api/archive_consultation/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ user_id: conversation.patient_id }),
+      });
+
+      if (response.ok) {
+        toast({
+          title: 'Consultation Archived',
+          description: 'The patient will start a new session upon next login.',
+        });
+        onUpdate(); // Reload dashboard
+      }
+    } catch (error) {
+      console.error('Archive failed:', error);
+    }
+  };
+
+  const ConsultationSidebar = () => (
+    <div className="h-full flex flex-col bg-card">
+      <AIReviewAssistant 
+        onClose={() => setShowAI(false)} 
+        conversationId={String(conversation.id)}
+        contextData={JSON.stringify(conversation.intakeData || {})}
+        onApplyContent={(content) => {
+          setPatientMessage(prev => prev ? `${prev}\n\n${content}` : content);
+          toast({
+            title: 'Content Added',
+            description: 'AI suggestion has been appended to your response.',
+          });
+          if (isMobile) setShowAI(false);
+        }}
+      />
+    </div>
+  );
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950">
-      {/* Patient Info Header */}
-      <div className="border-b border-border bg-card px-6 py-4 shadow-sm z-10">
+    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
+      <div className="border-b border-border bg-card px-4 md:px-6 py-3 md:py-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-              <User className="h-6 w-6 text-primary" />
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+              <User className="h-5 w-5 md:h-6 md:w-6 text-primary" />
             </div>
-            <div>
-              <h3 className="font-bold text-lg leading-none mb-1">{conversation.patientName}</h3>
-              <p className="text-sm text-muted-foreground font-mono">{conversation.patientEmail}</p>
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm md:text-lg leading-none mb-1 truncate">{conversation.patientName}</h3>
+              <p className="text-[10px] md:text-sm text-muted-foreground font-mono truncate">{conversation.patientEmail}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onRefresh} className="text-muted-foreground hover:text-foreground">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Sync
+          <div className="flex items-center gap-2 md:gap-3">
+            <Button variant="outline" size="sm" onClick={handleArchive} className="h-8 md:h-9 border-green-200 text-green-700 hover:bg-green-50">
+              <Plus className="h-3.5 w-3.5 md:mr-2" />
+              <span className="hidden sm:inline">Complete Case</span>
+              <span className="sm:hidden text-[10px]">Complete</span>
             </Button>
-            <div className="h-6 w-px bg-border mx-1" />
-            <Badge variant={conversation.paymentStatus === 'paid' ? 'default' : 'secondary'} className="px-3 py-1">
-              {conversation.paymentStatus === 'paid' ? 'Paid Consultation' : 'Unpaid'}
-            </Badge>
-            <Badge variant={isCompleted ? 'secondary' : 'outline'} className="px-3 py-1">
-              {conversation.status}
+            <Button variant="ghost" size="sm" onClick={onRefresh} className="h-8 md:h-9 text-muted-foreground hover:text-foreground">
+              <RefreshCw className="h-3.5 w-3.5 md:mr-2" />
+              <span className="hidden sm:inline">Sync</span>
+            </Button>
+            <div className="h-6 w-px bg-border mx-1 hidden xs:block" />
+            <Badge variant={conversation.paymentStatus === 'paid' ? 'default' : 'secondary'} className="px-2 md:px-3 py-0.5 md:py-1 text-[10px] md:text-xs">
+              {conversation.paymentStatus === 'paid' ? (isMobile ? 'Paid' : 'Paid Consultation') : 'Unpaid'}
             </Badge>
           </div>
         </div>
       </div>
 
       <div className="flex-1 flex min-h-0">
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0 max-w-5xl mx-auto w-full">
-          <ScrollArea className="flex-1 px-6 py-6">
-            <div className="space-y-8 max-w-4xl mx-auto">
-              
-              {/* Intake Summary Section */}
+        <div className="flex-1 flex flex-col min-w-0 w-full relative">
+          <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
+            <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
               {conversation.intakeData && (
                 <section>
                    <IntakeSummaryCard intakeData={conversation.intakeData} />
                 </section>
               )}
-
-              {/* Chat History Section */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="h-px flex-1 bg-border" />
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest bg-slate-50 dark:bg-slate-950 px-3">
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest bg-slate-50 dark:bg-slate-950 px-2 md:px-3">
                     Conversation History
                   </span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 {messages.length > 0 ? (
-                  messages.map((message) => (
-                    <ChatMessage key={message.id} message={message} />
-                  ))
+                  <div className="space-y-4">
+                    {messages.map((message) => (
+                      <ChatMessage key={message.id} message={message} />
+                    ))}
+                  </div>
                 ) : (
-                  <div className="text-center text-muted-foreground py-8 italic">
+                  <div className="text-center text-muted-foreground py-8 italic text-sm">
                     No conversation history available.
                   </div>
                 )}
@@ -220,49 +248,48 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </ScrollArea>
 
-          {/* Doctor Response Area */}
           {canRespond && !isCompleted && (
-            <div className="border-t border-border bg-card p-6 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-20">
-              <div className="max-w-4xl mx-auto space-y-4">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-semibold flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    Doctor's Assessment & Response
+            <div className="border-t border-border bg-card p-4 md:p-6 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-20">
+              <div className="max-w-4xl mx-auto space-y-3 md:space-y-4">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs md:text-sm font-semibold flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary" />
+                    Assessment & Response
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5 md:gap-2">
                     {conversation.draftResponse && patientMessage !== conversation.draftResponse && (
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={handleApplyDraft}
-                        className="gap-2 text-primary border-primary/20 hover:bg-primary/5"
+                        className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-primary border-primary/20"
                       >
-                        <Bot className="h-4 w-4" />
-                        Apply AI Draft
+                        <Bot className="h-3.5 w-3.5" />
+                        <span className="hidden xs:inline">Apply AI Draft</span>
+                        <span className="xs:hidden font-bold">AI Draft</span>
                       </Button>
                     )}
                     <Button 
                       variant={showAI ? "default" : "secondary"} 
                       size="sm" 
                       onClick={() => setShowAI(!showAI)}
-                      className="gap-2"
+                      className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
                     >
-                      <Sparkles className="h-4 w-4" />
-                      {showAI ? 'Hide AI Tools' : 'Refine with AI'}
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {showAI ? (isMobile ? 'Close' : 'Hide AI Tools') : (isMobile ? 'AI Tools' : 'Refine with AI')}
                     </Button>
                   </div>
                 </div>
                 
-                {/* Image Preview */}
                 {images.length > 0 && (
-                  <div className="flex gap-3 mb-3 flex-wrap bg-muted/30 p-3 rounded-lg border border-dashed">
+                  <div className="flex gap-2 mb-2 flex-wrap bg-muted/30 p-2 rounded-lg border border-dashed">
                     {images.map((img, index) => (
                       <div key={index} className="relative group">
-                        <img src={img} alt={`Upload ${index + 1}`} className="h-20 w-20 object-cover rounded-md border border-border shadow-sm" />
+                        <img src={img} alt={`Upload ${index + 1}`} className="h-14 w-14 md:h-20 md:w-20 object-cover rounded-md border border-border shadow-sm" />
                         <button
                           type="button"
                           onClick={() => removeImage(index)}
-                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 shadow-md"
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -274,11 +301,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 <Textarea
                   value={patientMessage}
                   onChange={(e) => setPatientMessage(e.target.value)}
-                  placeholder="Write your professional assessment here. You can use the AI-generated draft as a starting point..."
-                  className="min-h-[150px] text-base leading-relaxed p-4 resize-y shadow-sm focus-visible:ring-primary"
+                  placeholder="Write your professional assessment here..."
+                  className="min-h-[100px] md:min-h-[150px] text-xs md:text-base leading-relaxed p-3 md:p-4 resize-y shadow-sm"
                 />
                 
-                <div className="flex justify-between items-center pt-2">
+                <div className="flex justify-between items-center gap-2">
                    <div className="flex gap-2">
                       <input
                         ref={fileInputRef}
@@ -291,19 +318,22 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       <Button
                         type="button"
                         variant="outline"
+                        size="sm"
                         onClick={() => fileInputRef.current?.click()}
+                        className="h-8 md:h-10 text-[10px] md:text-sm px-2 md:px-4"
                       >
-                        <ImagePlus className="h-4 w-4 mr-2" />
-                        Attach Images
+                        <ImagePlus className="h-3.5 w-3.5 md:h-4 md:w-4 md:mr-2" />
+                        <span className="hidden sm:inline">Attach Images</span>
+                        <span className="sm:hidden">Images</span>
                       </Button>
                    </div>
                    <Button 
                     onClick={handleSendToPatient} 
                     disabled={isSending || !patientMessage.trim()}
                     size="lg"
-                    className="px-8 shadow-md hover:shadow-lg transition-all"
+                    className="h-8 md:h-12 px-4 md:px-8 text-xs md:text-base shadow-md font-bold"
                   >
-                    <Send className="h-4 w-4 mr-2" />
+                    <Send className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
                     Send Response
                   </Button>
                 </div>
@@ -312,29 +342,20 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           )}
         </div>
 
-        {/* Right Sidebar (Notes & AI) */}
-        <div className={`w-96 border-l border-border bg-card flex flex-col transition-all duration-300 ${showAI ? 'translate-x-0' : 'translate-x-full hidden'}`}>
-          {showAI ? (
-            <AIReviewAssistant 
-              onClose={() => setShowAI(false)} 
-              conversationId={String(conversation.id)}
-              contextData={JSON.stringify(conversation.intakeData || {})}
-              onApplyContent={(content) => {
-                setPatientMessage(prev => prev ? `${prev}\n\n${content}` : content);
-                toast({
-                  title: 'Content Added',
-                  description: 'AI suggestion has been appended to your response.',
-                });
-              }}
-            />
-          ) : (
-             <div className="p-4">
-                {/* Fallback for when AI is hidden but sidebar space is reserved - though we're hiding it with css above */}
-             </div>
-          )}
-        </div>
+        {!isMobile && showAI && (
+          <div className="w-96 border-l border-border bg-card flex flex-col">
+            <ConsultationSidebar />
+          </div>
+        )}
+
+        {isMobile && (
+          <Sheet open={showAI} onOpenChange={setShowAI}>
+            <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
+              <ConsultationSidebar />
+            </SheetContent>
+          </Sheet>
+        )}
       </div>
     </div>
   );
 };
-

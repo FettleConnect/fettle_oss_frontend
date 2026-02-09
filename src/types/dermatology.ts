@@ -23,6 +23,7 @@ export interface Message {
 // Conversation interface
 export interface Conversation {
   id: string;
+  patient_id?: string; // Add patient_id to link back to UserModel
   patientEmail: string;
   patientName: string;
   mode: ConversationMode;
@@ -70,7 +71,7 @@ export const DOCTOR_CREDENTIALS = {
 };
 
 // Consultation price
-export const CONSULTATION_PRICE = 49;
+export const CONSULTATION_PRICE = 499;
 
 // Initial disclaimer
 export const DISCLAIMER = `⚠️ IMPORTANT DISCLAIMER

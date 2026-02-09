@@ -2,6 +2,7 @@ import React from 'react';
 import { Message } from '@/types/dermatology';
 import { cn } from '@/lib/utils';
 import { Bot, User, Stethoscope } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface ChatMessageProps {
   message: Message;
@@ -61,10 +62,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         {getRoleIcon()}
         <span>{getRoleLabel()}</span>
       </div>
-      <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
-        <p className="whitespace-pre-wrap">{message.content}</p>
+      <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
+        <ReactMarkdown 
+          components={{
+            p: ({node, ...props}) => <p className="whitespace-pre-wrap mb-0 last:mb-0" {...props} />
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
         {isStreaming && (
-          <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5" />
+          <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />
         )}
       </div>
       <span className="text-xs text-muted-foreground">

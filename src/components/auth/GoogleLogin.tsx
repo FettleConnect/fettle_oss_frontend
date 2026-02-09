@@ -1,7 +1,14 @@
-import { GoogleLogin } from "@react-oauth/google";
-import axios from "axios";
-import { useState } from "react";
-import { BASE_URL } from "@/base_url";
+import React, { useState, useEffect } from 'react';
+import { GoogleLogin } from '@react-oauth/google';
+import axios from 'axios';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { BASE_URL } from '@/base_url';
+import { useToast } from '@/hooks/use-toast';
+import { Mail, Loader2, Chrome, Stethoscope } from 'lucide-react';
+import { supabase } from "@/integrations/supabase/client";
 
 const API_BASE = BASE_URL + ":8000";
 
@@ -15,76 +22,199 @@ interface GoogleLoginPageProps {
   onLogin: (user: User) => void;
 }
 
-export default function GoogleLoginPage({ onLogin }: GoogleLoginPageProps) {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
+  const { toast } = useToast();
+  const [email, setEmail] = useState('');
+  const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const onSuccess = async (credentialResponse: any) => {
-    setIsLoading(true);
-    setError(null);
+  // Listen for Supabase Auth State Change (Handling Magic Link Click)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const userEmail = session.user.email;
+        const userName = session.user.user_metadata?.full_name || userEmail?.split('@')[0] || 'User';
+        
+        try {
+          // Sync with your custom backend
+          const response = await axios.post(`${API_BASE}/auth/google/`, {
+            token: session.access_token, 
+            is_magic_link: true,
+            email: userEmail,
+            name: userName
+          });
+
+          const data = response.data;
+          localStorage.setItem('authToken', data.token);
+          onLogin({ role: 'patient', name: userName, email: userEmail });
+          
+          toast({
+            title: "Welcome!",
+            description: "Successfully authenticated via Magic Link.",
+          });
+        } catch (error) {
+          console.error("Backend sync failed:", error);
+          toast({
+            title: "Authentication Error",
+            description: "Failed to sync with the server.",
+            variant: "destructive"
+          });
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [onLogin, toast]);
+
+  const handleMagicLinkLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+
+    setIsMagicLinkLoading(true);
     try {
-      const res = await axios.post(`${API_BASE}/auth/google/`, {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Magic Link Sent",
+        description: "Check your email inbox for the login link.",
+      });
+    } catch (error: any) {
+      console.error("Magic link failed:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send magic link.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsMagicLinkLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse: any) => {
+    setIsGoogleLoading(true);
+    try {
+      const response = await axios.post(`${API_BASE}/auth/google/`, {
         token: credentialResponse.credential,
       });
 
-      // Store the token as authToken for validation on refresh
-      localStorage.setItem("authToken", res.data.token);
+      const data = response.data;
+      localStorage.setItem('authToken', data.token);
       
-      // Call onLogin with user data
-      const role = res.data.user.role === 'Admin' ? 'doctor' : 'patient';
-      onLogin({ 
-        role, 
-        name: res.data.user.name, 
-        email: res.data.user.email 
+      const role = data.user.role === 'Admin' ? 'doctor' : 'patient';
+      onLogin({ role, name: data.user.name, email: data.user.email });
+      
+      toast({
+        title: "Login Successful",
+        description: `Welcome back, ${data.user.name}!`,
       });
-    } catch (err) {
-      setError("Login failed. Please try again.");
-      console.error("Google login error:", err);
+    } catch (error) {
+      console.error('Login failed:', error);
+      toast({
+        title: "Login Failed",
+        description: "An error occurred during authentication.",
+        variant: "destructive",
+      });
     } finally {
-      setIsLoading(false);
+      setIsGoogleLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full mx-4">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
+      <Card className="w-full max-w-md shadow-2xl border-none rounded-2xl overflow-hidden">
+        <div className="bg-primary p-6 text-primary-foreground text-center space-y-2">
+          <div className="mx-auto w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
+            <Stethoscope className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">Clear Skin AI</h1>
-          <p className="text-gray-600">Sign in to access your skin health dashboard</p>
+          <CardTitle className="text-3xl font-extrabold tracking-tight">Fettle OSS</CardTitle>
+          <CardDescription className="text-blue-100/80 font-medium">
+            AI-Powered Dermatology Assistant
+          </CardDescription>
         </div>
+        
+        <CardContent className="p-8 space-y-8 bg-white">
+          {/* Magic Link Section */}
+          <form onSubmit={handleMagicLinkLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-gray-700 font-semibold">Email Address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="pl-10 h-11 border-gray-200 focus:ring-primary focus:border-primary"
+                />
+              </div>
+            </div>
+            <Button 
+              type="submit" 
+              className="w-full h-11 text-base font-bold shadow-lg hover:shadow-xl transition-all" 
+              disabled={isMagicLinkLoading || isGoogleLoading}
+            >
+              {isMagicLinkLoading ? (
+                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+              ) : (
+                <Mail className="h-5 w-5 mr-2" />
+              )}
+              Send Magic Link
+            </Button>
+          </form>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm text-center">
-            {error}
+          <div className="relative py-2">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-gray-100" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase tracking-widest">
+              <span className="bg-white px-4 text-gray-400 font-bold">Or</span>
+            </div>
           </div>
-        )}
 
-        {isLoading ? (
-          <div className="flex flex-col items-center py-4">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mb-2" />
-            <p className="text-gray-600">Signing you in...</p>
+          <div className="flex justify-center flex-col space-y-4">
+            {isGoogleLoading ? (
+              <div className="flex flex-col items-center py-2">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="w-full flex justify-center">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => {
+                    toast({
+                      title: "Google Login Failed",
+                      description: "Could not authenticate with Google.",
+                      variant: "destructive",
+                    });
+                  }}
+                  useOneTap
+                  theme="filled_blue"
+                  shape="rectangular"
+                  size="large"
+                  width="100%"
+                />
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="flex justify-center">
-            <GoogleLogin 
-              onSuccess={onSuccess} 
-              onError={() => setError("Google sign-in failed. Please try again.")}
-              theme="outline"
-              size="large"
-              width="300"
-            />
-          </div>
-        )}
 
-        <p className="text-xs text-gray-500 text-center mt-6">
-          By signing in, you agree to our Terms of Service and Privacy Policy
-        </p>
-      </div>
+          <div className="text-center space-y-4">
+            <p className="text-[10px] text-gray-400 leading-relaxed max-w-[280px] mx-auto">
+              By signing in, you agree to our <a href="#" className="underline hover:text-primary">Terms of Service</a> and <a href="#" className="underline hover:text-primary">Privacy Policy</a>.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
-}
+};
+
+export default GoogleLoginPage;
