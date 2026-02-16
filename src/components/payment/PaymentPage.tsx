@@ -194,8 +194,8 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
         <CardContent className="space-y-6">
           {/* Price */}
           <div className="text-center">
-            <span className="text-4xl font-bold text-foreground">₹{CONSULTATION_PRICE}</span>
-            <span className="text-muted-foreground ml-1">one-time</span>
+            <span className="text-4xl font-bold text-foreground">$6</span>
+            <span className="text-muted-foreground ml-2 text-sm">(₹499 approx)</span>
           </div>
 
           {/* Features */}
@@ -221,7 +221,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
           {/* Security badge */}
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg py-2">
             <Shield className="h-3.5 w-3.5" />
-            <span>Secure payment processing via PayPal (INR)</span>
+            <span>Secure payment processing via PayPal (USD)</span>
           </div>
 
           {/* Payment buttons */}
@@ -232,7 +232,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
               size="lg"
             >
               <CreditCard className="h-4 w-4 mr-2" />
-              Pay ₹{CONSULTATION_PRICE}
+              Pay $6 (₹499)
             </Button>
             
             <Button 

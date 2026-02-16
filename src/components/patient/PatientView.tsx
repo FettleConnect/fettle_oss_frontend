@@ -445,19 +445,19 @@ DONE`);
         <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
           <div className="flex items-center gap-2 md:gap-3">
             {!showHistory && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
                 onClick={() => setShowHistory(true)}
               >
                 <Clock className="h-4 w-4" />
               </Button>
             )}
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-8 w-8" 
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
               onClick={() => {
                 fetchChatHistory();
                 fetchConsultationHistory();
@@ -478,7 +478,7 @@ DONE`);
               <Button variant="default" size="sm" onClick={() => setMode('payment_page')} className="h-8 text-[10px] md:text-xs px-2 md:px-3">
                 <CreditCard className="h-3.5 w-3.5 md:mr-1.5" />
                 <span className="hidden xs:inline">Pay for Consultation</span>
-                <span className="xs:hidden text-[10px]">Pay</span>
+                <span className="xs:hidden text-[10px]">Pay for Consultation</span>
               </Button>
             )}
             {hasDoctorResponded && (

@@ -151,7 +151,7 @@ const App = () => {
   const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID || "test";
   
   return (
-    <PayPalScriptProvider options={{ "client-id": paypalClientId, currency: "INR" }}>
+    <PayPalScriptProvider options={{ "client-id": paypalClientId, currency: "USD" }}>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BrowserRouter>
