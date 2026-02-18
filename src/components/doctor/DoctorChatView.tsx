@@ -108,7 +108,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         }
       }
       
-      const response = await fetch(`${BASE_URL}:8000/api/doctor_send_response/`, {
+      const response = await fetch(`${BASE_URL}/api/doctor_send_response/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -146,7 +146,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const handleArchive = async () => {
     try {
       const authToken = localStorage.getItem('DoctorToken');
-      const response = await fetch(`${BASE_URL}:8000/api/archive_consultation/`, {
+      const response = await fetch(`${BASE_URL}/api/archive_consultation/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

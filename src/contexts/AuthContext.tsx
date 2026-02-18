@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const validateTokenAndSetUser = async (token: string) => {
     try {
-      const response = await axios.get(`${BASE_URL}:8000/api/validate_token/`, {
+      const response = await axios.get(`${BASE_URL}/api/validate_token/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

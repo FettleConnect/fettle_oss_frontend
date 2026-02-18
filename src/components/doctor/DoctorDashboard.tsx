@@ -55,7 +55,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
   const loadConversations = useCallback(async () => {
     try {
       const authToken = localStorage.getItem('DoctorToken');
-      const response = await fetch(`${BASE_URL}:8000/api/doctor_tabs/`, {
+      const response = await fetch(`${BASE_URL}/api/doctor_tabs/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -105,7 +105,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
   const loadConversationMessages = useCallback(async (id: string) => {
     try {
       const authToken = localStorage.getItem('DoctorToken');
-      const response = await fetch(`${BASE_URL}:8000/api/doctor_conversation/`, {
+      const response = await fetch(`${BASE_URL}/api/doctor_conversation/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
         body: JSON.stringify({ id }),

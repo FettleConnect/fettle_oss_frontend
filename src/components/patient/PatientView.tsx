@@ -68,7 +68,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const fetchConsultationHistory = useCallback(async () => {
     try {
       const authToken = localStorage.getItem('authToken');
-      const response = await fetch(`${BASE_URL}:8000/api/consultation_list/`, {
+      const response = await fetch(`${BASE_URL}/api/consultation_list/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -88,7 +88,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
-      const url = new URL(`${BASE_URL}:8000/api/chat_history/`);
+      const url = new URL(`${BASE_URL}/api/chat_history/`);
       if (threadId) url.searchParams.append('thread_id', threadId);
 
       const response = await fetch(url.toString(), {
@@ -131,7 +131,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
-      const response = await fetch(`${BASE_URL}:8000/api/archive_consultation/`, {
+      const response = await fetch(`${BASE_URL}/api/archive_consultation/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -196,7 +196,7 @@ Images: ${intakeData.images.length} attached.
 DONE`);
           formData.append('thread_id', activeThreadId || '');
 
-          await fetch(`${BASE_URL}:8000/api/chat_view/`, {
+          await fetch(`${BASE_URL}/api/chat_view/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${authToken}` },
             body: formData,
@@ -249,7 +249,7 @@ DONE`);
         }
       }
 
-      const response = await fetch(`${BASE_URL}:8000/api/chat_view/`, {
+      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -326,7 +326,7 @@ DONE`);
       formData.append('question', 'PAYMENT_CONFIRMED');
       formData.append('thread_id', activeThreadId || '');
 
-      const response = await fetch(`${BASE_URL}:8000/api/chat_view/`, {
+      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,

@@ -23,7 +23,7 @@ export const DoctorLogin: React.FC = () => {
     setIsLoading(true);
     
     try {
-      const response = await axios.post(`${BASE_URL}:8000/api/login/`, {
+      const response = await axios.post(`${BASE_URL}/api/login/`, {
         email,
         password,
       });

@@ -31,7 +31,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
   const createOrder = async () => {
     try {
       const authToken = localStorage.getItem('authToken');
-      const response = await axios.post(`${BASE_URL}:8000/api/create-payment-intent/`, {
+      const response = await axios.post(`${BASE_URL}/api/create-payment-intent/`, {
         amount: CONSULTATION_PRICE,
       }, {
         headers: {
@@ -50,7 +50,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
     setLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
-      const response = await axios.post(`${BASE_URL}:8000/api/capture_payment/`, {
+      const response = await axios.post(`${BASE_URL}/api/capture_payment/`, {
         orderID: data.orderID,
       }, {
         headers: {

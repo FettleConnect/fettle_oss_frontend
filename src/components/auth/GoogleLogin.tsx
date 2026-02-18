@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Mail, Loader2, Chrome, Stethoscope } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 
-const API_BASE = BASE_URL + ":8000";
+const API_BASE = BASE_URL;
 
 interface User {
   role: 'doctor' | 'patient';
@@ -27,44 +27,6 @@ const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
-  // Listen for Supabase Auth State Change (Handling Magic Link Click)
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        const userEmail = session.user.email;
-        const userName = session.user.user_metadata?.full_name || userEmail?.split('@')[0] || 'User';
-        
-        try {
-          // Sync with your custom backend
-          const response = await axios.post(`${API_BASE}/auth/google/`, {
-            token: session.access_token, 
-            is_magic_link: true,
-            email: userEmail,
-            name: userName
-          });
-
-          const data = response.data;
-          localStorage.setItem('authToken', data.token);
-          onLogin({ role: 'patient', name: userName, email: userEmail });
-          
-          toast({
-            title: "Welcome!",
-            description: "Successfully authenticated via Magic Link.",
-          });
-        } catch (error) {
-          console.error("Backend sync failed:", error);
-          toast({
-            title: "Authentication Error",
-            description: "Failed to sync with the server.",
-            variant: "destructive"
-          });
-        }
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [onLogin, toast]);
 
   const handleMagicLinkLogin = async (e: React.FormEvent) => {
     e.preventDefault();

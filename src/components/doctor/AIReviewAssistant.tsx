@@ -40,7 +40,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       formData.append('id', conversationId);
       formData.append('question', userMsg);
 
-      const response = await fetch(`${BASE_URL}:8000/api/doctor_chat_view/`, {
+      const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,

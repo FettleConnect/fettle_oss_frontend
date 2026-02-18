@@ -12,6 +12,8 @@ import { DoctorDashboard } from "@/components/doctor/DoctorDashboard";
 import NotFound from "./pages/NotFound";
 import { BASE_URL } from "@/base_url";
 import { PayPalScriptProvider } from "@paypal/react-paypal-js";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const queryClient = new QueryClient();
 
@@ -25,10 +27,11 @@ interface User {
 const PatientRoute = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
   const validatePatientToken = async (token: string) => {
     try {
-      const response = await axios.get(`${BASE_URL}:8000/api/validate_token/`, {
+      const response = await axios.get(`${BASE_URL}/api/validate_token/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -62,6 +65,44 @@ const PatientRoute = () => {
     }
   }, []);
 
+  // Listen for Supabase Auth State Change (Handling Magic Link Click)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const userEmail = session.user.email;
+        const userName = session.user.user_metadata?.full_name || userEmail?.split('@')[0] || 'User';
+        
+        try {
+          // Sync with your custom backend
+          const response = await axios.post(`${BASE_URL}/auth/google/`, {
+            token: session.access_token, 
+            is_magic_link: true,
+            email: userEmail,
+            name: userName
+          });
+
+          const data = response.data;
+          localStorage.setItem('authToken', data.token);
+          setUser({ role: 'patient', name: userName, email: userEmail });
+          
+          toast({
+            title: "Welcome!",
+            description: "Successfully authenticated via Magic Link.",
+          });
+        } catch (error) {
+          console.error("Backend sync failed:", error);
+          toast({
+            title: "Authentication Error",
+            description: "Failed to sync with the server.",
+            variant: "destructive"
+          });
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [toast]);
+
   const handleLogin = (userData: User) => {
     setUser(userData);
   };
@@ -93,7 +134,7 @@ const DoctorRoute = () => {
 
   const validateDoctorToken = async (token: string) => {
     try {
-      const response = await axios.get(`${BASE_URL}:8000/api/validate_token/`, {
+      const response = await axios.get(`${BASE_URL}/api/validate_token/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
