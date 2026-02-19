@@ -70,10 +70,13 @@ const PatientRoute = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         const userEmail = session.user.email;
-        const userName = session.user.user_metadata?.full_name || userEmail?.split('@')[0] || 'User';
+        const userName = session.user.user_metadata?.full_name || 
+                        session.user.user_metadata?.name || 
+                        userEmail?.split('@')[0] || 'User';
         
         try {
           // Sync with your custom backend
+          // We use the auth/google/ endpoint as it handles user creation/lookup
           const response = await axios.post(`${BASE_URL}/auth/google/`, {
             token: session.access_token, 
             is_magic_link: true,
@@ -87,15 +90,18 @@ const PatientRoute = () => {
           
           toast({
             title: "Welcome!",
-            description: "Successfully authenticated via Magic Link.",
+            description: `Successfully authenticated as ${userName}.`,
           });
         } catch (error) {
           console.error("Backend sync failed:", error);
           toast({
             title: "Authentication Error",
-            description: "Failed to sync with the server.",
+            description: "Failed to sync with the server. Please try logging in again.",
             variant: "destructive"
           });
+          // Clear local state if sync fails
+          localStorage.removeItem('authToken');
+          setUser(null);
         }
       }
     });
