@@ -162,7 +162,7 @@ const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
                   theme="filled_blue"
                   shape="rectangular"
                   size="large"
-                  width="100%"
+                  width="350"
                 />
               </div>
             )}
