@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ConversationList } from './ConversationList';
 import { DoctorChatView } from './DoctorChatView';
+import { SystemPromptEditor } from './SystemPromptEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LogOut, Stethoscope, RefreshCw, Menu, X, Users } from 'lucide-react';
+import { LogOut, Stethoscope, RefreshCw, Menu, X, Users, Settings } from 'lucide-react';
 import { Conversation, Message } from '@/types/dermatology';
 import { BASE_URL } from '@/base_url';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +50,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<Message[]>([]);
   const [filter, setFilter] = useState<'all' | 'paid' | 'unpaid' | 'active' | 'completed'>('all');
+  const [activeView, setActiveView] = useState<'patients' | 'settings'>('patients');
   const [refreshKey, setRefreshKey] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -213,6 +215,17 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
           </div>
         </div>
         <div className="flex gap-2">
+          {activeView === 'patients' ? (
+            <Button variant="outline" size="sm" onClick={() => setActiveView('settings')} className="h-8 md:h-9">
+              <Settings className="h-3.5 w-3.5 mr-1.5" />
+              <span>Settings</span>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setActiveView('patients')} className="h-8 md:h-9">
+              <Users className="h-3.5 w-3.5 mr-1.5" />
+              <span>Patients</span>
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={loadConversations} className="h-8 md:h-9">
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             <span className="hidden xs:inline">Sync</span>
@@ -243,7 +256,9 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
 
         {/* Main content */}
         <div className="flex-1 min-w-0">
-          {selectedConversation ? (
+          {activeView === 'settings' ? (
+            <SystemPromptEditor />
+          ) : selectedConversation ? (
             <DoctorChatView
               conversation={selectedConversation}
               messages={selectedMessages}
