@@ -65,11 +65,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
         <ReactMarkdown 
           components={{
-            p: ({node, ...props}) => <p className="whitespace-pre-wrap mb-0 last:mb-0" {...props} />
+            p: ({node, ...props}) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
           }}
         >
           {message.content}
         </ReactMarkdown>
+
+        {message.images && message.images.length > 0 && (
+          <div className={cn("grid gap-2 mt-3", message.images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+            {message.images.map((url, idx) => (
+              <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg border border-black/5 hover:opacity-90 transition-opacity">
+                <img src={url} alt="Attached clinical image" className="w-full h-auto object-cover max-h-64" />
+              </a>
+            ))}
+          </div>
+        )}
+
         {isStreaming && (
           <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />
         )}

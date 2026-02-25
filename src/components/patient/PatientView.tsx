@@ -363,6 +363,7 @@ DONE`);
       id: msg.id,
       role,
       content: msg.content,
+      images: (msg as any).images,
       conversationId: activeThreadId || '',
       timestamp: new Date(),
       isVisible: true,

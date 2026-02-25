@@ -128,6 +128,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
             conversationId: id,
             role,
             content: msg.content,
+            images: msg.images,
             timestamp: new Date(),
             isVisible: true,
             senderName,

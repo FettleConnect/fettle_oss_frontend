@@ -1,5 +1,5 @@
 // Conversation modes (state machine)
-export type ConversationMode = 
+export type ConversationMode =
   | 'general_education'
   | 'payment_page'
   | 'post_payment_intake'
@@ -15,6 +15,7 @@ export interface Message {
   conversationId: string;
   role: MessageRole;
   content: string;
+  images?: string[]; // S3 URLs
   timestamp: Date;
   isVisible: boolean; // For doctor internal notes
   senderName?: string; // Original sender name/email from API
@@ -83,8 +84,6 @@ This assistant CANNOT and WILL NOT:
 • Prescribe medications or treatments
 • Provide personalized medical advice
 
-For professional medical evaluation and diagnosis, please consider our paid consultation service ($${CONSULTATION_PRICE}) where a board-certified dermatologist will review your case.
-
-Type "YES" at any time to proceed with a paid consultation.
+For professional medical evaluation and diagnosis, please consider our paid consultation service ($${CONSULTATION_PRICE}) where Dr. Attili will review your case.
 
 By continuing, you acknowledge that you understand these limitations.`;
