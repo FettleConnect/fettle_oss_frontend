@@ -194,8 +194,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
         <CardContent className="space-y-6">
           {/* Price */}
           <div className="text-center">
-            <span className="text-4xl font-bold text-foreground">$6</span>
-            <span className="text-muted-foreground ml-2 text-sm">($49)</span>
+            <span className="text-4xl font-bold text-foreground">$49</span>
           </div>
 
           {/* Features */}
