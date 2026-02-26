@@ -72,7 +72,7 @@ export const DOCTOR_CREDENTIALS = {
 };
 
 // Consultation price
-export const CONSULTATION_PRICE = 499;
+export const CONSULTATION_PRICE = 49;
 
 // Initial disclaimer
 export const DISCLAIMER = `⚠️ IMPORTANT DISCLAIMER

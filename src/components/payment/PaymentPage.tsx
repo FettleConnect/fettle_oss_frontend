@@ -195,7 +195,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
           {/* Price */}
           <div className="text-center">
             <span className="text-4xl font-bold text-foreground">$6</span>
-            <span className="text-muted-foreground ml-2 text-sm">(₹499 approx)</span>
+            <span className="text-muted-foreground ml-2 text-sm">($49)</span>
           </div>
 
           {/* Features */}
@@ -232,7 +232,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({ onPaymentSuccess, onCa
               size="lg"
             >
               <CreditCard className="h-4 w-4 mr-2" />
-              Pay $6 (₹499)
+              Pay $49
             </Button>
             
             <Button 

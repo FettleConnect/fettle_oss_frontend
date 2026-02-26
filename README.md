@@ -11,7 +11,7 @@ Fettle is an AI-powered teledermatology platform designed to bridge the gap betw
   - Absolute recency sorting (Activity-based ordering).
   - AI-led peer review assistant for drafting responses.
 - **Flexible Authentication**: Support for both **Google OAuth** and **Supabase Magic Link** (passwordless email login).
-- **Secure Payments**: Integrated **PayPal SDK** localized for **INR** (₹499) with server-side integrity verification.
+- **Secure Payments**: Integrated **PayPal SDK** for **USD** ($49) with server-side integrity verification.
 - **Mobile First**: Fully responsive design utilizing slide-out drawers for history and patient management on smaller viewports.
 - **Markdown Support**: Rich rendering of clinical assessments and diagnostic plans.
 

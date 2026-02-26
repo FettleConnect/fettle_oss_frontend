@@ -17,7 +17,7 @@ This project is the frontend for "Fettle OSS", an AI-powered dermatology educati
 *   **Authentication:**
     *   **Patient:** Dual-Mode (Google OAuth + Supabase Magic Link Email Login).
     *   **Doctor:** Custom Credentials + Backend Token Validation (`DoctorToken`).
-*   **Payments:** PayPal JS SDK (`@paypal/react-paypal-js`) configured for **INR** (₹499).
+*   **Payments:** PayPal JS SDK (`@paypal/react-paypal-js`) configured for **USD** ($49).
 *   **Content Rendering:** `react-markdown` for bold and structured clinical responses.
 
 ## Key Scripts
@@ -37,7 +37,7 @@ This project is the frontend for "Fettle OSS", an AI-powered dermatology educati
 ### Domain Logic
 The application follows a state-managed consultation lifecycle:
 1.  `general_education`: AI educational chat.
-2.  `payment_page`: User prompted to pay ₹499 via PayPal.
+2.  `payment_page`: User prompted to pay $49 via PayPal.
 3.  `post_payment_intake`: 6-step guided clinical intake.
 4.  `dermatologist_review`: Doctor reviewing case with AI-generated clinical drafts.
 5.  `final_output`: Final diagnostic/advice delivered.
