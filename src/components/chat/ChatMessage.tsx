@@ -17,6 +17,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const getRoleLabel = () => {
     if (message.senderName) return message.senderName;
+    
     if (isPatient) return 'You';
     if (isDoctor) return 'Doctor';
     if (isSystem) return 'System Notification';
@@ -61,14 +62,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         <span>{getRoleLabel()}</span>
       </div>
       <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
-        {/* ✅ ReactMarkdown with only bold formatting */}
         <ReactMarkdown 
           components={{
-            p: ({node, ...props}) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />,
-            strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
-            h1: ({node, ...props}) => <h1 className="text-lg font-bold my-2" {...props} />,
-            h2: ({node, ...props}) => <h2 className="text-base font-bold my-2" {...props} />,
-            h3: ({node, ...props}) => <h3 className="text-sm font-bold my-1" {...props} />,
+            p: ({node, ...props}) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
           }}
         >
           {message.content}
