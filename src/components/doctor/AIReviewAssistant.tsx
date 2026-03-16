@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Send, X, Copy, Check, Loader2 } from 'lucide-react';
+import { Bot, Send, X, Copy, Check } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
+import ReactMarkdown from 'react-markdown';
 
 interface AIReviewAssistantProps {
   onClose: () => void;
@@ -13,11 +14,11 @@ interface AIReviewAssistantProps {
   onApplyContent?: (content: string) => void;
 }
 
-export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({ 
-  onClose, 
+export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
+  onClose,
   contextData,
   conversationId,
-  onApplyContent 
+  onApplyContent
 }) => {
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
     { role: 'ai', content: "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?" }
@@ -28,30 +29,21 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-
     const userMsg = input;
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
-
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
       formData.append('question', userMsg);
-
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        },
+        headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to get AI response');
-      }
-
+      if (!response.ok) throw new Error('Failed to get AI response');
       const data = await response.json();
       setMessages(prev => [...prev, { role: 'ai', content: data.result }]);
     } catch (error) {
@@ -81,37 +73,37 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
           <X className="h-4 w-4" />
         </Button>
       </CardHeader>
+
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => (
               <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div 
-                  className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                    m.role === 'user' 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'bg-muted text-foreground'
-                  }`}
-                >
-                  <div className="whitespace-pre-wrap">{m.content}</div>
+                <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+
+                  {/* FIX (Issue 3): AI messages now render markdown instead of plain text */}
+                  {m.role === 'ai' ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none
+                      [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
+                      [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
+                      [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
+                      [&_p]:mb-2 [&_p:last-child]:mb-0
+                      [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
+                      [&_ol]:pl-4 [&_ol]:mb-2
+                      [&_strong]:font-semibold">
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{m.content}</div>
+                  )}
+
                   {m.role === 'ai' && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="h-7 px-2 text-[10px] gap-1 hover:bg-background/50"
-                        onClick={() => handleApply(m.content, i)}
-                      >
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 hover:bg-background/50" onClick={() => handleApply(m.content, i)}>
                         {copiedIndex === i ? (
-                          <>
-                            <Check className="h-3 w-3" />
-                            Applied
-                          </>
+                          <><Check className="h-3 w-3" />Applied</>
                         ) : (
-                          <>
-                            <Copy className="h-3 w-3" />
-                            Apply to Editor
-                          </>
+                          <><Copy className="h-3 w-3" />Apply to Editor</>
                         )}
                       </Button>
                     </div>
@@ -130,17 +122,10 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             )}
           </div>
         </ScrollArea>
+
         <div className="p-3 border-t bg-background">
-          <form 
-            onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-            className="flex gap-2"
-          >
-            <Input 
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Ask for diagnosis, plan..."
-              className="flex-1 h-9 text-xs"
-            />
+          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+            <Input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask for diagnosis, plan..." className="flex-1 h-9 text-xs" />
             <Button type="submit" size="icon" className="h-9 w-9" disabled={isLoading || !input.trim()}>
               <Send className="h-4 w-4" />
             </Button>

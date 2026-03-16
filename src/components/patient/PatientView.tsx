@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { PaymentPage } from '@/components/payment/PaymentPage';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, CreditCard, History, Plus, ChevronLeft, ChevronRight, MessageSquare, Clock } from 'lucide-react';
+import { LogOut, RefreshCw, CreditCard, Plus, ChevronLeft, MessageSquare, Clock } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
@@ -24,7 +24,7 @@ interface PatientViewProps {
 
 interface ChatMessage {
   id: string;
-  role: string; // Can be 'user', 'AI', 'doctor', or email
+  role: string;
   content: string;
 }
 
@@ -46,7 +46,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
-
   const [intakeData, setIntakeData] = useState({
     duration: '',
     symptoms: '',
@@ -90,7 +89,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const authToken = localStorage.getItem('authToken');
       const url = new URL(`${BASE_URL}/api/chat_history/`);
       if (threadId) url.searchParams.append('thread_id', threadId);
-
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: {
@@ -98,29 +96,22 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           'Authorization': `Bearer ${authToken}`,
         },
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch chat history');
-      }
-
+      if (!response.ok) throw new Error('Failed to fetch chat history');
       const data = await response.json();
-      if (data.conv && Array.isArray(data.conv)) {
-        setMessages(data.conv);
+      if (data.error) {
+        console.error('Chat history error:', data.errorMsg);
+      } else {
+        if (data.conv && Array.isArray(data.conv)) setMessages(data.conv);
+        if (data.mode) setMode(data.mode as ConversationMode);
       }
+      // Always set thread_id even if there's an error
       if (data.thread_id) setActiveThreadId(data.thread_id);
-      if (data.mode) setMode(data.mode as ConversationMode);
-
     } catch (error) {
       console.error('Error fetching chat history:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load chat history.',
-        variant: 'destructive',
-      });
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     fetchChatHistory();
@@ -133,22 +124,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const authToken = localStorage.getItem('authToken');
       const response = await fetch(`${BASE_URL}/api/archive_consultation/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
       });
-
       if (response.ok) {
         const data = await response.json();
         setActiveThreadId(data.thread_id);
         setMessages([]);
         setMode('general_education');
         fetchConsultationHistory();
-        toast({
-          title: 'New Consultation Started',
-          description: 'Your previous chat has been saved to history.',
-        });
+        toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
       }
     } catch (error) {
       console.error('Error starting new consultation:', error);
@@ -158,7 +142,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
-    // If images included, add note about them
+    console.log('🔥 handleSendMessage called:', content, 'threadId:', activeThreadId);
+
     let messageContent = content;
     if (images && images.length > 0) {
       messageContent += `\n\n[${images.length} image(s) attached]`;
@@ -167,15 +152,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
     }
 
-    // Add user message to UI immediately
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: messageContent,
-    };
+    const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: messageContent };
     setMessages(prev => [...prev, userMessage]);
 
-    // Handle Guided Intake
     if (mode === 'post_payment_intake') {
       const currentStepKey = ['duration', 'symptoms', 'location', 'meds', 'history', 'history'][intakeStep];
       setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
@@ -184,29 +163,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setIsLoading(true);
         try {
           const authToken = localStorage.getItem('authToken');
-          // Send final DONE to backend to trigger review mode
           const formData = new FormData();
-          formData.append('question', `INTAKE COMPLETE. Summary:
-Duration: ${intakeData.duration}
-Symptoms: ${intakeData.symptoms}
-Location: ${intakeData.location}
-Meds: ${intakeData.meds}
-History: ${intakeData.history}
-Images: ${intakeData.images.length} attached.
-DONE`);
+          formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nImages: ${intakeData.images.length} attached.\nDONE`);
           formData.append('thread_id', activeThreadId || '');
-
           await fetch(`${BASE_URL}/api/chat_view/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${authToken}` },
             body: formData,
           });
-
           setMode('dermatologist_review');
           const aiMessage: ChatMessage = {
             id: `ai-${Date.now()}`,
             role: 'AI',
-            content: "Thank you. I have collected all the necessary information. Our dermatologist, Dr. Attili, will now review your case. You will be notified once the review is complete.",
+            content: "Thank you. I have collected all the necessary clinical information. Our dermatologist, Dr. Attili, will now review your case. You will be notified once the clinical review is complete.",
           };
           setMessages(prev => [...prev, aiMessage]);
         } catch (error) {
@@ -217,16 +186,11 @@ DONE`);
         return;
       }
 
-      // Next question
       const nextStep = intakeStep + 1;
       setIntakeStep(nextStep);
       setIsLoading(true);
       setTimeout(() => {
-        const aiMessage: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          role: 'AI',
-          content: INTAKE_QUESTIONS[nextStep],
-        };
+        const aiMessage: ChatMessage = { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] };
         setMessages(prev => [...prev, aiMessage]);
         setIsLoading(false);
       }, 500);
@@ -242,8 +206,7 @@ DONE`);
 
       if (images && images.length > 0) {
         for (let i = 0; i < images.length; i++) {
-          const dataUrl = images[i];
-          const response_blob = await fetch(dataUrl);
+          const response_blob = await fetch(images[i]);
           const blob = await response_blob.blob();
           formData.append('image', blob, `image_${i + 1}.jpg`);
         }
@@ -251,39 +214,31 @@ DONE`);
 
       const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        },
+        headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
+      if (!response.ok) throw new Error('Failed to send message');
 
       const data = await response.json();
+      console.log('[PatientView] API response:', data);
 
-      // Update mode if backend transitioned
-      if (data.mode) {
-        setMode(data.mode as ConversationMode);
-      }
+      if (data.mode) setMode(data.mode as ConversationMode);
 
-      const aiContent = (data.result && data.result.trim()) || "I've processed your request. Please proceed based on the current mode.";
+      const aiContent =
+        (data.result && data.result.trim()) ||
+        (data.response && data.response.trim()) ||
+        (data.message && data.message.trim()) ||
+        (data.answer && data.answer.trim()) ||
+        (data.content && data.content.trim()) ||
+        (data.text && data.text.trim()) ||
+        "Sorry, I didn't receive a response. Please try again.";
 
-      // Add AI response to messages
-      const aiMessage: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        role: data.role || 'ai',
-        content: aiContent,
-      };
+      const aiMessage: ChatMessage = { id: `ai-${Date.now()}`, role: data.role || 'ai', content: aiContent };
       setMessages(prev => [...prev, aiMessage]);
     } catch (error) {
       console.error('Error sending message:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to send message. Please try again.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
       setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setIsLoading(false);
@@ -293,14 +248,7 @@ DONE`);
   const handlePaymentSuccess = async () => {
     setMode('post_payment_intake');
     setIntakeStep(0);
-    setIntakeData({
-      duration: '',
-      symptoms: '',
-      location: '',
-      meds: '',
-      history: '',
-      images: []
-    });
+    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
 
     const paymentMessage: ChatMessage = {
       id: `system-${Date.now()}`,
@@ -309,7 +257,6 @@ DONE`);
     };
     setMessages(prev => [...prev, paymentMessage]);
 
-    // Show first question
     setTimeout(() => {
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
@@ -319,21 +266,16 @@ DONE`);
       setMessages(prev => [...prev, aiMessage]);
     }, 1000);
 
-    // Inform backend of payment confirmation
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', 'PAYMENT_CONFIRMED');
       formData.append('thread_id', activeThreadId || '');
-
       const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        },
+        headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-
       if (response.ok) {
         const data = await response.json();
         if (data.mode) setMode(data.mode as ConversationMode);
@@ -342,23 +284,17 @@ DONE`);
       console.error('Error confirming payment to backend:', error);
     }
 
-    toast({
-      title: 'Payment Successful',
-      description: 'You can now provide details for your consultation.',
-    });
+    toast({ title: 'Payment Successful', description: 'You can now provide details for your consultation.' });
   };
 
-  // Check if doctor has responded in the current messages
   const hasDoctorResponded = messages.some(m => m.role === 'doctor');
   const isEducational = mode === 'general_education';
 
-  // Transform messages to match ChatContainer expected format
   const transformedMessages = messages.map(msg => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
     if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
     else if (msg.role === 'doctor') role = 'doctor';
     else if (msg.role === 'system') role = 'system';
-
     return {
       id: msg.id,
       role,
@@ -383,16 +319,12 @@ DONE`);
           </Button>
         </div>
       </div>
-
       <ScrollArea className="flex-1 p-2">
         <div className="space-y-2">
           {history.length > 0 ? history.map((item) => (
             <button
               key={item.id}
-              onClick={() => {
-                fetchChatHistory(item.id);
-                if (isMobile) setShowHistory(false);
-              }}
+              onClick={() => { fetchChatHistory(item.id); if (isMobile) setShowHistory(false); }}
               className={cn(
                 "w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group",
                 activeThreadId === item.id ? "bg-accent border border-primary/20" : "transparent"
@@ -424,14 +356,11 @@ DONE`);
 
   return (
     <div className="h-screen flex bg-background overflow-hidden">
-      {/* Sidebar - Desktop */}
       {!isMobile && showHistory && (
         <div className="w-72 border-r border-border bg-card flex flex-col">
           <SidebarContent />
         </div>
       )}
-
-      {/* Sidebar - Mobile (Sheet) */}
       {isMobile && (
         <Sheet open={showHistory} onOpenChange={setShowHistory}>
           <SheetContent side="left" className="p-0 w-72">
@@ -439,32 +368,15 @@ DONE`);
           </SheetContent>
         </Sheet>
       )}
-
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
         <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
           <div className="flex items-center gap-2 md:gap-3">
             {!showHistory && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setShowHistory(true)}
-              >
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(true)}>
                 <Clock className="h-4 w-4" />
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => {
-                fetchChatHistory();
-                fetchConsultationHistory();
-                toast({ title: "Syncing...", description: "Updating consultation data." });
-              }}
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { fetchChatHistory(); fetchConsultationHistory(); toast({ title: "Syncing...", description: "Updating consultation data." }); }}>
               <RefreshCw className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
@@ -473,36 +385,25 @@ DONE`);
               </p>
             </div>
           </div>
-
           <div className="flex gap-1.5 md:gap-2">
             {isEducational && (
               <Button variant="default" size="sm" onClick={() => setMode('payment_page')} className="h-8 text-[10px] md:text-xs px-2 md:px-3">
                 <CreditCard className="h-3.5 w-3.5 md:mr-1.5" />
-                <span className="hidden xs:inline">Pay for Consultation</span>
-                <span className="xs:hidden text-[10px]">Pay for Consultation</span>
+                <span>Pay for Consultation</span>
               </Button>
             )}
             {hasDoctorResponded && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleNewConsultation}
-                className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white"
-              >
+              <Button variant="default" size="sm" onClick={handleNewConsultation} className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white">
                 <Plus className="h-3.5 w-3.5 md:mr-1.5" />
-                <span className="hidden xs:inline">New Consultation</span>
-                <span className="xs:hidden text-[10px]">New</span>
+                <span>New Consultation</span>
               </Button>
             )}
-
             <Button variant="ghost" size="sm" className="h-8 md:h-10 text-[10px] md:text-sm" onClick={onLogout}>
               <LogOut className="h-4 w-4 md:mr-1.5" />
               <span>Logout</span>
             </Button>
           </div>
         </div>
-
-        {/* Chat */}
         <div className="flex-1 min-h-0">
           <ChatContainer
             messages={transformedMessages}
