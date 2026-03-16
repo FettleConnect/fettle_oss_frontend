@@ -56,7 +56,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
 
   const handleApply = (content: string, index: number) => {
     if (onApplyContent) {
-      onApplyContent(content);
+      const cleanContent = content
+        .replace(/#{1,6}\s/g, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/`(.*?)`/g, '$1')
+        .replace(/_{1,2}(.*?)_{1,2}/g, '$1');
+      onApplyContent(cleanContent);
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 2000);
     }
@@ -79,9 +85,11 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
           <div className="space-y-4">
             {messages.map((m, i) => (
               <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
-
-                  {/* FIX (Issue 3): AI messages now render markdown instead of plain text */}
+                <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                  m.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground'
+                }`}>
                   {m.role === 'ai' ? (
                     <div className="prose prose-sm dark:prose-invert max-w-none
                       [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
@@ -99,7 +107,12 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
 
                   {m.role === 'ai' && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 hover:bg-background/50" onClick={() => handleApply(m.content, i)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-[10px] gap-1 hover:bg-background/50"
+                        onClick={() => handleApply(m.content, i)}
+                      >
                         {copiedIndex === i ? (
                           <><Check className="h-3 w-3" />Applied</>
                         ) : (
@@ -125,7 +138,12 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
 
         <div className="p-3 border-t bg-background">
           <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
-            <Input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask for diagnosis, plan..." className="flex-1 h-9 text-xs" />
+            <Input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="Ask for diagnosis, plan..."
+              className="flex-1 h-9 text-xs"
+            />
             <Button type="submit" size="icon" className="h-9 w-9" disabled={isLoading || !input.trim()}>
               <Send className="h-4 w-4" />
             </Button>
