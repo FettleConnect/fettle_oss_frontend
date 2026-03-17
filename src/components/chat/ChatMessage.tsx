@@ -12,12 +12,19 @@ interface ChatMessageProps {
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
   const isPatient = message.role === 'patient';
   const isDoctor = message.role === 'doctor';
-  const isAI = message.role === 'ai';
   const isSystem = message.role === 'system';
+  const isAI = message.role === 'ai';
+
+  // Function to format headings (Summary, Diagnosis, etc.) into bold
+  const formatContent = (text: string) => {
+    return text.replace(
+      /^(Summary|Diagnosis|Assessment|Recommendations|Plan):?/gim,
+      '**$1**'
+    );
+  };
 
   const getRoleLabel = () => {
     if (message.senderName) return message.senderName;
-    
     if (isPatient) return 'You';
     if (isDoctor) return 'Doctor';
     if (isSystem) return 'System Notification';
@@ -27,7 +34,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const getRoleIcon = () => {
     if (isPatient) return <User className="h-4 w-4" />;
     if (isDoctor) return <Stethoscope className="h-4 w-4" />;
-    if (isSystem) return <Bot className="h-4 w-4" />;
     return <Bot className="h-4 w-4" />;
   };
 
@@ -61,13 +67,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         {getRoleIcon()}
         <span>{getRoleLabel()}</span>
       </div>
-      <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
-        <ReactMarkdown 
+
+      <div className={cn(
+        'rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none',
+        getBubbleColors(),
+        isPatient ? 'rounded-br-md' : 'rounded-bl-md'
+      )}>
+        
+        <ReactMarkdown
           components={{
-            p: ({node, ...props}) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
+            // Proper paragraph spacing
+            p: ({ node, ...props }) => (
+              <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
+            ),
+            // Bold text rendering for headings
+            strong: ({ node, ...props }) => (
+              <strong className="font-bold" {...props} />
+            )
           }}
         >
-          {message.content}
+          {isDoctor || isAI ? formatContent(message.content) : message.content}
         </ReactMarkdown>
 
         {message.images && message.images.length > 0 && (
@@ -84,6 +103,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />
         )}
       </div>
+
       <span className="text-xs text-muted-foreground">
         {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
       </span>

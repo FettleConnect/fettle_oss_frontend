@@ -17,10 +17,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-focus logic: focus when AI stops typing or mode changes
   useEffect(() => {
     if (!isLoading && !disabled && textareaRef.current) {
-      // Small timeout to ensure DOM has settled and animations finished
       const timer = setTimeout(() => {
         textareaRef.current?.focus();
       }, 100);
@@ -28,7 +26,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
     }
   }, [isLoading, disabled, mode]);
 
-  const showImageUpload = true; // Always allow image uploads
+  const showImageUpload = true;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +72,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
     if (mode === 'post_payment_intake') {
       return 'Describe your symptoms... (Type DONE when finished)';
     }
-    return 'Type your message... (Type YES to start paid consultation)';
+    // ✅ FIXED HERE (removed "Type YES...")
+    return 'Type your message...';
   };
 
   return (
@@ -83,7 +82,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
         <div className="flex gap-2 mb-3 flex-wrap">
           {images.map((img, index) => (
             <div key={index} className="relative">
-              <img src={img} alt={`Upload ${index + 1}`} className="h-16 w-16 object-cover rounded-lg border border-border" />
+              <img
+                src={img}
+                alt={`Upload ${index + 1}`}
+                className="h-16 w-16 object-cover rounded-lg border border-border"
+              />
               <button
                 type="button"
                 onClick={() => removeImage(index)}
@@ -95,7 +98,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
           ))}
         </div>
       )}
-      
+
       <div className="flex gap-2 items-end">
         {showImageUpload && (
           <>
@@ -118,7 +121,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
             </Button>
           </>
         )}
-        
+
         <Textarea
           ref={textareaRef}
           value={message}
@@ -129,9 +132,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
           className="min-h-[44px] max-h-32 resize-none"
           rows={1}
         />
-        
-        <Button 
-          type="submit" 
+
+        <Button
+          type="submit"
           disabled={!message.trim() || isLoading || disabled}
           size="icon"
         >
