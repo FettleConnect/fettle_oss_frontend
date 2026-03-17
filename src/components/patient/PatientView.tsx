@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { PaymentPage } from '@/components/payment/PaymentPage';
 import { Button } from '@/components/ui/button';
@@ -55,13 +55,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     images: [] as string[]
   });
 
+  const isSendingRef = useRef(false);
+
   const INTAKE_QUESTIONS = [
     "1. How long has this skin concern been present? (Duration)",
     "2. What symptoms are you experiencing? (e.g. itching, pain, bleeding, spreading)",
     "3. Where on your body is this located?",
     "4. Have you tried any medications or creams for this? If so, which ones?",
     "5. Have you had any prior diagnoses for this or other skin conditions?",
-    "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you haven't already)",
+    "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you have not already)",
   ];
 
   const fetchConsultationHistory = useCallback(async () => {
@@ -101,10 +103,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (data.error) {
         console.error('Chat history error:', data.errorMsg);
       } else {
-        if (data.conv && Array.isArray(data.conv)) setMessages(data.conv);
+        if (data.conv && Array.isArray(data.conv)) {
+          // FIX: deduplicate by id — backend is source of truth, keep local-only messages
+          setMessages(prev => {
+            const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
+            const localOnly = prev.filter(m => !backendIds.has(m.id));
+            return [...data.conv, ...localOnly];
+          });
+        }
         if (data.mode) setMode(data.mode as ConversationMode);
       }
-      // Always set thread_id even if there's an error
       if (data.thread_id) setActiveThreadId(data.thread_id);
     } catch (error) {
       console.error('Error fetching chat history:', error);
@@ -142,7 +150,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
-    console.log('🔥 handleSendMessage called:', content, 'threadId:', activeThreadId);
+    if (isSendingRef.current || isLoading) {
+      console.warn('Send blocked - already sending');
+      return;
+    }
+    isSendingRef.current = true;
 
     let messageContent = content;
     if (images && images.length > 0) {
@@ -152,8 +164,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
     }
 
+    // FIX: only add user message if not already present
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: messageContent };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => {
+      const exists = prev.some(m => m.role === 'user' && m.content === messageContent);
+      if (exists) return prev;
+      return [...prev, userMessage];
+    });
 
     if (mode === 'post_payment_intake') {
       const currentStepKey = ['duration', 'symptoms', 'location', 'meds', 'history', 'history'][intakeStep];
@@ -182,6 +199,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           console.error('Error completing intake:', error);
         } finally {
           setIsLoading(false);
+          isSendingRef.current = false;
         }
         return;
       }
@@ -193,6 +211,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const aiMessage: ChatMessage = { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] };
         setMessages(prev => [...prev, aiMessage]);
         setIsLoading(false);
+        isSendingRef.current = false;
       }, 500);
       return;
     }
@@ -221,7 +240,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (!response.ok) throw new Error('Failed to send message');
 
       const data = await response.json();
-      console.log('[PatientView] API response:', data);
 
       if (data.mode) setMode(data.mode as ConversationMode);
 
@@ -232,16 +250,22 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         (data.answer && data.answer.trim()) ||
         (data.content && data.content.trim()) ||
         (data.text && data.text.trim()) ||
-        "Sorry, I didn't receive a response. Please try again.";
+        "Sorry, I did not receive a response. Please try again.";
 
-      const aiMessage: ChatMessage = { id: `ai-${Date.now()}`, role: data.role || 'ai', content: aiContent };
-      setMessages(prev => [...prev, aiMessage]);
+      // FIX: only add AI message if not already present
+      setMessages(prev => {
+        const exists = prev.some(m => m.content === aiContent && (m.role === 'ai' || m.role === 'AI'));
+        if (exists) return prev;
+        return [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: aiContent }];
+      });
+
     } catch (error) {
       console.error('Error sending message:', error);
       toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
       setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setIsLoading(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -253,7 +277,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     const paymentMessage: ChatMessage = {
       id: `system-${Date.now()}`,
       role: 'system',
-      content: "Thank you for your payment! You're now connected to our intake process.",
+      content: "Thank you for your payment! You are now connected to our intake process.",
     };
     setMessages(prev => [...prev, paymentMessage]);
 

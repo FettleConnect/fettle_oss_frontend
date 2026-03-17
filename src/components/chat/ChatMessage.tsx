@@ -15,12 +15,38 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const isSystem = message.role === 'system';
   const isAI = message.role === 'ai';
 
-  // Function to format headings (Summary, Diagnosis, etc.) into bold
-  const formatContent = (text: string) => {
-    return text.replace(
-      /^(Summary|Diagnosis|Assessment|Recommendations|Plan):?/gim,
-      '**$1**'
-    );
+  const formatContent = (text: string | null | undefined): string => {
+    if (!text) return '';
+    // Normalize \r\n and \r to \n
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    return normalized
+      .split('\n')
+      .map(line => {
+        // Remove trailing spaces before checking
+        const trimmed = line.trimEnd();
+        const content = trimmed.trim();
+
+        if (content.length < 2 || content.length > 60) return line;
+
+        // Match: "1. Diagnosis" or "2. Differential" or "Diagnosis" or "Summary:"
+        // Pattern: optional "N. " prefix, then capital word(s), optional colon
+        if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
+          return `**${content}**`;
+        }
+
+        // Match lettered sub-headings: "A. First-line topical therapy:"
+        if (/^[A-Z]\.\s+[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
+          return `**${content}**`;
+        }
+
+        // Match: "Mechanism of Action:" "Clinical Rationale for Use in Your Case:"
+        if (/^[A-Z][A-Za-z\s\/\-\(\)]{2,60}:\s*$/.test(content)) {
+          return `**${content}**`;
+        }
+
+        return line;
+      })
+      .join('\n');
   };
 
   const getRoleLabel = () => {
@@ -55,11 +81,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return (
       <div className="flex flex-col items-center gap-2 w-full my-4">
         <div className={cn('rounded-lg px-6 py-3 text-sm text-center font-medium max-w-[90%]', getBubbleColors())}>
-          {message.content}
+          {message.content ?? ''}
         </div>
       </div>
     );
   }
+
+  const safeContent = message.content ?? '';
+  const renderedContent = (isDoctor || isAI) ? formatContent(safeContent) : safeContent;
 
   return (
     <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
@@ -67,26 +96,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         {getRoleIcon()}
         <span>{getRoleLabel()}</span>
       </div>
-
       <div className={cn(
         'rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none',
         getBubbleColors(),
         isPatient ? 'rounded-br-md' : 'rounded-bl-md'
       )}>
-        
         <ReactMarkdown
           components={{
-            // Proper paragraph spacing
             p: ({ node, ...props }) => (
               <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
             ),
-            // Bold text rendering for headings
             strong: ({ node, ...props }) => (
               <strong className="font-bold" {...props} />
-            )
+            ),
           }}
         >
-          {isDoctor || isAI ? formatContent(message.content) : message.content}
+          {renderedContent}
         </ReactMarkdown>
 
         {message.images && message.images.length > 0 && (
