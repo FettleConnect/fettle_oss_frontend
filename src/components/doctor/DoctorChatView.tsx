@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus } from 'lucide-react';
+import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { setDraftResponse } from '@/store/dataStore';
@@ -21,8 +21,6 @@ interface DoctorChatViewProps {
   onRefresh: () => void;
 }
 
-// FIX (Issue 2): Parses the raw "INTAKE COMPLETE. Summary:..." string from
-// the chat history into a structured IntakeData object for the summary card.
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
     m => m.content && m.content.includes('INTAKE COMPLETE') && m.content.includes('Summary:')
@@ -57,6 +55,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isMobile = useIsMobile();
   const [patientMessage, setPatientMessage] = useState(conversation.draftResponse || '');
   const [isSending, setIsSending] = useState(false);
+  const [caseCompleted, setCaseCompleted] = useState(false);
   const [images, setImages] = useState<string[]>([]);
   const [showAI, setShowAI] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -69,13 +68,16 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   }, [conversation.draftResponse, conversation.id]);
 
-  // FIX (Issue 2): Use structured intakeData if available, otherwise parse from messages
+  // Reset caseCompleted when conversation changes
+  useEffect(() => {
+    setCaseCompleted(conversation.mode === 'general_education');
+  }, [conversation.id, conversation.mode]);
+
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
     if (conversation.intakeData) return conversation.intakeData;
     return parseIntakeFromMessages(messages) ?? undefined;
   }, [conversation.intakeData, messages]);
 
-  // FIX (Issue 2): Hide the raw INTAKE COMPLETE bubble — it's now shown as the card
   const visibleMessages = useMemo(() => {
     return messages.filter(
       m => !(m.content && m.content.includes('INTAKE COMPLETE') && m.content.includes('Summary:'))
@@ -141,6 +143,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   };
 
   const handleArchive = async () => {
+    if (caseCompleted) return;
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const response = await fetch(`${BASE_URL}/api/archive_consultation/`, {
@@ -149,7 +152,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         body: JSON.stringify({ user_id: conversation.patient_id }),
       });
       if (response.ok) {
-        toast({ title: 'Consultation Archived', description: 'The patient will start a new session upon next login.' });
+        setCaseCompleted(true);
+        toast({ title: 'Case Completed', description: 'Patient can now continue in general education mode.' });
         onUpdate();
       }
     } catch (error) {
@@ -159,6 +163,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const canRespond = conversation.paymentStatus === 'paid' || !!conversation.draftResponse;
   const isCompleted = conversation.status === 'completed';
+  const isCaseDone = caseCompleted || conversation.mode === 'general_education';
 
   const ConsultationSidebar = () => (
     <div className="h-full flex flex-col bg-card">
@@ -189,9 +194,22 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
-            <Button variant="outline" size="sm" onClick={handleArchive} className="h-8 md:h-9 border-green-200 text-green-700 hover:bg-green-50">
-              <Plus className="h-3.5 w-3.5 md:mr-2" />
-              <span className="hidden sm:inline">Complete Case</span>
+            {/* FIX: Complete Case button changes to Case Completed after clicking */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleArchive}
+              disabled={isCaseDone}
+              className={`h-8 md:h-9 ${isCaseDone ? 'border-gray-200 text-gray-400 cursor-not-allowed opacity-60' : 'border-green-200 text-green-700 hover:bg-green-50'}`}
+            >
+              {isCaseDone ? (
+                <CheckCircle className="h-3.5 w-3.5 md:mr-2" />
+              ) : (
+                <Plus className="h-3.5 w-3.5 md:mr-2" />
+              )}
+              <span className="hidden sm:inline">
+                {isCaseDone ? 'Case Completed' : 'Complete Case'}
+              </span>
             </Button>
             <Button variant="ghost" size="sm" onClick={onRefresh} className="h-8 md:h-9 text-muted-foreground hover:text-foreground">
               <RefreshCw className="h-3.5 w-3.5 md:mr-2" />
@@ -208,14 +226,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         <div className="flex-1 flex flex-col min-w-0 w-full relative">
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
-
-              {/* FIX: shows structured card parsed from message history */}
               {resolvedIntakeData && (
                 <section>
                   <IntakeSummaryCard intakeData={resolvedIntakeData} />
                 </section>
               )}
-
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="h-px flex-1 bg-border" />
@@ -224,7 +239,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
-                {/* FIX: hides the raw INTAKE COMPLETE bubble from chat */}
                 {visibleMessages.length > 0 ? (
                   <div className="space-y-4">
                     {visibleMessages.map((message) => (
