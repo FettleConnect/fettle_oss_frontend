@@ -1,4 +1,4 @@
-# Fettle OSS Frontend 🩺
+# Fettle OSS Frontend
 
 Fettle is an AI-powered teledermatology platform designed to bridge the gap between general skin health education and professional clinical consultation. This repository contains the **React + Vite** frontend, featuring responsive portals for both patients and healthcare providers.
 
