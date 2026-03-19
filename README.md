@@ -2,7 +2,7 @@
 
 Fettle is an AI-powered teledermatology platform designed to bridge the gap between general skin health education and professional clinical consultation. This repository contains the **React + Vite** frontend, featuring responsive portals for both patients and healthcare providers.
 
-## 🚀 Features
+## Features
 
 - **Dual-Mode AI Assistant**: Seamlessly transitions from general educational chat to high-precision clinical intake post-payment.
 - **Guided Clinical Intake**: A structured 6-step AI-led process to collect symptoms, history, and imagery.
