@@ -17,31 +17,29 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-    // Normalize \r\n and \r to \n
     const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     return normalized
       .split('\n')
       .map(line => {
-        // Remove trailing spaces before checking
         const trimmed = line.trimEnd();
         const content = trimmed.trim();
 
-        if (content.length < 2 || content.length > 60) return line;
+        if (content.length < 2) return line;
 
-        // Match: "1. Diagnosis" or "2. Differential" or "Diagnosis" or "Summary:"
-        // Pattern: optional "N. " prefix, then capital word(s), optional colon
-        if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
+        // Bold standalone headings (nothing after colon, max 60 chars)
+        if (content.length <= 60 && /^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
           return `**${content}**`;
         }
 
-        // Match lettered sub-headings: "A. First-line topical therapy:"
-        if (/^[A-Z]\.\s+[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
+        // Bold lettered sub-headings: "A. First-line topical therapy:"
+        if (content.length <= 60 && /^[A-Z]\.\s+[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
           return `**${content}**`;
         }
 
-        // Match: "Mechanism of Action:" "Clinical Rationale for Use in Your Case:"
-        if (/^[A-Z][A-Za-z\s\/\-\(\)]{2,60}:\s*$/.test(content)) {
-          return `**${content}**`;
+        // Bold lines where heading is followed by text e.g. "Note: some text..."
+        // Matches "Note:", "Summary:", "To help you...:", "You can find...:" etc.
+        if (/^(Note|Summary|Diagnosis|Assessment|Plan|Warning|Important|Tip|Recommendations?|To help you[^:]*|You can find[^:]*|For in-depth[^:]*|Clinical Rationale[^:]*|Mechanism of Action[^:]*):\s*.+/.test(content)) {
+          return line.replace(/^([^:]+:)/, '**$1**');
         }
 
         return line;
