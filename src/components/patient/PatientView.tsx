@@ -26,7 +26,7 @@ interface ChatMessage {
   id: string;
   role: string;
   content: string;
-  images?: string[]; // FIX: added images field
+  images?: string[];
 }
 
 interface ConsultationHistoryItem {
@@ -154,6 +154,33 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
+  // Helper: convert any image URL (data:, blob:, http) to a Blob
+  const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
+    if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http')) {
+      const res = await fetch(dataUrl);
+      return res.blob();
+    }
+    const [header, base64] = dataUrl.split(',');
+    const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  };
+
+  // Helper: append all images to FormData
+  const appendImagesToFormData = async (formData: FormData, images: string[]): Promise<void> => {
+    for (let i = 0; i < images.length; i++) {
+      try {
+        const blob = await dataURLtoBlob(images[i]);
+        const ext = blob.type.split('/')[1] ?? 'jpg';
+        formData.append('image', blob, `image_${i + 1}.${ext}`);
+      } catch (err) {
+        console.error(`Failed to process image ${i + 1}:`, err);
+      }
+    }
+  };
+
   const handleSendMessage = async (content: string, images?: string[]) => {
     if (isSendingRef.current || isLoading) {
       console.warn('Send blocked - already sending');
@@ -161,14 +188,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
     isSendingRef.current = true;
 
-    // FIX: Don't add "[X image(s) attached]" text — show images directly in the message
     const messageContent = content;
 
     if (mode === 'post_payment_intake' && images && images.length > 0) {
       setIntakeData(prev => ({ ...prev, images: [...prev.images, ...images] }));
     }
 
-    // FIX: Include images in the user message object so they display in the chat
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -182,32 +207,37 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       return [...prev, userMessage];
     });
 
+    // POST_PAYMENT_INTAKE flow
     if (mode === 'post_payment_intake') {
       const currentStepKey = ['duration', 'symptoms', 'location', 'meds', 'history', 'history'][intakeStep];
       setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
 
-      if (content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1) {
+      const isLastStep = content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1;
+
+      if (isLastStep) {
         setIsLoading(true);
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nImages: ${intakeData.images.length} attached.\nDONE`);
+
+          // Accumulate ALL images from entire intake + current step
+          const allImages = [...intakeData.images, ...(images ?? [])];
+
+          formData.append(
+            'question',
+            `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nImages: ${allImages.length} attached.\nDONE`
+          );
           formData.append('thread_id', activeThreadId || '');
 
-          // FIX: Send actual image files to backend during intake completion
-          if (intakeData.images.length > 0) {
-            for (let i = 0; i < intakeData.images.length; i++) {
-              const response_blob = await fetch(intakeData.images[i]);
-              const blob = await response_blob.blob();
-              formData.append('image', blob, `image_${i + 1}.jpg`);
-            }
-          }
+          // Send ALL accumulated images to doctor
+          await appendImagesToFormData(formData, allImages);
 
           await fetch(`${BASE_URL}/api/chat_view/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${authToken}` },
             body: formData,
           });
+
           setMode('dermatologist_review');
           const aiMessage: ChatMessage = {
             id: `ai-${Date.now()}`,
@@ -224,23 +254,22 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
+      // Intermediate intake step
       const nextStep = intakeStep + 1;
       setIntakeStep(nextStep);
       setIsLoading(true);
 
-      // FIX: Also send images to backend during intake steps
       try {
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', content);
         formData.append('thread_id', activeThreadId || '');
+
+        // Send images attached to this step immediately
         if (images && images.length > 0) {
-          for (let i = 0; i < images.length; i++) {
-            const response_blob = await fetch(images[i]);
-            const blob = await response_blob.blob();
-            formData.append('image', blob, `image_${i + 1}.jpg`);
-          }
+          await appendImagesToFormData(formData, images);
         }
+
         await fetch(`${BASE_URL}/api/chat_view/`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${authToken}` },
@@ -251,7 +280,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
 
       setTimeout(() => {
-        const aiMessage: ChatMessage = { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] };
+        const aiMessage: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: INTAKE_QUESTIONS[nextStep],
+        };
         setMessages(prev => [...prev, aiMessage]);
         setIsLoading(false);
         isSendingRef.current = false;
@@ -259,6 +292,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       return;
     }
 
+    // General / other modes
     setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
@@ -267,11 +301,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       formData.append('thread_id', activeThreadId || '');
 
       if (images && images.length > 0) {
-        for (let i = 0; i < images.length; i++) {
-          const response_blob = await fetch(images[i]);
-          const blob = await response_blob.blob();
-          formData.append('image', blob, `image_${i + 1}.jpg`);
-        }
+        await appendImagesToFormData(formData, images);
       }
 
       const response = await fetch(`${BASE_URL}/api/chat_view/`, {
@@ -300,7 +330,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         if (exists) return prev;
         return [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: aiContent }];
       });
-
     } catch (error) {
       console.error('Error sending message:', error);
       toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
@@ -365,7 +394,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       id: msg.id,
       role,
       content: msg.content,
-      images: msg.images, // FIX: pass images through
+      images: msg.images,
       conversationId: activeThreadId || '',
       timestamp: new Date(),
       isVisible: true,
@@ -375,7 +404,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card">
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="font-semibold flex items-center gap-2">
+        {/* BOLD: Sidebar heading */}
+        <h2 className="font-bold text-base flex items-center gap-2">
           <Clock className="h-4 w-4" />
           History
         </h2>
@@ -398,7 +428,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             >
               <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-primary transition-colors" />
               <div className="flex-1 overflow-hidden">
-                <p className="font-medium truncate">{item.name}</p>
+                {/* BOLD: Consultation name in history list */}
+                <p className="font-bold truncate">{item.name}</p>
                 <p className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleDateString()}</p>
               </div>
             </button>
@@ -446,8 +477,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
               <RefreshCw className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
+              {/* BOLD: Logged in label */}
               <p className="text-[10px] md:text-xs text-muted-foreground truncate max-w-[120px] md:max-w-none">
-                Logged in: <span className="font-medium text-foreground">{user?.email}</span>
+                <span className="font-bold">Logged in:</span>{' '}
+                <span className="font-medium text-foreground">{user?.email}</span>
               </p>
             </div>
           </div>
@@ -455,18 +488,21 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             {isEducational && (
               <Button variant="default" size="sm" onClick={() => setMode('payment_page')} className="h-8 text-[10px] md:text-xs px-2 md:px-3">
                 <CreditCard className="h-3.5 w-3.5 md:mr-1.5" />
-                <span>Pay for Consultation</span>
+                {/* BOLD: Button label */}
+                <span className="font-bold">Pay for Consultation</span>
               </Button>
             )}
             {hasDoctorResponded && (
               <Button variant="default" size="sm" onClick={handleNewConsultation} className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white">
                 <Plus className="h-3.5 w-3.5 md:mr-1.5" />
-                <span>New Consultation</span>
+                {/* BOLD: Button label */}
+                <span className="font-bold">New Consultation</span>
               </Button>
             )}
             <Button variant="ghost" size="sm" className="h-8 md:h-10 text-[10px] md:text-sm" onClick={onLogout}>
               <LogOut className="h-4 w-4 md:mr-1.5" />
-              <span>Logout</span>
+              {/* BOLD: Button label */}
+              <span className="font-bold">Logout</span>
             </Button>
           </div>
         </div>
