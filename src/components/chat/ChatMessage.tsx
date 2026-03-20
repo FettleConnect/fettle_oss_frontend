@@ -26,14 +26,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
         if (content.length < 2) return line;
 
-        // Bold standalone headings (nothing after colon)
+        // Already has markdown bold — skip to avoid double-wrapping
+        if (content.startsWith('**')) return line;
+
+        // Bold standalone headings with nothing after the colon (or no colon)
+        // e.g. "Symptoms", "Medical History:"
         if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
           return `**${content}**`;
         }
 
-        // FIX: Bold ANY line starting with capital letter that has a colon
-        // Covers: "Note: text", "To help you think...: ", "You can find...: " etc.
-        if (/^[A-Z][^.!?]*:\s*/.test(content)) {
+        // Bold full lines that end with a colon — these are section intro headers
+        // e.g. "Thank you for clarifying. Here is a summary of your case for dermatologist review:"
+        // e.g. "Trusted resources for learning more include:"
+        if (/^[A-Z].+:\s*$/.test(content)) {
+          return `**${content}**`;
+        }
+
+        // Bold only the leading label on key-value lines
+        // e.g. "Note: some text here", "Duration: 5 days"
+        if (/^[A-Z][^.!?\n]*:\s+\S/.test(content)) {
           return line.replace(/^([^:]+:)/, '**$1**');
         }
 
