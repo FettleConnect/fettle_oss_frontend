@@ -10,7 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
-import { setDraftResponse } from '@/store/dataStore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
@@ -34,6 +33,11 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
     return match ? match[1].trim() : '';
   };
 
+  // ✅ FIX: Collect all images from ALL patient messages, not just intake message
+  const allPatientImages: string[] = messages
+    .filter(m => m.role === 'patient')
+    .flatMap(m => m.images ?? []);
+
   return {
     duration: extract('Duration'),
     symptoms: extract('Symptoms'),
@@ -41,7 +45,7 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
     medicationsTried: extract('Meds'),
     priorDiagnoses: extract('Prior Diagnoses') || extract('Prior') || '',
     relevantHealthHistory: extract('History'),
-    images: [],
+    images: allPatientImages, // ✅ FIX: was hardcoded as []
   };
 }
 
@@ -68,14 +72,23 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   }, [conversation.draftResponse, conversation.id]);
 
-  // Reset caseCompleted when conversation changes
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
   }, [conversation.id, conversation.mode]);
 
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
-    if (conversation.intakeData) return conversation.intakeData;
-    return parseIntakeFromMessages(messages) ?? undefined;
+    // ✅ FIX: Always re-parse from messages to get real images,
+    // even if conversation.intakeData exists (it never has images)
+    const parsed = parseIntakeFromMessages(messages);
+    if (!parsed) return conversation.intakeData;
+
+    // Merge: prefer conversation.intakeData fields but always use parsed images
+    return {
+      ...(conversation.intakeData ?? parsed),
+      images: parsed.images.length > 0
+        ? parsed.images
+        : (conversation.intakeData?.images ?? []),
+    };
   }, [conversation.intakeData, messages]);
 
   const visibleMessages = useMemo(() => {
@@ -106,6 +119,20 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const removeImage = (index: number) => setImages(prev => prev.filter((_, i) => i !== index));
 
+  // ✅ FIX: Use same reliable dataURLtoBlob helper as PatientView
+  const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
+    if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http')) {
+      const res = await fetch(dataUrl);
+      return res.blob();
+    }
+    const [header, base64] = dataUrl.split(',');
+    const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  };
+
   const handleSendToPatient = async () => {
     if (!patientMessage.trim()) {
       toast({ title: 'Error', description: 'Please enter a message to send to the patient.', variant: 'destructive' });
@@ -117,13 +144,16 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const formData = new FormData();
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
+
+      // ✅ FIX: Use reliable blob conversion instead of fetch(dataUrl)
       if (images.length > 0) {
         for (let i = 0; i < images.length; i++) {
-          const response_blob = await fetch(images[i]);
-          const blob = await response_blob.blob();
-          formData.append('image', blob, `image_${i + 1}.jpg`);
+          const blob = await dataURLtoBlob(images[i]);
+          const ext = blob.type.split('/')[1] ?? 'jpg';
+          formData.append('image', blob, `image_${i + 1}.${ext}`);
         }
       }
+
       const response = await fetch(`${BASE_URL}/api/doctor_send_response/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${authToken}` },
@@ -194,7 +224,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
-            {/* FIX: Complete Case button changes to Case Completed after clicking */}
             <Button
               variant="outline"
               size="sm"
