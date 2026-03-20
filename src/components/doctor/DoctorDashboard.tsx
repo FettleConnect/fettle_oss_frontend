@@ -10,7 +10,6 @@ import { BASE_URL } from '@/base_url';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Sum } from 'recharts'; // Dummy import or ignore if Sum not needed in frontend
 
 interface User {
   role: 'doctor' | 'patient';
@@ -27,7 +26,7 @@ interface TabDoc {
   id: string | number;
   name: string;
   email: string;
-  payment_status: string; // PAID or UNPAID
+  payment_status: string;
   active: boolean;
   intake_data?: any;
   doctor_draft?: string;
@@ -36,10 +35,12 @@ interface TabDoc {
   updated_at?: string;
 }
 
+// ✅ FIX: Added images field so it is no longer silently dropped
 interface ConvMessage {
   id: string;
-  role: string; // Can be 'doctor', 'AI', 'ai', or email (patient)
+  role: string;
   content: string;
+  images?: string[];
 }
 
 export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout }) => {
@@ -67,7 +68,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
 
       if (!response.ok) throw new Error('Failed to fetch conversations');
       const data = await response.json();
-      
+
       if (data.tabs_doc && Array.isArray(data.tabs_doc)) {
         const convs: Conversation[] = data.tabs_doc.map((tab: TabDoc) => {
           const isPaid = String(tab.payment_status).toUpperCase() === 'PAID';
@@ -84,7 +85,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
 
           return {
             id: String(tab.id),
-            patient_id: String(tab.patient_id), // Map the patient user ID
+            patient_id: String(tab.patient_id),
             patientEmail: tab.email,
             patientName: tab.name,
             mode: tab.mode as any || (isPaid ? 'post_payment_intake' : 'general_education'),
@@ -93,7 +94,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
             intakeData: Object.values(intakeData).some(v => v !== '' && (Array.isArray(v) ? v.length > 0 : true)) ? intakeData : undefined,
             draftResponse: tab.doctor_draft || undefined,
             is_read: tab.is_read,
-            updatedAt: tab.updated_at ? new Date(tab.updated_at) : undefined
+            updatedAt: tab.updated_at ? new Date(tab.updated_at) : undefined,
           };
         });
         setConversations(convs);
@@ -115,28 +116,27 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
 
       if (!response.ok) throw new Error('Failed to fetch messages');
       const data = await response.json();
-      
+
       if (data.conv && Array.isArray(data.conv)) {
         const msgs: Message[] = data.conv.map((msg: ConvMessage) => {
           let role: 'patient' | 'ai' | 'doctor' = 'patient';
           let senderName = msg.role;
           if (msg.role === 'ai') { role = 'ai'; senderName = 'AI'; }
           else if (msg.role === 'doctor') { role = 'doctor'; senderName = 'You'; }
-          
+
           return {
             id: msg.id,
             conversationId: id,
             role,
             content: msg.content,
-            images: msg.images,
+            images: msg.images ?? [], // ✅ FIX: images now flow through correctly
             timestamp: new Date(),
             isVisible: true,
             senderName,
           };
         });
         setSelectedMessages(msgs);
-        
-        // Update local read status
+
         setConversations(prev => prev.map(c => c.id === id ? { ...c, is_read: true } : c));
       }
     } catch (error) {
@@ -246,7 +246,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
           </div>
         )}
 
-        {/* Mobile Sidebar (Sheet) */}
+        {/* Mobile Sidebar */}
         {isMobile && (
           <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
             <SheetContent side="left" className="p-0 w-80">
