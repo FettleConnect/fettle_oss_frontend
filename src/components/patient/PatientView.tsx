@@ -104,12 +104,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         console.error('Chat history error:', data.errorMsg);
       } else {
         if (data.conv && Array.isArray(data.conv)) {
-          // FIX: deduplicate by id — backend is source of truth, keep local-only messages
-          setMessages(prev => {
-            const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
-            const localOnly = prev.filter(m => !backendIds.has(m.id));
-            return [...data.conv, ...localOnly];
-          });
+          if (threadId) {
+            // FIX: When loading a specific thread — completely replace messages
+            // This ensures old consultation does not bleed into new one
+            setMessages(data.conv);
+          } else {
+            // When loading active thread — deduplicate to preserve local messages
+            setMessages(prev => {
+              const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
+              const localOnly = prev.filter(m => !backendIds.has(m.id));
+              return [...data.conv, ...localOnly];
+            });
+          }
         }
         if (data.mode) setMode(data.mode as ConversationMode);
       }
@@ -136,10 +142,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       });
       if (response.ok) {
         const data = await response.json();
-        setActiveThreadId(data.thread_id);
+        // FIX: clear messages immediately and load new thread
         setMessages([]);
         setMode('general_education');
+        setActiveThreadId(data.thread_id);
         fetchConsultationHistory();
+        // FIX: fetch new thread history to ensure isolation
+        fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
       }
     } catch (error) {
@@ -164,7 +173,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
     }
 
-    // FIX: only add user message if not already present
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: messageContent };
     setMessages(prev => {
       const exists = prev.some(m => m.role === 'user' && m.content === messageContent);
@@ -252,7 +260,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         (data.text && data.text.trim()) ||
         "Sorry, I did not receive a response. Please try again.";
 
-      // FIX: only add AI message if not already present
       setMessages(prev => {
         const exists = prev.some(m => m.content === aiContent && (m.role === 'ai' || m.role === 'AI'));
         if (exists) return prev;
