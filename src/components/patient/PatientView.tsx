@@ -26,6 +26,7 @@ interface ChatMessage {
   id: string;
   role: string;
   content: string;
+  images?: string[]; // FIX: added images field
 }
 
 interface ConsultationHistoryItem {
@@ -105,11 +106,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       } else {
         if (data.conv && Array.isArray(data.conv)) {
           if (threadId) {
-            // FIX: When loading a specific thread — completely replace messages
-            // This ensures old consultation does not bleed into new one
             setMessages(data.conv);
           } else {
-            // When loading active thread — deduplicate to preserve local messages
             setMessages(prev => {
               const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
               const localOnly = prev.filter(m => !backendIds.has(m.id));
@@ -142,12 +140,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       });
       if (response.ok) {
         const data = await response.json();
-        // FIX: clear messages immediately and load new thread
         setMessages([]);
         setMode('general_education');
         setActiveThreadId(data.thread_id);
         fetchConsultationHistory();
-        // FIX: fetch new thread history to ensure isolation
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
       }
@@ -165,15 +161,21 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
     isSendingRef.current = true;
 
-    let messageContent = content;
-    if (images && images.length > 0) {
-      messageContent += `\n\n[${images.length} image(s) attached]`;
-      if (mode === 'post_payment_intake') {
-        setIntakeData(prev => ({ ...prev, images: [...prev.images, ...images] }));
-      }
+    // FIX: Don't add "[X image(s) attached]" text — show images directly in the message
+    const messageContent = content;
+
+    if (mode === 'post_payment_intake' && images && images.length > 0) {
+      setIntakeData(prev => ({ ...prev, images: [...prev.images, ...images] }));
     }
 
-    const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: messageContent };
+    // FIX: Include images in the user message object so they display in the chat
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: messageContent,
+      images: images && images.length > 0 ? images : undefined,
+    };
+
     setMessages(prev => {
       const exists = prev.some(m => m.role === 'user' && m.content === messageContent);
       if (exists) return prev;
@@ -191,6 +193,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           const formData = new FormData();
           formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nImages: ${intakeData.images.length} attached.\nDONE`);
           formData.append('thread_id', activeThreadId || '');
+
+          // FIX: Send actual image files to backend during intake completion
+          if (intakeData.images.length > 0) {
+            for (let i = 0; i < intakeData.images.length; i++) {
+              const response_blob = await fetch(intakeData.images[i]);
+              const blob = await response_blob.blob();
+              formData.append('image', blob, `image_${i + 1}.jpg`);
+            }
+          }
+
           await fetch(`${BASE_URL}/api/chat_view/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${authToken}` },
@@ -215,6 +227,29 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const nextStep = intakeStep + 1;
       setIntakeStep(nextStep);
       setIsLoading(true);
+
+      // FIX: Also send images to backend during intake steps
+      try {
+        const authToken = localStorage.getItem('authToken');
+        const formData = new FormData();
+        formData.append('question', content);
+        formData.append('thread_id', activeThreadId || '');
+        if (images && images.length > 0) {
+          for (let i = 0; i < images.length; i++) {
+            const response_blob = await fetch(images[i]);
+            const blob = await response_blob.blob();
+            formData.append('image', blob, `image_${i + 1}.jpg`);
+          }
+        }
+        await fetch(`${BASE_URL}/api/chat_view/`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${authToken}` },
+          body: formData,
+        });
+      } catch (error) {
+        console.error('Error sending intake step to backend:', error);
+      }
+
       setTimeout(() => {
         const aiMessage: ChatMessage = { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] };
         setMessages(prev => [...prev, aiMessage]);
@@ -330,7 +365,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       id: msg.id,
       role,
       content: msg.content,
-      images: (msg as any).images,
+      images: msg.images, // FIX: pass images through
       conversationId: activeThreadId || '',
       timestamp: new Date(),
       isVisible: true,
