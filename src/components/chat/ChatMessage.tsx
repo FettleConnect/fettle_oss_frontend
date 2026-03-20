@@ -26,19 +26,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
         if (content.length < 2) return line;
 
-        // Bold standalone headings (nothing after colon, max 60 chars)
-        if (content.length <= 60 && /^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
+        // Bold standalone headings (nothing after colon)
+        if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
           return `**${content}**`;
         }
 
-        // Bold lettered sub-headings: "A. First-line topical therapy:"
-        if (content.length <= 60 && /^[A-Z]\.\s+[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) {
-          return `**${content}**`;
-        }
-
-        // Bold lines where heading is followed by text e.g. "Note: some text..."
-        // Matches "Note:", "Summary:", "To help you...:", "You can find...:" etc.
-        if (/^(Note|Summary|Diagnosis|Assessment|Plan|Warning|Important|Tip|Recommendations?|To help you[^:]*|You can find[^:]*|For in-depth[^:]*|Clinical Rationale[^:]*|Mechanism of Action[^:]*):\s*.+/.test(content)) {
+        // FIX: Bold ANY line starting with capital letter that has a colon
+        // Covers: "Note: text", "To help you think...: ", "You can find...: " etc.
+        if (/^[A-Z][^.!?]*:\s*/.test(content)) {
           return line.replace(/^([^:]+:)/, '**$1**');
         }
 
