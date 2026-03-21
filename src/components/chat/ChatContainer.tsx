@@ -5,7 +5,7 @@ import { ChatInput } from './ChatInput';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, RefreshCw, ShieldCheck, ArrowLeft, ImageOff, ArrowUpCircle } from 'lucide-react';
 
 interface ChatContainerProps {
   messages: Message[];
@@ -21,6 +21,15 @@ interface ChatContainerProps {
   privacyFlagged?: boolean;
   onPrivacyRemove?: () => void;
   onPrivacyOverride?: () => void;
+  // ✅ Row 7: Go back
+  showGoBack?: boolean;
+  onGoBack?: () => void;
+  // ✅ Row 2: Consent upgrade
+  showConsentUpgrade?: boolean;
+  onConsentUpgrade?: () => void;
+  // ✅ Row 5: Proceed without images
+  showProceedNoImages?: boolean;
+  onProceedNoImages?: () => void;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -37,6 +46,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   privacyFlagged = false,
   onPrivacyRemove,
   onPrivacyOverride,
+  showGoBack = false,
+  onGoBack,
+  showConsentUpgrade = false,
+  onConsentUpgrade,
+  showProceedNoImages = false,
+  onProceedNoImages,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -199,6 +214,78 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             disabled={isLoading}
           >
             No
+          </Button>
+        </div>
+      )}
+
+      {/* ✅ Row 2: Consent upgrade button — "Yes, upgrade to image review" */}
+      {!privacyFlagged && showConsentUpgrade && onConsentUpgrade && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
+          <p className="text-xs text-muted-foreground mb-2 font-medium">
+            Ready to proceed with a full dermatologist review?
+          </p>
+          <div className="flex gap-2">
+            {showGoBack && onGoBack && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
+                onClick={onGoBack}
+                disabled={isLoading}
+              >
+                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+                Go back
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+              onClick={onConsentUpgrade}
+              disabled={isLoading}
+            >
+              <ArrowUpCircle className="h-3.5 w-3.5 mr-1.5" />
+              Yes, upgrade to image review
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Row 7: Standalone Go back — shown in consent mode when upgrade button is not visible */}
+      {!privacyFlagged && showGoBack && onGoBack && !showConsentUpgrade && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
+            onClick={onGoBack}
+            disabled={isLoading}
+          >
+            <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+            Go back
+          </Button>
+        </div>
+      )}
+
+      {/* ✅ Row 5: Proceed without images button */}
+      {!privacyFlagged && showProceedNoImages && onProceedNoImages && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
+          <p className="text-xs text-muted-foreground mb-2 font-medium">
+            No images available? You can continue with a text-only assessment.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full border-primary/30 text-primary hover:bg-primary/10 font-medium"
+            onClick={onProceedNoImages}
+            disabled={isLoading}
+          >
+            <ImageOff className="h-3.5 w-3.5 mr-1.5" />
+            Proceed without images
           </Button>
         </div>
       )}
