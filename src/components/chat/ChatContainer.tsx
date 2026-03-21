@@ -4,6 +4,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 interface ChatContainerProps {
   messages: Message[];
@@ -12,6 +13,8 @@ interface ChatContainerProps {
   isLoading: boolean;
   mode: ConversationMode;
   showDisclaimer: boolean;
+  showYesNo?: boolean;       // ✅ NEW
+  onQuickReply?: (reply: string) => void; // ✅ NEW
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -21,6 +24,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   isLoading,
   mode,
   showDisclaimer,
+  showYesNo = false,
+  onQuickReply,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -28,9 +33,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
-
-  // ✅ Get last AI message to pass to ChatInput for yes/no detection
-  const lastAiMessage = [...messages].reverse().find(m => m.role === 'ai')?.content ?? '';
 
   const getModeLabel = () => {
     switch (mode) {
@@ -64,19 +66,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
-          {/* Initial Disclaimer */}
           {showDisclaimer && (
             <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-100">
               <pre className="whitespace-pre-wrap font-sans">{DISCLAIMER}</pre>
             </div>
           )}
 
-          {/* Messages */}
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
 
-          {/* Streaming message */}
           {streamingContent && (
             <ChatMessage
               message={{
@@ -91,7 +90,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             />
           )}
 
-          {/* Loading indicator */}
           {isLoading && !streamingContent && (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <div className="flex gap-1">
@@ -107,13 +105,36 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </ScrollArea>
 
+      {/* ✅ Yes/No quick reply buttons — shown above input when on yes/no intake step */}
+      {showYesNo && onQuickReply && (
+        <div className="px-4 pb-2 flex gap-2 bg-card border-t border-border pt-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-semibold"
+            onClick={() => onQuickReply('Yes')}
+            disabled={isLoading}
+          >
+            Yes
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 border-red-300 text-red-700 hover:bg-red-50 font-semibold"
+            onClick={() => onQuickReply('No')}
+            disabled={isLoading}
+          >
+            No
+          </Button>
+        </div>
+      )}
+
       {/* Input */}
       <ChatInput
         onSend={onSendMessage}
         isLoading={isLoading}
         mode={mode}
         disabled={isWaitingForDoctor}
-        lastAiMessage={lastAiMessage}  // ✅ pass last AI message for yes/no detection
       />
     </div>
   );
