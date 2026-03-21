@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   AlertTriangle, RefreshCw, ShieldCheck,
-  ArrowLeft, ImageOff, ChevronRight, Lock, Stethoscope
+  ArrowLeft, ImageOff, ChevronRight, Lock, Stethoscope, CreditCard
 } from 'lucide-react';
 
 interface ChatContainerProps {
@@ -32,6 +32,8 @@ interface ChatContainerProps {
   onUpgradeClick?: () => void;
   showConsentButtons?: boolean;
   onConsentProceed?: () => void;
+  showConfirmPayment?: boolean;
+  onConfirmPayment?: () => void;
   freeTierExhausted?: boolean;
 }
 
@@ -57,6 +59,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onUpgradeClick,
   showConsentButtons = false,
   onConsentProceed,
+  showConfirmPayment = false,
+  onConfirmPayment,
   freeTierExhausted = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -83,7 +87,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const modeInfo = getModeLabel();
   const isWaitingForDoctor = mode === 'dermatologist_review';
-  const hideInput = privacyFlagged || showConsentButtons || freeTierExhausted || isWaitingForDoctor;
+  const hideInput = privacyFlagged || showConsentButtons || showConfirmPayment || freeTierExhausted || isWaitingForDoctor;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -229,7 +233,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       )}
 
       {/* Free tier exhausted */}
-      {freeTierExhausted && !showConsentButtons && (
+      {freeTierExhausted && !showConsentButtons && !showConfirmPayment && (
         <div className="border-t border-border bg-gradient-to-r from-primary/5 to-primary/10 px-4 py-4">
           <div className="flex items-start gap-3 mb-3">
             <Lock className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
@@ -241,23 +245,25 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </div>
           </div>
           {showUpgradeButton && onUpgradeClick && (
-            <Button
-              type="button" variant="default" size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
-              onClick={onUpgradeClick} disabled={isLoading}
-            >
-              <Stethoscope className="h-3.5 w-3.5 mr-2" />
-              Get dermatologist review
-              <ChevronRight className="h-3.5 w-3.5 ml-1" />
-            </Button>
+            <div className="flex items-center justify-start">
+              <Button
+                type="button" variant="default" size="sm"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
+                onClick={onUpgradeClick} disabled={isLoading}
+              >
+                <Stethoscope className="h-3.5 w-3.5 mr-2" />
+                Yes, get dermatologist review
+                <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+              </Button>
+            </div>
           )}
         </div>
       )}
 
-      {/* Upgrade button — shown after every AI reply in MODE 1 */}
-      {!freeTierExhausted && showUpgradeButton && onUpgradeClick && !showConsentButtons && (
-        <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">Want a full specialist review?</p>
+      {/* Upgrade button after every AI reply in MODE 1 (not exhausted) */}
+      {!freeTierExhausted && showUpgradeButton && onUpgradeClick && !showConsentButtons && !showConfirmPayment && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground shrink-0">Want a specialist review?</p>
           <Button
             type="button" variant="default" size="sm"
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
@@ -265,7 +271,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           >
             <Stethoscope className="h-3.5 w-3.5 mr-2" />
             Yes, get dermatologist review
-            <ChevronRight className="h-3.5 w-3.5 ml-1" />
+            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
           </Button>
         </div>
       )}
@@ -289,10 +295,43 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             )}
             <Button
               type="button" variant="default" size="sm"
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
               onClick={onConsentProceed} disabled={isLoading}
             >
-              I understand — proceed to payment
+              <Stethoscope className="h-3.5 w-3.5 mr-2" />
+              I understand — proceed
+              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm payment — shown after consent acknowledged, before PaymentPage mounts */}
+      {showConfirmPayment && onConfirmPayment && (
+        <div className="border-t border-border bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground mb-3">
+            You're ready to proceed. Click below to open the payment page.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button" variant="ghost" size="sm"
+              className="text-muted-foreground hover:text-foreground font-medium shrink-0"
+              onClick={() => {
+                // Re-show consent buttons
+                if (onGoBack) onGoBack();
+              }}
+              disabled={isLoading}
+            >
+              <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+              Go back
+            </Button>
+            <Button
+              type="button" variant="default" size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
+              onClick={onConfirmPayment} disabled={isLoading}
+            >
+              <CreditCard className="h-3.5 w-3.5 mr-2" />
+              Confirm — proceed to payment
               <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
             </Button>
           </div>
