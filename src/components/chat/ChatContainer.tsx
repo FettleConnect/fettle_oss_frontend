@@ -29,6 +29,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 
+  // ✅ Get last AI message to pass to ChatInput for yes/no detection
+  const lastAiMessage = [...messages].reverse().find(m => m.role === 'ai')?.content ?? '';
+
   const getModeLabel = () => {
     switch (mode) {
       case 'general_education':
@@ -110,6 +113,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         isLoading={isLoading}
         mode={mode}
         disabled={isWaitingForDoctor}
+        lastAiMessage={lastAiMessage}  // ✅ pass last AI message for yes/no detection
       />
     </div>
   );
