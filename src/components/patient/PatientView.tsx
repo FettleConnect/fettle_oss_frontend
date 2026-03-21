@@ -53,14 +53,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     location: '',
     meds: '',
     history: '',
-    images: [] as string[]
+    images: [] as string[],
   });
 
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
-  // ✅ NEW: track if patient is in consent clarification mode (Mode 2)
   const [consentMode, setConsentMode] = useState(false);
-  // ✅ NEW: track if patient has declined images (no images mode)
   const [proceedNoImages, setProceedNoImages] = useState(false);
+
+  // ✅ FIX Row 3: two-step gate — consent confirmed but payment not yet mounted
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
 
   const isSendingRef = useRef(false);
 
@@ -101,7 +102,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('do you have any other relevant medical history')
     );
 
-  // ✅ Detect if AI is asking about images unavailable
+  // ✅ FIX Row 5: "Proceed without images" button visibility
   const showProceedNoImages =
     mode === 'post_payment_intake' &&
     !isLoading &&
@@ -113,11 +114,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('proceed_no_images')
     );
 
-  // ✅ Detect consent clarification mode (Mode 2)
+  // ✅ FIX Row 2: detect consent mode from AI message
   const isConsentMessage =
     lastAiContent.includes('please confirm that you understand') ||
     lastAiContent.includes('dermatologist-prepared educational overview') ||
     lastAiContent.includes('type confirm');
+
+  // ✅ FIX Row 7: "Go back" shown only in consent mode
+  const showGoBack = consentMode && !isLoading;
+
+  // ✅ FIX Row 2: "Yes, upgrade to image review" shown in consent mode
+  //    but NOT after patient has already confirmed (avoids re-triggering)
+  const showConsentUpgrade = consentMode && !isLoading && !consentConfirmed;
 
   const isPrivacyFlagMessage = (content: string) =>
     content.toLowerCase().includes('these images may contain identifiable personal information') ||
@@ -186,7 +194,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchConsultationHistory();
   }, [fetchChatHistory, fetchConsultationHistory]);
 
-  // ✅ Detect consent mode from AI messages
+  // ✅ FIX Row 2: set consentMode when AI message triggers it
   useEffect(() => {
     if (isConsentMessage && mode === 'general_education') {
       setConsentMode(true);
@@ -210,6 +218,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setActiveThreadId(data.thread_id);
         setPrivacyFlagged(false);
         setConsentMode(false);
+        setConsentConfirmed(false);
         setProceedNoImages(false);
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
@@ -279,9 +288,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ✅ NEW: Handle "Go back" button — injects BACK keyword
+  // ✅ FIX Row 7: "Go back" — injects BACK keyword
   const handleGoBack = async () => {
     setConsentMode(false);
+    setConsentConfirmed(false);
     setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
@@ -312,7 +322,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ✅ NEW: Handle "Proceed without images" button — injects PROCEED_NO_IMAGES
+  // ✅ FIX Row 5: "Proceed without images" — injects PROCEED_NO_IMAGES
   const handleProceedNoImages = async () => {
     setProceedNoImages(true);
     setIsLoading(true);
@@ -332,7 +342,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-      // Continue intake from current step
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'AI',
@@ -344,6 +353,54 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // ✅ FIX Row 2: dedicated "Yes, upgrade to image review" button handler
+  //    Sends YES_UPGRADE as a structured signal, sets consentConfirmed = true,
+  //    which shows the Row 3 CONFIRM gate instead of jumping straight to PaymentPage.
+  const handleConsentUpgrade = async () => {
+    setConsentMode(false);
+    setConsentConfirmed(true);
+    setIsLoading(true);
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: 'Yes, upgrade to image review',
+    };
+    setMessages(prev => [...prev, userMessage]);
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'YES_UPGRADE');
+      formData.append('thread_id', activeThreadId || '');
+      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.mode) setMode(data.mode as ConversationMode);
+        if (data.result) {
+          const aiMessage: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: data.result,
+          };
+          setMessages(prev => [...prev, aiMessage]);
+        }
+      }
+    } catch (error) {
+      console.error('Error sending YES_UPGRADE:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ✅ FIX Row 3: explicit CONFIRM button mounts PaymentPage
+  const handleConfirmProceedToPayment = () => {
+    setConsentConfirmed(false);
+    setMode('payment_page');
   };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
@@ -511,6 +568,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setIntakeStep(0);
     setPrivacyFlagged(false);
     setConsentMode(false);
+    setConsentConfirmed(false);
     setProceedNoImages(false);
     setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
 
@@ -558,6 +616,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     .filter(msg => {
       const c = msg.content ?? '';
       if (c.trim() === 'PAYMENT_CONFIRMED') return false;
+      if (c.trim() === 'YES_UPGRADE') return false;
       if (c.includes('INTAKE COMPLETE') && c.includes('Summary:')) return false;
       return true;
     })
@@ -617,12 +676,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     </div>
   );
 
+  // ✅ FIX Row 3: PaymentPage only mounts via handleConfirmProceedToPayment
   if (mode === 'payment_page') {
     return (
       <div className="h-screen">
         <PaymentPage
           onPaymentSuccess={handlePaymentSuccess}
-          onCancel={() => setMode('general_education')}
+          onCancel={() => {
+            setMode('general_education');
+            setConsentConfirmed(false);
+          }}
           threadId={activeThreadId || ''}
         />
       </div>
@@ -644,6 +707,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         </Sheet>
       )}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
         <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
           <div className="flex items-center gap-2 md:gap-3">
             {!showHistory && (
@@ -651,7 +715,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                 <Clock className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { fetchChatHistory(); fetchConsultationHistory(); toast({ title: "Syncing...", description: "Updating consultation data." }); }}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                fetchChatHistory();
+                fetchConsultationHistory();
+                toast({ title: "Syncing...", description: "Updating consultation data." });
+              }}
+            >
               <RefreshCw className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
@@ -663,13 +736,23 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           </div>
           <div className="flex gap-1.5 md:gap-2">
             {isEducational && (
-              <Button variant="default" size="sm" onClick={() => setMode('payment_page')} className="h-8 text-[10px] md:text-xs px-2 md:px-3">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setMode('payment_page')}
+                className="h-8 text-[10px] md:text-xs px-2 md:px-3"
+              >
                 <CreditCard className="h-3.5 w-3.5 md:mr-1.5" />
                 <span className="font-bold">Pay for Consultation</span>
               </Button>
             )}
             {hasDoctorResponded && (
-              <Button variant="default" size="sm" onClick={handleNewConsultation} className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleNewConsultation}
+                className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white"
+              >
                 <Plus className="h-3.5 w-3.5 md:mr-1.5" />
                 <span className="font-bold">New Consultation</span>
               </Button>
@@ -680,6 +763,41 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </Button>
           </div>
         </div>
+
+        {/* ✅ FIX Row 3: post-consent CONFIRM gate — between consent and PaymentPage */}
+        {consentConfirmed && !isLoading && (
+          <div className="border-b border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 px-4 py-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-green-800 dark:text-green-200 font-medium">
+              Ready to proceed to payment for your dermatologist consultation?
+            </p>
+            <div className="flex gap-2 flex-shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
+                onClick={() => {
+                  setConsentConfirmed(false);
+                  setConsentMode(true);
+                }}
+                disabled={isLoading}
+              >
+                Go back
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="bg-green-600 hover:bg-green-700 text-white font-semibold"
+                onClick={handleConfirmProceedToPayment}
+                disabled={isLoading}
+              >
+                I confirm — proceed to payment
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 min-h-0">
           <ChatContainer
             messages={transformedMessages}
@@ -695,9 +813,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             privacyFlagged={privacyFlagged}
             onPrivacyRemove={handlePrivacyRemoveImages}
             onPrivacyOverride={handlePrivacyOverride}
-            // ✅ NEW props
-            showGoBack={consentMode && !isLoading}
+            // ✅ FIX Row 7: Go back button
+            showGoBack={showGoBack}
             onGoBack={handleGoBack}
+            // ✅ FIX Row 2: Consent upgrade button
+            showConsentUpgrade={showConsentUpgrade}
+            onConsentUpgrade={handleConsentUpgrade}
+            // ✅ FIX Row 5: Proceed without images button
             showProceedNoImages={showProceedNoImages}
             onProceedNoImages={handleProceedNoImages}
           />
