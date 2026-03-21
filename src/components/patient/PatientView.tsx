@@ -63,14 +63,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const isSendingRef = useRef(false);
 
+  // Step 0 = image upload, Steps 1-6 = clinical questions
   const INTAKE_QUESTIONS = [
+    "Please upload clear images of the affected area from multiple angles if you have them. Do not include faces, documents, or identifying information. Once uploaded, we'll begin the clinical questions — or let us know if you'd like to proceed without images.",
     "1. How long has this skin concern been present? (Duration)",
     "2. What symptoms are you experiencing? (e.g. itching, pain, bleeding, spreading)",
     "3. Where on your body is this located?",
     "4. Have you tried any medications or creams for this? If so, which ones?",
     "5. Have you had any prior diagnoses for this or other skin conditions?",
-    "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you have not already)",
+    "6. Do you have any other relevant medical history or allergies?",
   ];
+
+  // Index 0 = images step, then clinical fields
+  const STEP_KEYS = ['images', 'duration', 'symptoms', 'location', 'meds', 'history', 'history'];
 
   const DURATION_OPTIONS = [
     'Less than 1 week',
@@ -100,12 +105,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('do you have any other relevant medical history')
     );
 
+  // Shown on step 0 (image upload prompt) and whenever AI mentions no-images fallback
   const showProceedNoImages =
     mode === 'post_payment_intake' &&
     !isLoading &&
     !privacyFlagged &&
     !proceedNoImages &&
     (
+      intakeStep === 0 ||
       lastAiContent.includes('proceed without images') ||
       lastAiContent.includes('significantly less reliable') ||
       lastAiContent.includes('proceed_no_images')
@@ -211,6 +218,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setConsentMode(false);
         setConsentConfirmed(false);
         setProceedNoImages(false);
+        setIntakeStep(0);
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
@@ -331,10 +339,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
+      // Skip image step (step 0), go straight to clinical question 1
+      const nextStep = 1;
+      setIntakeStep(nextStep);
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'AI',
-        content: INTAKE_QUESTIONS[intakeStep],
+        content: INTAKE_QUESTIONS[nextStep],
       };
       setMessages(prev => [...prev, aiMessage]);
     } catch (error) {
@@ -344,7 +355,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // Sends YES to backend (master prompt trigger keyword), then shows CONFIRM gate
   const handleConsentUpgrade = async () => {
     setConsentMode(false);
     setConsentConfirmed(true);
@@ -358,7 +368,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', 'YES');  // master prompt trigger keyword
+      formData.append('question', 'YES');
       formData.append('thread_id', activeThreadId || '');
       const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
@@ -384,14 +394,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // Sends CONFIRM to backend (master prompt trigger keyword), then mounts PaymentPage
   const handleConfirmProceedToPayment = async () => {
     setConsentConfirmed(false);
     setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', 'CONFIRM');  // master prompt trigger keyword
+      formData.append('question', 'CONFIRM');
       formData.append('thread_id', activeThreadId || '');
       await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
@@ -413,8 +422,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
     isSendingRef.current = true;
 
-    const messageContent = content;
-
     if (mode === 'post_payment_intake' && images && images.length > 0) {
       setIntakeData(prev => ({ ...prev, images: [...prev.images, ...images] }));
     }
@@ -422,21 +429,71 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: messageContent,
+      content,
       images: images && images.length > 0 ? images : undefined,
     };
 
     setMessages(prev => {
-      const exists = prev.some(m => m.role === 'user' && m.content === messageContent);
+      const exists = prev.some(m => m.role === 'user' && m.content === content);
       if (exists) return prev;
       return [...prev, userMessage];
     });
 
     if (mode === 'post_payment_intake') {
-      const currentStepKey = ['duration', 'symptoms', 'location', 'meds', 'history', 'history'][intakeStep];
-      setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
+      // Step 0: image upload step — after patient sends anything (or images),
+      // move to clinical question 1
+      if (intakeStep === 0) {
+        const nextStep = 1;
+        setIntakeStep(nextStep);
+        setIsLoading(true);
+        try {
+          const authToken = localStorage.getItem('authToken');
+          const formData = new FormData();
+          formData.append('question', content);
+          formData.append('thread_id', activeThreadId || '');
+          if (images && images.length > 0) {
+            await appendImagesToFormData(formData, images);
+          }
+          const response = await fetch(`${BASE_URL}/api/chat_view/`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            body: formData,
+          });
+          const data = await response.json();
+          if (data.result && isPrivacyFlagMessage(data.result)) {
+            setPrivacyFlagged(true);
+            setMessages(prev => [...prev, {
+              id: `ai-${Date.now()}`,
+              role: 'AI',
+              content: data.result,
+            }]);
+            setIsLoading(false);
+            isSendingRef.current = false;
+            return;
+          }
+        } catch (error) {
+          console.error('Error sending image step:', error);
+        }
+        setTimeout(() => {
+          setMessages(prev => [...prev, {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: INTAKE_QUESTIONS[nextStep],
+          }]);
+          setIsLoading(false);
+          isSendingRef.current = false;
+        }, 500);
+        return;
+      }
 
-      const isLastStep = content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1;
+      const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
+      if (currentStepKey !== 'images') {
+        setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
+      }
+
+      const isLastStep =
+        content.toUpperCase().trim() === 'DONE' ||
+        intakeStep >= INTAKE_QUESTIONS.length - 1;
 
       if (isLastStep) {
         setIsLoading(true);
@@ -458,12 +515,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           setMode('dermatologist_review');
           setPrivacyFlagged(false);
           setProceedNoImages(false);
-          const aiMessage: ChatMessage = {
+          setMessages(prev => [...prev, {
             id: `ai-${Date.now()}`,
             role: 'AI',
             content: "Thank you. I have collected all the necessary clinical information. Our dermatologist, Dr. Attili, will now review your case. You will be notified once the clinical review is complete.",
-          };
-          setMessages(prev => [...prev, aiMessage]);
+          }]);
         } catch (error) {
           console.error('Error completing intake:', error);
         } finally {
@@ -493,27 +549,25 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const data = await response.json();
         if (data.result && isPrivacyFlagMessage(data.result)) {
           setPrivacyFlagged(true);
-          const aiMessage: ChatMessage = {
+          setMessages(prev => [...prev, {
             id: `ai-${Date.now()}`,
             role: 'AI',
             content: data.result,
-          };
-          setMessages(prev => [...prev, aiMessage]);
+          }]);
           setIsLoading(false);
           isSendingRef.current = false;
           return;
         }
       } catch (error) {
-        console.error('Error sending intake step to backend:', error);
+        console.error('Error sending intake step:', error);
       }
 
       setTimeout(() => {
-        const aiMessage: ChatMessage = {
+        setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           role: 'AI',
           content: INTAKE_QUESTIONS[nextStep],
-        };
-        setMessages(prev => [...prev, aiMessage]);
+        }]);
         setIsLoading(false);
         isSendingRef.current = false;
       }, 500);
@@ -524,7 +578,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', messageContent);
+      formData.append('question', content);
       formData.append('thread_id', activeThreadId || '');
       if (images && images.length > 0) {
         await appendImagesToFormData(formData, images);
@@ -575,20 +629,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setProceedNoImages(false);
     setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
 
-    const paymentMessage: ChatMessage = {
+    setMessages(prev => [...prev, {
       id: `system-${Date.now()}`,
       role: 'system',
       content: "Thank you for your payment! You are now connected to our intake process.",
-    };
-    setMessages(prev => [...prev, paymentMessage]);
+    }]);
 
     setTimeout(() => {
-      const aiMessage: ChatMessage = {
+      // Step 0 — ask for images first
+      setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'AI',
-        content: "To help our dermatologist provide an accurate review, please answer a few questions.\n\n" + INTAKE_QUESTIONS[0],
-      };
-      setMessages(prev => [...prev, aiMessage]);
+        content: INTAKE_QUESTIONS[0],
+      }]);
     }, 1000);
 
     try {
