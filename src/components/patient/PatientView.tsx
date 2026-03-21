@@ -67,12 +67,32 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you have not already)",
   ];
 
-  // ✅ Steps that show Yes/No buttons (0-indexed: steps 4, 5 = questions 4 & 5)
-  // Step 3 = "Have you tried any medications?" → Yes/No
-  // Step 4 = "Have you had any prior diagnoses?" → Yes/No
-  // Step 5 = "Any other medical history or allergies?" → Yes/No
-  const YES_NO_STEPS = [3, 4, 5];
-  const showYesNo = mode === 'post_payment_intake' && YES_NO_STEPS.includes(intakeStep) && !isLoading;
+  const DURATION_OPTIONS = [
+    'Less than 1 week',
+    '1–4 weeks',
+    '1–3 months',
+    '3–6 months',
+    'Over 6 months',
+  ];
+
+  // ✅ Read last AI message content to decide which quick buttons to show
+  const lastAiContent = messages
+    .filter(m => m.role === 'AI' || m.role === 'ai')
+    .slice(-1)[0]?.content?.toLowerCase() ?? '';
+
+  const showDurationChips =
+    mode === 'post_payment_intake' &&
+    !isLoading &&
+    lastAiContent.includes('how long has this skin concern');
+
+  const showYesNo =
+    mode === 'post_payment_intake' &&
+    !isLoading &&
+    (
+      lastAiContent.includes('have you tried any medications') ||
+      lastAiContent.includes('have you had any prior diagnoses') ||
+      lastAiContent.includes('do you have any other relevant medical history')
+    );
 
   const fetchConsultationHistory = useCallback(async () => {
     try {
@@ -504,9 +524,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             isLoading={isLoading}
             mode={mode}
             showDisclaimer={messages.length === 0}
-            // ✅ Pass showYesNo and the quick reply handler directly
             showYesNo={showYesNo}
             onQuickReply={handleSendMessage}
+            showDurationChips={showDurationChips}
+            durationOptions={DURATION_OPTIONS}
           />
         </div>
       </div>
