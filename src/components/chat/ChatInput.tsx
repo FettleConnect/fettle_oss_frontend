@@ -69,8 +69,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
 
   const getPlaceholder = () => {
     if (disabled) return 'Waiting for dermatologist review...';
-    if (mode === 'post_payment_intake') {
-      return 'Describe your symptoms... (Type DONE when finished)';
+    if (mode === 'post_payment_intake') return 'Type your answer...';
     }
     // ✅ FIXED HERE (removed "Type YES...")
     return 'Type your message...';
