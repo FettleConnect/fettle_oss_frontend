@@ -59,8 +59,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
   const [consentMode, setConsentMode] = useState(false);
   const [proceedNoImages, setProceedNoImages] = useState(false);
-
-  // ✅ FIX Row 3: two-step gate — consent confirmed but payment not yet mounted
   const [consentConfirmed, setConsentConfirmed] = useState(false);
 
   const isSendingRef = useRef(false);
@@ -102,7 +100,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('do you have any other relevant medical history')
     );
 
-  // ✅ FIX Row 5: "Proceed without images" button visibility
   const showProceedNoImages =
     mode === 'post_payment_intake' &&
     !isLoading &&
@@ -114,17 +111,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('proceed_no_images')
     );
 
-  // ✅ FIX Row 2: detect consent mode from AI message
   const isConsentMessage =
     lastAiContent.includes('please confirm that you understand') ||
     lastAiContent.includes('dermatologist-prepared educational overview') ||
     lastAiContent.includes('type confirm');
 
-  // ✅ FIX Row 7: "Go back" shown only in consent mode
   const showGoBack = consentMode && !isLoading;
-
-  // ✅ FIX Row 2: "Yes, upgrade to image review" shown in consent mode
-  //    but NOT after patient has already confirmed (avoids re-triggering)
   const showConsentUpgrade = consentMode && !isLoading && !consentConfirmed;
 
   const isPrivacyFlagMessage = (content: string) =>
@@ -194,7 +186,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchConsultationHistory();
   }, [fetchChatHistory, fetchConsultationHistory]);
 
-  // ✅ FIX Row 2: set consentMode when AI message triggers it
   useEffect(() => {
     if (isConsentMessage && mode === 'general_education') {
       setConsentMode(true);
@@ -288,7 +279,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ✅ FIX Row 7: "Go back" — injects BACK keyword
   const handleGoBack = async () => {
     setConsentMode(false);
     setConsentConfirmed(false);
@@ -322,7 +312,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ✅ FIX Row 5: "Proceed without images" — injects PROCEED_NO_IMAGES
   const handleProceedNoImages = async () => {
     setProceedNoImages(true);
     setIsLoading(true);
@@ -355,9 +344,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ✅ FIX Row 2: dedicated "Yes, upgrade to image review" button handler
-  //    Sends YES_UPGRADE as a structured signal, sets consentConfirmed = true,
-  //    which shows the Row 3 CONFIRM gate instead of jumping straight to PaymentPage.
+  // Sends YES to backend (master prompt trigger keyword), then shows CONFIRM gate
   const handleConsentUpgrade = async () => {
     setConsentMode(false);
     setConsentConfirmed(true);
@@ -371,7 +358,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', 'YES_UPGRADE');
+      formData.append('question', 'YES');  // master prompt trigger keyword
       formData.append('thread_id', activeThreadId || '');
       const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
@@ -391,16 +378,32 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         }
       }
     } catch (error) {
-      console.error('Error sending YES_UPGRADE:', error);
+      console.error('Error sending YES:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ✅ FIX Row 3: explicit CONFIRM button mounts PaymentPage
-  const handleConfirmProceedToPayment = () => {
+  // Sends CONFIRM to backend (master prompt trigger keyword), then mounts PaymentPage
+  const handleConfirmProceedToPayment = async () => {
     setConsentConfirmed(false);
-    setMode('payment_page');
+    setIsLoading(true);
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'CONFIRM');  // master prompt trigger keyword
+      formData.append('thread_id', activeThreadId || '');
+      await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData,
+      });
+    } catch (error) {
+      console.error('Error sending CONFIRM:', error);
+    } finally {
+      setIsLoading(false);
+      setMode('payment_page');
+    }
   };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
@@ -616,7 +619,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     .filter(msg => {
       const c = msg.content ?? '';
       if (c.trim() === 'PAYMENT_CONFIRMED') return false;
-      if (c.trim() === 'YES_UPGRADE') return false;
+      if (c.trim() === 'YES') return false;
+      if (c.trim() === 'CONFIRM') return false;
       if (c.includes('INTAKE COMPLETE') && c.includes('Summary:')) return false;
       return true;
     })
@@ -676,7 +680,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     </div>
   );
 
-  // ✅ FIX Row 3: PaymentPage only mounts via handleConfirmProceedToPayment
   if (mode === 'payment_page') {
     return (
       <div className="h-screen">
@@ -707,7 +710,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         </Sheet>
       )}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
         <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
           <div className="flex items-center gap-2 md:gap-3">
             {!showHistory && (
@@ -764,7 +766,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           </div>
         </div>
 
-        {/* ✅ FIX Row 3: post-consent CONFIRM gate — between consent and PaymentPage */}
+        {/* Post-consent CONFIRM gate */}
         {consentConfirmed && !isLoading && (
           <div className="border-b border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 px-4 py-3 flex items-center justify-between gap-3">
             <p className="text-sm text-green-800 dark:text-green-200 font-medium">
@@ -813,13 +815,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             privacyFlagged={privacyFlagged}
             onPrivacyRemove={handlePrivacyRemoveImages}
             onPrivacyOverride={handlePrivacyOverride}
-            // ✅ FIX Row 7: Go back button
             showGoBack={showGoBack}
             onGoBack={handleGoBack}
-            // ✅ FIX Row 2: Consent upgrade button
             showConsentUpgrade={showConsentUpgrade}
             onConsentUpgrade={handleConsentUpgrade}
-            // ✅ FIX Row 5: Proceed without images button
             showProceedNoImages={showProceedNoImages}
             onProceedNoImages={handleProceedNoImages}
           />
