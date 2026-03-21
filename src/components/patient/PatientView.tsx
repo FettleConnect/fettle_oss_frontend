@@ -59,17 +59,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
   const [consentMode, setConsentMode] = useState(false);
   const [proceedNoImages, setProceedNoImages] = useState(false);
-  const [consentConfirmed, setConsentConfirmed] = useState(false);
 
-  // Fix 4: count AI replies in general education mode
-  const freeAiReplyCount = messages.filter(
-    m => (m.role === 'AI' || m.role === 'ai') 
-  ).length;
-  const freeTierExhausted = mode === 'general_education' && freeAiReplyCount >= 3;
-
+  // Guard against handlePaymentSuccess firing multiple times
+  const paymentProcessedRef = useRef(false);
   const isSendingRef = useRef(false);
 
-  // Step 0 = image upload, Steps 1-6 = clinical questions
   const INTAKE_QUESTIONS = [
     "Please upload clear images of the affected area from multiple angles if you have them. Do not include faces, documents, or identifying information. Once uploaded, we'll begin the clinical questions — or let us know if you'd like to proceed without images.",
     "1. How long has this skin concern been present? (Duration)",
@@ -94,7 +88,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     .filter(m => m.role === 'AI' || m.role === 'ai')
     .slice(-1)[0]?.content?.toLowerCase() ?? '';
 
-  const hasAnyAiReply = freeAiReplyCount > 0;
+  const freeAiReplyCount = messages.filter(
+    m => (m.role === 'AI' || m.role === 'ai') && mode === 'general_education'
+  ).length;
+
+  // Count AI replies that happened while in general_education mode
+  const educationAiReplyCount = messages.filter(
+    m => (m.role === 'AI' || m.role === 'ai')
+  ).length;
+
+  const freeTierExhausted = mode === 'general_education' && educationAiReplyCount >= 3;
+  const hasAnyAiReply = educationAiReplyCount > 0;
 
   const showDurationChips =
     mode === 'post_payment_intake' &&
@@ -124,19 +128,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('proceed_no_images')
     );
 
-  // Fix 1: show upgrade button after any AI reply in MODE 1,
-  // and in consent mode
+  // Show upgrade button after first AI reply in MODE 1, not in consent mode
   const showUpgradeButton =
     mode === 'general_education' &&
     !isLoading &&
     hasAnyAiReply &&
-    !consentMode &&
-    !consentConfirmed;
+    !consentMode;
 
-  // Fix 2: consent mode — two buttons, no free text
-  const showConsentButtons =
-    consentMode && !isLoading && !consentConfirmed;
-
+  // Consent mode two-button layout
+  const showConsentButtons = consentMode && !isLoading;
   const showGoBack = consentMode && !isLoading;
 
   const isPrivacyFlagMessage = (content: string) =>
@@ -206,7 +206,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchConsultationHistory();
   }, [fetchChatHistory, fetchConsultationHistory]);
 
-  // Detect consent mode from AI message
+  // Detect consent mode from AI message — only set, never auto-clear
+  // (clearing happens explicitly in handlers)
   useEffect(() => {
     const isConsentMessage =
       lastAiContent.includes('please confirm that you understand') ||
@@ -215,10 +216,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
     if (isConsentMessage && mode === 'general_education') {
       setConsentMode(true);
-    } else if (mode !== 'general_education') {
+    }
+  }, [lastAiContent]);
+
+  // Clear consent mode when leaving general_education
+  useEffect(() => {
+    if (mode !== 'general_education') {
       setConsentMode(false);
     }
-  }, [lastAiContent, mode]);
+  }, [mode]);
 
   const handleNewConsultation = async () => {
     try {
@@ -235,9 +241,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setActiveThreadId(data.thread_id);
         setPrivacyFlagged(false);
         setConsentMode(false);
-        setConsentConfirmed(false);
         setProceedNoImages(false);
         setIntakeStep(0);
+        paymentProcessedRef.current = false;
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
@@ -307,7 +313,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const handleGoBack = async () => {
     setConsentMode(false);
-    setConsentConfirmed(false);
     setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
@@ -369,7 +374,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // Fix 1: sends YES, transitions to consent mode (MODE 2)
+  // Sends YES → triggers MODE 2 (consent) on backend
   const handleUpgradeClick = async () => {
     setIsLoading(true);
     setMessages(prev => [...prev, {
@@ -405,53 +410,63 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // Fix 2: "I understand — proceed to payment" opens payment directly
-  // CONFIRM is NOT sent here — it is sent only after payment webhook succeeds
+  // "I understand — proceed to payment"
+  // Does NOT send CONFIRM — that only happens after payment webhook
+  // Clears consent mode fully before mounting PaymentPage
   const handleConsentProceed = () => {
     setConsentMode(false);
-    setConsentConfirmed(true);
     setMode('payment_page');
   };
 
-  // CONFIRM is injected here — after payment success webhook
+  // Called by PaymentPage after successful payment webhook
+  // CONFIRM injected here — only once, guarded by paymentProcessedRef
   const handlePaymentSuccess = async () => {
+    if (paymentProcessedRef.current) return;
+    paymentProcessedRef.current = true;
+
+    // Set mode immediately to prevent PaymentPage re-mounting
     setMode('post_payment_intake');
     setIntakeStep(0);
     setPrivacyFlagged(false);
     setConsentMode(false);
-    setConsentConfirmed(false);
     setProceedNoImages(false);
     setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
 
-    setMessages(prev => [...prev, {
-      id: `system-${Date.now()}`,
-      role: 'system',
-      content: "Thank you for your payment! You are now connected to our intake process.",
-    }]);
+    // Add payment confirmation message once
+    const systemId = `system-${Date.now()}`;
+    setMessages(prev => {
+      const alreadyExists = prev.some(m => m.role === 'system' && m.content.includes('Thank you for your payment'));
+      if (alreadyExists) return prev;
+      return [...prev, {
+        id: systemId,
+        role: 'system',
+        content: "Thank you for your payment! You are now connected to our intake process.",
+      }];
+    });
 
     setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: `ai-${Date.now()}`,
-        role: 'AI',
-        content: INTAKE_QUESTIONS[0],
-      }]);
-    }, 1000);
+      setMessages(prev => {
+        const alreadyHasIntakeQ = prev.some(m => m.content === INTAKE_QUESTIONS[0]);
+        if (alreadyHasIntakeQ) return prev;
+        return [...prev, {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: INTAKE_QUESTIONS[0],
+        }];
+      });
+    }, 800);
 
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      // CONFIRM injected here after payment webhook — per developer guide
+      // CONFIRM injected here — after payment webhook, per developer guide
       formData.append('question', 'CONFIRM');
       formData.append('thread_id', activeThreadId || '');
-      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
+      await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.mode) setMode(data.mode as ConversationMode);
-      }
     } catch (error) {
       console.error('Error sending CONFIRM after payment:', error);
     }
@@ -480,14 +495,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     });
 
     if (mode === 'post_payment_intake') {
-      // Fix 3: only use images passed at send time — do NOT accumulate
-      // Store only the current send's images for final summary
-      if (images && images.length > 0 && intakeStep === 0) {
-        setIntakeData(prev => ({ ...prev, images }));
-      }
-
-      // Step 0: image upload step
+      // Step 0: image upload — store exactly what was sent, nothing accumulated
       if (intakeStep === 0) {
+        if (images && images.length > 0) {
+          setIntakeData(prev => ({ ...prev, images }));
+        }
         const nextStep = 1;
         setIntakeStep(nextStep);
         setIsLoading(true);
@@ -545,7 +557,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          // Fix 3: use only intakeData.images which was set once at step 0
           const allImages = intakeData.images;
           formData.append(
             'question',
@@ -669,9 +680,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const transformedMessages = messages
     .filter(msg => {
       const c = msg.content ?? '';
-      if (c.trim() === 'PAYMENT_CONFIRMED') return false;
-      if (c.trim() === 'YES') return false;
       if (c.trim() === 'CONFIRM') return false;
+      if (c.trim() === 'YES') return false;
       if (c.includes('INTAKE COMPLETE') && c.includes('Summary:')) return false;
       return true;
     })
@@ -737,9 +747,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         <PaymentPage
           onPaymentSuccess={handlePaymentSuccess}
           onCancel={() => {
+            // Go back to consent screen, not general_education
+            // This prevents re-triggering the consent detection loop
             setMode('general_education');
             setConsentMode(true);
-            setConsentConfirmed(false);
           }}
           threadId={activeThreadId || ''}
         />
@@ -837,13 +848,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             onGoBack={handleGoBack}
             showProceedNoImages={showProceedNoImages}
             onProceedNoImages={handleProceedNoImages}
-            // Fix 1: upgrade button after every AI reply in MODE 1
             showUpgradeButton={showUpgradeButton}
             onUpgradeClick={handleUpgradeClick}
-            // Fix 2: consent mode two-button layout
             showConsentButtons={showConsentButtons}
             onConsentProceed={handleConsentProceed}
-            // Fix 4: free tier exhausted
             freeTierExhausted={freeTierExhausted}
           />
         </div>
