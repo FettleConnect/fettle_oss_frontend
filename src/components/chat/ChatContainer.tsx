@@ -13,8 +13,10 @@ interface ChatContainerProps {
   isLoading: boolean;
   mode: ConversationMode;
   showDisclaimer: boolean;
-  showYesNo?: boolean;       // ✅ NEW
-  onQuickReply?: (reply: string) => void; // ✅ NEW
+  showYesNo?: boolean;
+  onQuickReply?: (reply: string) => void;
+  showDurationChips?: boolean;
+  durationOptions?: string[];
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -26,6 +28,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   showDisclaimer,
   showYesNo = false,
   onQuickReply,
+  showDurationChips = false,
+  durationOptions = [],
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -105,7 +109,29 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </ScrollArea>
 
-      {/* ✅ Yes/No quick reply buttons — shown above input when on yes/no intake step */}
+      {/* ✅ Duration chip buttons — shown when AI asks "how long has this skin concern" */}
+      {showDurationChips && onQuickReply && (
+        <div className="px-4 pb-2 pt-3 bg-card border-t border-border">
+          <p className="text-xs text-muted-foreground mb-2 font-medium">Select duration:</p>
+          <div className="flex flex-wrap gap-2">
+            {durationOptions.map((option) => (
+              <Button
+                key={option}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs h-8 border-primary/30 text-primary hover:bg-primary/10"
+                onClick={() => onQuickReply(option)}
+                disabled={isLoading}
+              >
+                {option}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Yes/No quick reply buttons — shown for yes/no intake questions */}
       {showYesNo && onQuickReply && (
         <div className="px-4 pb-2 flex gap-2 bg-card border-t border-border pt-3">
           <Button
