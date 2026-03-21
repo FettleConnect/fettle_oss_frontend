@@ -56,8 +56,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     images: [] as string[]
   });
 
-  // ✅ Privacy flag state
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
+  // ✅ NEW: track if patient is in consent clarification mode (Mode 2)
+  const [consentMode, setConsentMode] = useState(false);
+  // ✅ NEW: track if patient has declined images (no images mode)
+  const [proceedNoImages, setProceedNoImages] = useState(false);
 
   const isSendingRef = useRef(false);
 
@@ -97,6 +100,24 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('have you had any prior diagnoses') ||
       lastAiContent.includes('do you have any other relevant medical history')
     );
+
+  // ✅ Detect if AI is asking about images unavailable
+  const showProceedNoImages =
+    mode === 'post_payment_intake' &&
+    !isLoading &&
+    !privacyFlagged &&
+    !proceedNoImages &&
+    (
+      lastAiContent.includes('proceed without images') ||
+      lastAiContent.includes('significantly less reliable') ||
+      lastAiContent.includes('proceed_no_images')
+    );
+
+  // ✅ Detect consent clarification mode (Mode 2)
+  const isConsentMessage =
+    lastAiContent.includes('please confirm that you understand') ||
+    lastAiContent.includes('dermatologist-prepared educational overview') ||
+    lastAiContent.includes('type confirm');
 
   const isPrivacyFlagMessage = (content: string) =>
     content.toLowerCase().includes('these images may contain identifiable personal information') ||
@@ -165,6 +186,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchConsultationHistory();
   }, [fetchChatHistory, fetchConsultationHistory]);
 
+  // ✅ Detect consent mode from AI messages
+  useEffect(() => {
+    if (isConsentMessage && mode === 'general_education') {
+      setConsentMode(true);
+    } else if (mode !== 'general_education') {
+      setConsentMode(false);
+    }
+  }, [lastAiContent, mode]);
+
   const handleNewConsultation = async () => {
     try {
       setIsLoading(true);
@@ -179,6 +209,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setMode('general_education');
         setActiveThreadId(data.thread_id);
         setPrivacyFlagged(false);
+        setConsentMode(false);
+        setProceedNoImages(false);
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
@@ -247,6 +279,73 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
+  // ✅ NEW: Handle "Go back" button — injects BACK keyword
+  const handleGoBack = async () => {
+    setConsentMode(false);
+    setIsLoading(true);
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'BACK');
+      formData.append('thread_id', activeThreadId || '');
+      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.mode) setMode(data.mode as ConversationMode);
+        if (data.result) {
+          const aiMessage: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: data.result,
+          };
+          setMessages(prev => [...prev, aiMessage]);
+        }
+      }
+    } catch (error) {
+      console.error('Error sending BACK:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ✅ NEW: Handle "Proceed without images" button — injects PROCEED_NO_IMAGES
+  const handleProceedNoImages = async () => {
+    setProceedNoImages(true);
+    setIsLoading(true);
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: "I don't have images — proceed with text only",
+    };
+    setMessages(prev => [...prev, userMessage]);
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'PROCEED_NO_IMAGES');
+      formData.append('thread_id', activeThreadId || '');
+      await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData,
+      });
+      // Continue intake from current step
+      const aiMessage: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        role: 'AI',
+        content: INTAKE_QUESTIONS[intakeStep],
+      };
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Error sending PROCEED_NO_IMAGES:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSendMessage = async (content: string, images?: string[]) => {
     if (isSendingRef.current || isLoading) {
       console.warn('Send blocked - already sending');
@@ -298,6 +397,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           });
           setMode('dermatologist_review');
           setPrivacyFlagged(false);
+          setProceedNoImages(false);
           const aiMessage: ChatMessage = {
             id: `ai-${Date.now()}`,
             role: 'AI',
@@ -410,6 +510,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setMode('post_payment_intake');
     setIntakeStep(0);
     setPrivacyFlagged(false);
+    setConsentMode(false);
+    setProceedNoImages(false);
     setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
 
     const paymentMessage: ChatMessage = {
@@ -593,6 +695,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             privacyFlagged={privacyFlagged}
             onPrivacyRemove={handlePrivacyRemoveImages}
             onPrivacyOverride={handlePrivacyOverride}
+            // ✅ NEW props
+            showGoBack={consentMode && !isLoading}
+            onGoBack={handleGoBack}
+            showProceedNoImages={showProceedNoImages}
+            onProceedNoImages={handleProceedNoImages}
           />
         </div>
       </div>
