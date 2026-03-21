@@ -34,6 +34,7 @@ interface ChatContainerProps {
   onConsentProceed?: () => void;
   showConfirmPayment?: boolean;
   onConfirmPayment?: () => void;
+  onConfirmGoBack?: () => void;
   freeTierExhausted?: boolean;
 }
 
@@ -61,6 +62,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onConsentProceed,
   showConfirmPayment = false,
   onConfirmPayment,
+  onConfirmGoBack,
   freeTierExhausted = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,10 +89,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const modeInfo = getModeLabel();
   const isWaitingForDoctor = mode === 'dermatologist_review';
-  const hideInput = privacyFlagged || showConsentButtons || showConfirmPayment || freeTierExhausted || isWaitingForDoctor;
+  const hideInput =
+    privacyFlagged ||
+    showConsentButtons ||
+    showConfirmPayment ||
+    freeTierExhausted ||
+    isWaitingForDoctor;
 
   return (
     <div className="flex flex-col h-full bg-background">
+
       {/* Header */}
       <div className="border-b border-border bg-card px-4 py-3 flex items-center justify-between">
         <div>
@@ -144,7 +152,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {/* ── Bottom action area ── */}
 
-      {/* Privacy flag */}
+      {/* Privacy flag banner */}
       {privacyFlagged && (
         <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-4">
           <div className="flex items-start gap-3 mb-3">
@@ -195,7 +203,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Yes/No */}
+      {/* Yes / No quick reply */}
       {!privacyFlagged && showYesNo && onQuickReply && (
         <div className="px-4 pb-3 pt-3 flex gap-2 bg-card border-t border-border">
           <Button
@@ -260,23 +268,27 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Upgrade button after every AI reply in MODE 1 (not exhausted) */}
-      {!freeTierExhausted && showUpgradeButton && onUpgradeClick && !showConsentButtons && !showConfirmPayment && (
-        <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground shrink-0">Want a specialist review?</p>
-          <Button
-            type="button" variant="default" size="sm"
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
-            onClick={onUpgradeClick} disabled={isLoading}
-          >
-            <Stethoscope className="h-3.5 w-3.5 mr-2" />
-            Yes, get dermatologist review
-            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-          </Button>
-        </div>
-      )}
+      {/* Upgrade button — after every AI reply in MODE 1, not exhausted */}
+      {!freeTierExhausted &&
+        showUpgradeButton &&
+        onUpgradeClick &&
+        !showConsentButtons &&
+        !showConfirmPayment && (
+          <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-4">
+            <p className="text-xs text-muted-foreground shrink-0">Want a specialist review?</p>
+            <Button
+              type="button" variant="default" size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
+              onClick={onUpgradeClick} disabled={isLoading}
+            >
+              <Stethoscope className="h-3.5 w-3.5 mr-2" />
+              Yes, get dermatologist review
+              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          </div>
+        )}
 
-      {/* Consent mode — two buttons, no free-text input */}
+      {/* Stage 2 — Consent screen: "I understand — proceed" + "Go back" */}
       {showConsentButtons && onConsentProceed && (
         <div className="border-t border-border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground mb-3">
@@ -306,7 +318,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Confirm payment — shown after consent acknowledged, before PaymentPage mounts */}
+      {/* Stage 3 — Confirm payment screen: "Confirm — proceed to payment" + "Go back" */}
       {showConfirmPayment && onConfirmPayment && (
         <div className="border-t border-border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground mb-3">
@@ -316,10 +328,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <Button
               type="button" variant="ghost" size="sm"
               className="text-muted-foreground hover:text-foreground font-medium shrink-0"
-              onClick={() => {
-                // Re-show consent buttons
-                if (onGoBack) onGoBack();
-              }}
+              onClick={onConfirmGoBack}
               disabled={isLoading}
             >
               <ArrowLeft className="h-3.5 w-3.5 mr-1" />
@@ -338,7 +347,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Chat input */}
+      {/* Chat input — hidden in consent, confirm, free tier exhausted, waiting for doctor */}
       {!hideInput && (
         <ChatInput
           onSend={onSendMessage}
