@@ -61,6 +61,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [proceedNoImages, setProceedNoImages] = useState(false);
   const [consentConfirmed, setConsentConfirmed] = useState(false);
 
+  // Fix 4: count AI replies in general education mode
+  const freeAiReplyCount = messages.filter(
+    m => (m.role === 'AI' || m.role === 'ai') 
+  ).length;
+  const freeTierExhausted = mode === 'general_education' && freeAiReplyCount >= 3;
+
   const isSendingRef = useRef(false);
 
   // Step 0 = image upload, Steps 1-6 = clinical questions
@@ -74,7 +80,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     "6. Do you have any other relevant medical history or allergies?",
   ];
 
-  // Index 0 = images step, then clinical fields
   const STEP_KEYS = ['images', 'duration', 'symptoms', 'location', 'meds', 'history', 'history'];
 
   const DURATION_OPTIONS = [
@@ -88,6 +93,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const lastAiContent = messages
     .filter(m => m.role === 'AI' || m.role === 'ai')
     .slice(-1)[0]?.content?.toLowerCase() ?? '';
+
+  const hasAnyAiReply = freeAiReplyCount > 0;
 
   const showDurationChips =
     mode === 'post_payment_intake' &&
@@ -105,7 +112,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('do you have any other relevant medical history')
     );
 
-  // Shown on step 0 (image upload prompt) and whenever AI mentions no-images fallback
   const showProceedNoImages =
     mode === 'post_payment_intake' &&
     !isLoading &&
@@ -118,13 +124,20 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('proceed_no_images')
     );
 
-  const isConsentMessage =
-    lastAiContent.includes('please confirm that you understand') ||
-    lastAiContent.includes('dermatologist-prepared educational overview') ||
-    lastAiContent.includes('type confirm');
+  // Fix 1: show upgrade button after any AI reply in MODE 1,
+  // and in consent mode
+  const showUpgradeButton =
+    mode === 'general_education' &&
+    !isLoading &&
+    hasAnyAiReply &&
+    !consentMode &&
+    !consentConfirmed;
+
+  // Fix 2: consent mode — two buttons, no free text
+  const showConsentButtons =
+    consentMode && !isLoading && !consentConfirmed;
 
   const showGoBack = consentMode && !isLoading;
-  const showConsentUpgrade = consentMode && !isLoading && !consentConfirmed;
 
   const isPrivacyFlagMessage = (content: string) =>
     content.toLowerCase().includes('these images may contain identifiable personal information') ||
@@ -193,7 +206,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchConsultationHistory();
   }, [fetchChatHistory, fetchConsultationHistory]);
 
+  // Detect consent mode from AI message
   useEffect(() => {
+    const isConsentMessage =
+      lastAiContent.includes('please confirm that you understand') ||
+      lastAiContent.includes('dermatologist-prepared educational overview') ||
+      lastAiContent.includes('type confirm');
+
     if (isConsentMessage && mode === 'general_education') {
       setConsentMode(true);
     } else if (mode !== 'general_education') {
@@ -274,12 +293,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-      const aiMessage: ChatMessage = {
+      setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'AI',
         content: INTAKE_QUESTIONS[intakeStep],
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      }]);
     } catch (error) {
       console.error('Error sending IOverride:', error);
     } finally {
@@ -305,12 +323,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const data = await response.json();
         if (data.mode) setMode(data.mode as ConversationMode);
         if (data.result) {
-          const aiMessage: ChatMessage = {
+          setMessages(prev => [...prev, {
             id: `ai-${Date.now()}`,
             role: 'AI',
             content: data.result,
-          };
-          setMessages(prev => [...prev, aiMessage]);
+          }]);
         }
       }
     } catch (error) {
@@ -323,12 +340,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleProceedNoImages = async () => {
     setProceedNoImages(true);
     setIsLoading(true);
-    const userMessage: ChatMessage = {
+    setMessages(prev => [...prev, {
       id: `user-${Date.now()}`,
       role: 'user',
       content: "I don't have images — proceed with text only",
-    };
-    setMessages(prev => [...prev, userMessage]);
+    }]);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
@@ -339,15 +355,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-      // Skip image step (step 0), go straight to clinical question 1
       const nextStep = 1;
       setIntakeStep(nextStep);
-      const aiMessage: ChatMessage = {
+      setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'AI',
         content: INTAKE_QUESTIONS[nextStep],
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      }]);
     } catch (error) {
       console.error('Error sending PROCEED_NO_IMAGES:', error);
     } finally {
@@ -355,16 +369,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handleConsentUpgrade = async () => {
-    setConsentMode(false);
-    setConsentConfirmed(true);
+  // Fix 1: sends YES, transitions to consent mode (MODE 2)
+  const handleUpgradeClick = async () => {
     setIsLoading(true);
-    const userMessage: ChatMessage = {
+    setMessages(prev => [...prev, {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: 'Yes, upgrade to image review',
-    };
-    setMessages(prev => [...prev, userMessage]);
+      content: 'Yes, get dermatologist review',
+    }]);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
@@ -379,12 +391,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const data = await response.json();
         if (data.mode) setMode(data.mode as ConversationMode);
         if (data.result) {
-          const aiMessage: ChatMessage = {
+          setMessages(prev => [...prev, {
             id: `ai-${Date.now()}`,
             role: 'AI',
             content: data.result,
-          };
-          setMessages(prev => [...prev, aiMessage]);
+          }]);
         }
       }
     } catch (error) {
@@ -394,25 +405,58 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handleConfirmProceedToPayment = async () => {
+  // Fix 2: "I understand — proceed to payment" opens payment directly
+  // CONFIRM is NOT sent here — it is sent only after payment webhook succeeds
+  const handleConsentProceed = () => {
+    setConsentMode(false);
+    setConsentConfirmed(true);
+    setMode('payment_page');
+  };
+
+  // CONFIRM is injected here — after payment success webhook
+  const handlePaymentSuccess = async () => {
+    setMode('post_payment_intake');
+    setIntakeStep(0);
+    setPrivacyFlagged(false);
+    setConsentMode(false);
     setConsentConfirmed(false);
-    setIsLoading(true);
+    setProceedNoImages(false);
+    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
+
+    setMessages(prev => [...prev, {
+      id: `system-${Date.now()}`,
+      role: 'system',
+      content: "Thank you for your payment! You are now connected to our intake process.",
+    }]);
+
+    setTimeout(() => {
+      setMessages(prev => [...prev, {
+        id: `ai-${Date.now()}`,
+        role: 'AI',
+        content: INTAKE_QUESTIONS[0],
+      }]);
+    }, 1000);
+
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
+      // CONFIRM injected here after payment webhook — per developer guide
       formData.append('question', 'CONFIRM');
       formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, {
+      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.mode) setMode(data.mode as ConversationMode);
+      }
     } catch (error) {
-      console.error('Error sending CONFIRM:', error);
-    } finally {
-      setIsLoading(false);
-      setMode('payment_page');
+      console.error('Error sending CONFIRM after payment:', error);
     }
+
+    toast({ title: 'Payment Successful', description: 'You can now provide details for your consultation.' });
   };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
@@ -421,10 +465,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       return;
     }
     isSendingRef.current = true;
-
-    if (mode === 'post_payment_intake' && images && images.length > 0) {
-      setIntakeData(prev => ({ ...prev, images: [...prev.images, ...images] }));
-    }
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -440,8 +480,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     });
 
     if (mode === 'post_payment_intake') {
-      // Step 0: image upload step — after patient sends anything (or images),
-      // move to clinical question 1
+      // Fix 3: only use images passed at send time — do NOT accumulate
+      // Store only the current send's images for final summary
+      if (images && images.length > 0 && intakeStep === 0) {
+        setIntakeData(prev => ({ ...prev, images }));
+      }
+
+      // Step 0: image upload step
       if (intakeStep === 0) {
         const nextStep = 1;
         setIntakeStep(nextStep);
@@ -500,7 +545,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          const allImages = [...intakeData.images, ...(images ?? [])];
+          // Fix 3: use only intakeData.images which was set once at step 0
+          const allImages = intakeData.images;
           formData.append(
             'question',
             `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nImages: ${allImages.length} attached.\nDONE`
@@ -538,9 +584,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const formData = new FormData();
         formData.append('question', content);
         formData.append('thread_id', activeThreadId || '');
-        if (images && images.length > 0) {
-          await appendImagesToFormData(formData, images);
-        }
         const response = await fetch(`${BASE_URL}/api/chat_view/`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${authToken}` },
@@ -620,51 +663,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handlePaymentSuccess = async () => {
-    setMode('post_payment_intake');
-    setIntakeStep(0);
-    setPrivacyFlagged(false);
-    setConsentMode(false);
-    setConsentConfirmed(false);
-    setProceedNoImages(false);
-    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [] });
-
-    setMessages(prev => [...prev, {
-      id: `system-${Date.now()}`,
-      role: 'system',
-      content: "Thank you for your payment! You are now connected to our intake process.",
-    }]);
-
-    setTimeout(() => {
-      // Step 0 — ask for images first
-      setMessages(prev => [...prev, {
-        id: `ai-${Date.now()}`,
-        role: 'AI',
-        content: INTAKE_QUESTIONS[0],
-      }]);
-    }, 1000);
-
-    try {
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', 'PAYMENT_CONFIRMED');
-      formData.append('thread_id', activeThreadId || '');
-      const response = await fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` },
-        body: formData,
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.mode) setMode(data.mode as ConversationMode);
-      }
-    } catch (error) {
-      console.error('Error confirming payment to backend:', error);
-    }
-
-    toast({ title: 'Payment Successful', description: 'You can now provide details for your consultation.' });
-  };
-
   const hasDoctorResponded = messages.some(m => m.role === 'doctor');
   const isEducational = mode === 'general_education';
 
@@ -740,6 +738,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           onPaymentSuccess={handlePaymentSuccess}
           onCancel={() => {
             setMode('general_education');
+            setConsentMode(true);
             setConsentConfirmed(false);
           }}
           threadId={activeThreadId || ''}
@@ -819,40 +818,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           </div>
         </div>
 
-        {/* Post-consent CONFIRM gate */}
-        {consentConfirmed && !isLoading && (
-          <div className="border-b border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 px-4 py-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-green-800 dark:text-green-200 font-medium">
-              Ready to proceed to payment for your dermatologist consultation?
-            </p>
-            <div className="flex gap-2 flex-shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
-                onClick={() => {
-                  setConsentConfirmed(false);
-                  setConsentMode(true);
-                }}
-                disabled={isLoading}
-              >
-                Go back
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                className="bg-green-600 hover:bg-green-700 text-white font-semibold"
-                onClick={handleConfirmProceedToPayment}
-                disabled={isLoading}
-              >
-                I confirm — proceed to payment
-              </Button>
-            </div>
-          </div>
-        )}
-
         <div className="flex-1 min-h-0">
           <ChatContainer
             messages={transformedMessages}
@@ -870,10 +835,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             onPrivacyOverride={handlePrivacyOverride}
             showGoBack={showGoBack}
             onGoBack={handleGoBack}
-            showConsentUpgrade={showConsentUpgrade}
-            onConsentUpgrade={handleConsentUpgrade}
             showProceedNoImages={showProceedNoImages}
             onProceedNoImages={handleProceedNoImages}
+            // Fix 1: upgrade button after every AI reply in MODE 1
+            showUpgradeButton={showUpgradeButton}
+            onUpgradeClick={handleUpgradeClick}
+            // Fix 2: consent mode two-button layout
+            showConsentButtons={showConsentButtons}
+            onConsentProceed={handleConsentProceed}
+            // Fix 4: free tier exhausted
+            freeTierExhausted={freeTierExhausted}
           />
         </div>
       </div>
