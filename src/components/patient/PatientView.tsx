@@ -123,6 +123,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       lastAiContent.includes('proceed_no_images')
     );
 
+  // Upgrade button: after first AI reply, not in consent or confirm stage
   const showUpgradeButton =
     mode === 'general_education' &&
     !isLoading &&
@@ -130,11 +131,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     !consentMode &&
     !consentAcknowledged;
 
+  // Stage 2: consent two-button screen — only when consentMode, not yet acknowledged
   const showConsentButtons = consentMode && !isLoading && !consentAcknowledged;
-  const showGoBack = consentMode && !isLoading;
 
-  // New: show confirm payment button after consent acknowledged
+  // Stage 3: confirm payment screen — only after consent acknowledged
   const showConfirmPayment = consentAcknowledged && !isLoading;
+
+  const showGoBack = consentMode && !isLoading && !consentAcknowledged;
 
   const isPrivacyFlagMessage = (content: string) =>
     content.toLowerCase().includes('these images may contain identifiable personal information') ||
@@ -306,6 +309,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
+  // Go back from consent screen → fires BACK to backend, restores MODE 1
   const handleGoBack = async () => {
     setConsentMode(false);
     setConsentAcknowledged(false);
@@ -336,6 +340,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Go back from confirm payment screen → returns to consent screen, no backend call
+  const handleConfirmGoBack = () => {
+    setConsentAcknowledged(false);
+    setConsentMode(true);
   };
 
   const handleProceedNoImages = async () => {
@@ -405,19 +415,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // Step 1: patient clicks "I understand" — sets acknowledged, hides consent buttons
+  // Stage 2 → Stage 3: consent acknowledged, show confirm payment button
   const handleConsentProceed = () => {
     setConsentMode(false);
     setConsentAcknowledged(true);
   };
 
-  // Step 2: patient clicks confirm payment button — now goes to PaymentPage
+  // Stage 3 → Payment page mounts
   const handleConfirmPayment = () => {
     setConsentAcknowledged(false);
     setMode('payment_page');
   };
 
-  // CONFIRM injected only here — after payment webhook succeeds
+  // CONFIRM injected only after payment webhook — never on button click
   const handlePaymentSuccess = async () => {
     if (paymentProcessedRef.current) return;
     paymentProcessedRef.current = true;
@@ -741,6 +751,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         <PaymentPage
           onPaymentSuccess={handlePaymentSuccess}
           onCancel={() => {
+            // Return to confirm payment screen, not MODE 1
             setMode('general_education');
             setConsentAcknowledged(true);
           }}
@@ -846,6 +857,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             onConsentProceed={handleConsentProceed}
             showConfirmPayment={showConfirmPayment}
             onConfirmPayment={handleConfirmPayment}
+            onConfirmGoBack={handleConfirmGoBack}
             freeTierExhausted={freeTierExhausted}
           />
         </div>
