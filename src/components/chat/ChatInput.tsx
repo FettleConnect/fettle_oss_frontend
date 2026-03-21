@@ -26,8 +26,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
     }
   }, [isLoading, disabled, mode]);
 
-  const showImageUpload = true;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() && !isLoading && !disabled) {
@@ -47,7 +45,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     Array.from(files).forEach(file => {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -57,7 +54,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
       };
       reader.readAsDataURL(file);
     });
-
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -70,8 +66,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
   const getPlaceholder = () => {
     if (disabled) return 'Waiting for dermatologist review...';
     if (mode === 'post_payment_intake') return 'Type your answer...';
-    }
-    // ✅ FIXED HERE (removed "Type YES...")
     return 'Type your message...';
   };
 
@@ -97,30 +91,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
           ))}
         </div>
       )}
-
       <div className="flex gap-2 items-end">
-        {showImageUpload && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleImageSelect}
-              className="hidden"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={disabled}
-            >
-              <ImagePlus className="h-5 w-5" />
-            </Button>
-          </>
-        )}
-
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleImageSelect}
+            className="hidden"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+          >
+            <ImagePlus className="h-5 w-5" />
+          </Button>
+        </>
         <Textarea
           ref={textareaRef}
           value={message}
@@ -131,7 +121,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
           className="min-h-[44px] max-h-32 resize-none"
           rows={1}
         />
-
         <Button
           type="submit"
           disabled={!message.trim() || isLoading || disabled}
