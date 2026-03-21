@@ -215,7 +215,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Consent upgrade button — "Yes, upgrade to image review" + Go back */}
+      {/* Consent upgrade + Go back */}
       {!privacyFlagged && showConsentUpgrade && onConsentUpgrade && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">
@@ -267,7 +267,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Proceed without images button */}
+      {/* Proceed without images */}
       {!privacyFlagged && showProceedNoImages && onProceedNoImages && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">
