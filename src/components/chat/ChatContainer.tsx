@@ -21,13 +21,10 @@ interface ChatContainerProps {
   privacyFlagged?: boolean;
   onPrivacyRemove?: () => void;
   onPrivacyOverride?: () => void;
-  // ✅ Row 7: Go back
   showGoBack?: boolean;
   onGoBack?: () => void;
-  // ✅ Row 2: Consent upgrade
   showConsentUpgrade?: boolean;
   onConsentUpgrade?: () => void;
-  // ✅ Row 5: Proceed without images
   showProceedNoImages?: boolean;
   onProceedNoImages?: () => void;
 }
@@ -218,7 +215,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* ✅ Row 2: Consent upgrade button — "Yes, upgrade to image review" */}
+      {/* Consent upgrade button — "Yes, upgrade to image review" + Go back */}
       {!privacyFlagged && showConsentUpgrade && onConsentUpgrade && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">
@@ -253,7 +250,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* ✅ Row 7: Standalone Go back — shown in consent mode when upgrade button is not visible */}
+      {/* Standalone Go back — when consent upgrade is not showing */}
       {!privacyFlagged && showGoBack && onGoBack && !showConsentUpgrade && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <Button
@@ -270,7 +267,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* ✅ Row 5: Proceed without images button */}
+      {/* Proceed without images button */}
       {!privacyFlagged && showProceedNoImages && onProceedNoImages && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">
