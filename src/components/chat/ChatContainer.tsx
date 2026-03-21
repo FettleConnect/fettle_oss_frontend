@@ -18,7 +18,6 @@ interface ChatContainerProps {
   onQuickReply?: (reply: string) => void;
   showDurationChips?: boolean;
   durationOptions?: string[];
-  // ✅ Privacy flag props
   privacyFlagged?: boolean;
   onPrivacyRemove?: () => void;
   onPrivacyOverride?: () => void;
@@ -117,7 +116,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </ScrollArea>
 
-      {/* ✅ Privacy flag banner — replaces all buttons and input when triggered */}
+      {/* Privacy flag banner */}
       {privacyFlagged && (
         <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-4">
           <div className="flex items-start gap-3 mb-3">
@@ -158,7 +157,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Duration chip buttons — hidden when privacy flagged */}
+      {/* Duration chip buttons */}
       {!privacyFlagged && showDurationChips && onQuickReply && (
         <div className="px-4 pb-2 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">Select duration:</p>
@@ -180,7 +179,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Yes/No quick reply buttons — hidden when privacy flagged */}
+      {/* Yes/No quick reply buttons */}
       {!privacyFlagged && showYesNo && onQuickReply && (
         <div className="px-4 pb-2 flex gap-2 bg-card border-t border-border pt-3">
           <Button
