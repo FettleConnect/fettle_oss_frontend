@@ -67,6 +67,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     "6. Do you have any other relevant medical history or allergies? (Final question - please also upload any photos if you have not already)",
   ];
 
+  // ✅ Steps that show Yes/No buttons (0-indexed: steps 4, 5 = questions 4 & 5)
+  // Step 3 = "Have you tried any medications?" → Yes/No
+  // Step 4 = "Have you had any prior diagnoses?" → Yes/No
+  // Step 5 = "Any other medical history or allergies?" → Yes/No
+  const YES_NO_STEPS = [3, 4, 5];
+  const showYesNo = mode === 'post_payment_intake' && YES_NO_STEPS.includes(intakeStep) && !isLoading;
+
   const fetchConsultationHistory = useCallback(async () => {
     try {
       const authToken = localStorage.getItem('authToken');
@@ -363,7 +370,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const hasDoctorResponded = messages.some(m => m.role === 'doctor');
   const isEducational = mode === 'general_education';
 
-  // ✅ FIX: Filter out internal messages the patient should never see
   const transformedMessages = messages
     .filter(msg => {
       const c = msg.content ?? '';
@@ -430,7 +436,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   if (mode === 'payment_page') {
     return (
       <div className="h-screen">
-        <PaymentPage onPaymentSuccess={handlePaymentSuccess} onCancel={() => setMode('general_education')} />
+        <PaymentPage
+          onPaymentSuccess={handlePaymentSuccess}
+          onCancel={() => setMode('general_education')}
+          threadId={activeThreadId || ''}
+        />
       </div>
     );
   }
@@ -494,6 +504,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             isLoading={isLoading}
             mode={mode}
             showDisclaimer={messages.length === 0}
+            // ✅ Pass showYesNo and the quick reply handler directly
+            showYesNo={showYesNo}
+            onQuickReply={handleSendMessage}
           />
         </div>
       </div>
