@@ -5,6 +5,7 @@ import { ChatInput } from './ChatInput';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 
 interface ChatContainerProps {
   messages: Message[];
@@ -17,6 +18,10 @@ interface ChatContainerProps {
   onQuickReply?: (reply: string) => void;
   showDurationChips?: boolean;
   durationOptions?: string[];
+  // ✅ Privacy flag props
+  privacyFlagged?: boolean;
+  onPrivacyRemove?: () => void;
+  onPrivacyOverride?: () => void;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -30,6 +35,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onQuickReply,
   showDurationChips = false,
   durationOptions = [],
+  privacyFlagged = false,
+  onPrivacyRemove,
+  onPrivacyOverride,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -109,8 +117,49 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </ScrollArea>
 
-      {/* ✅ Duration chip buttons — shown when AI asks "how long has this skin concern" */}
-      {showDurationChips && onQuickReply && (
+      {/* ✅ Privacy flag banner — replaces all buttons and input when triggered */}
+      {privacyFlagged && (
+        <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-4">
+          <div className="flex items-start gap-3 mb-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                Privacy Warning
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                Your images may contain identifiable personal information. Please remove and re-upload without faces, documents, or names visible.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-1 border-amber-300 text-amber-800 hover:bg-amber-100 font-medium"
+              onClick={onPrivacyRemove}
+              disabled={isLoading}
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              Remove &amp; Re-upload
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-medium"
+              onClick={onPrivacyOverride}
+              disabled={isLoading}
+            >
+              <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+              I Confirm — Not Identifiable
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Duration chip buttons — hidden when privacy flagged */}
+      {!privacyFlagged && showDurationChips && onQuickReply && (
         <div className="px-4 pb-2 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">Select duration:</p>
           <div className="flex flex-wrap gap-2">
@@ -131,8 +180,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* ✅ Yes/No quick reply buttons — shown for yes/no intake questions */}
-      {showYesNo && onQuickReply && (
+      {/* Yes/No quick reply buttons — hidden when privacy flagged */}
+      {!privacyFlagged && showYesNo && onQuickReply && (
         <div className="px-4 pb-2 flex gap-2 bg-card border-t border-border pt-3">
           <Button
             type="button"
@@ -155,13 +204,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Input */}
-      <ChatInput
-        onSend={onSendMessage}
-        isLoading={isLoading}
-        mode={mode}
-        disabled={isWaitingForDoctor}
-      />
+      {/* Input — hidden when privacy flagged */}
+      {!privacyFlagged && (
+        <ChatInput
+          onSend={onSendMessage}
+          isLoading={isLoading}
+          mode={mode}
+          disabled={isWaitingForDoctor}
+        />
+      )}
     </div>
   );
 };
