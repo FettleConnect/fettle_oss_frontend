@@ -5,7 +5,7 @@ import { ChatInput } from './ChatInput';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, RefreshCw, ShieldCheck, ArrowLeft, ImageOff, ArrowUpCircle } from 'lucide-react';
+import { AlertTriangle, RefreshCw, ShieldCheck, ArrowLeft, ImageOff, ArrowUpCircle, Lock } from 'lucide-react';
 
 interface ChatContainerProps {
   messages: Message[];
@@ -23,10 +23,16 @@ interface ChatContainerProps {
   onPrivacyOverride?: () => void;
   showGoBack?: boolean;
   onGoBack?: () => void;
-  showConsentUpgrade?: boolean;
-  onConsentUpgrade?: () => void;
   showProceedNoImages?: boolean;
   onProceedNoImages?: () => void;
+  // Fix 1: upgrade button in MODE 1
+  showUpgradeButton?: boolean;
+  onUpgradeClick?: () => void;
+  // Fix 2: consent two-button layout
+  showConsentButtons?: boolean;
+  onConsentProceed?: () => void;
+  // Fix 4: free tier exhausted
+  freeTierExhausted?: boolean;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -45,10 +51,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onPrivacyOverride,
   showGoBack = false,
   onGoBack,
-  showConsentUpgrade = false,
-  onConsentUpgrade,
   showProceedNoImages = false,
   onProceedNoImages,
+  showUpgradeButton = false,
+  onUpgradeClick,
+  showConsentButtons = false,
+  onConsentProceed,
+  freeTierExhausted = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -74,6 +83,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const modeInfo = getModeLabel();
   const isWaitingForDoctor = mode === 'dermatologist_review';
+
+  // Input is hidden in consent mode (Fix 2) and when free tier is exhausted (Fix 4)
+  const hideInput = privacyFlagged || showConsentButtons || freeTierExhausted || isWaitingForDoctor;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -134,9 +146,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <div className="flex items-start gap-3 mb-3">
             <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                Privacy Warning
-              </p>
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">Privacy Warning</p>
               <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
                 Your images may contain identifiable personal information. Please remove and re-upload without faces, documents, or names visible.
               </p>
@@ -144,23 +154,17 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
           <div className="flex gap-2">
             <Button
-              type="button"
-              variant="outline"
-              size="sm"
+              type="button" variant="outline" size="sm"
               className="flex-1 border-amber-300 text-amber-800 hover:bg-amber-100 font-medium"
-              onClick={onPrivacyRemove}
-              disabled={isLoading}
+              onClick={onPrivacyRemove} disabled={isLoading}
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               Remove &amp; Re-upload
             </Button>
             <Button
-              type="button"
-              variant="outline"
-              size="sm"
+              type="button" variant="outline" size="sm"
               className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-medium"
-              onClick={onPrivacyOverride}
-              disabled={isLoading}
+              onClick={onPrivacyOverride} disabled={isLoading}
             >
               <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
               I Confirm — Not Identifiable
@@ -169,20 +173,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Duration chip buttons */}
+      {/* Duration chips */}
       {!privacyFlagged && showDurationChips && onQuickReply && (
         <div className="px-4 pb-2 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">Select duration:</p>
           <div className="flex flex-wrap gap-2">
             {durationOptions.map((option) => (
               <Button
-                key={option}
-                type="button"
-                variant="outline"
-                size="sm"
+                key={option} type="button" variant="outline" size="sm"
                 className="text-xs h-8 border-primary/30 text-primary hover:bg-primary/10"
-                onClick={() => onQuickReply(option)}
-                disabled={isLoading}
+                onClick={() => onQuickReply(option)} disabled={isLoading}
               >
                 {option}
               </Button>
@@ -191,78 +191,22 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Yes/No quick reply buttons */}
+      {/* Yes/No quick reply */}
       {!privacyFlagged && showYesNo && onQuickReply && (
         <div className="px-4 pb-2 flex gap-2 bg-card border-t border-border pt-3">
           <Button
-            type="button"
-            variant="outline"
+            type="button" variant="outline"
             className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-semibold"
-            onClick={() => onQuickReply('Yes')}
-            disabled={isLoading}
+            onClick={() => onQuickReply('Yes')} disabled={isLoading}
           >
             Yes
           </Button>
           <Button
-            type="button"
-            variant="outline"
+            type="button" variant="outline"
             className="flex-1 border-red-300 text-red-700 hover:bg-red-50 font-semibold"
-            onClick={() => onQuickReply('No')}
-            disabled={isLoading}
+            onClick={() => onQuickReply('No')} disabled={isLoading}
           >
             No
-          </Button>
-        </div>
-      )}
-
-      {/* Consent upgrade + Go back */}
-      {!privacyFlagged && showConsentUpgrade && onConsentUpgrade && (
-        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
-          <p className="text-xs text-muted-foreground mb-2 font-medium">
-            Ready to proceed with a full dermatologist review?
-          </p>
-          <div className="flex gap-2">
-            {showGoBack && onGoBack && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
-                onClick={onGoBack}
-                disabled={isLoading}
-              >
-                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
-                Go back
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
-              onClick={onConsentUpgrade}
-              disabled={isLoading}
-            >
-              <ArrowUpCircle className="h-3.5 w-3.5 mr-1.5" />
-              Yes, upgrade to image review
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Standalone Go back — when consent upgrade is not showing */}
-      {!privacyFlagged && showGoBack && onGoBack && !showConsentUpgrade && (
-        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
-            onClick={onGoBack}
-            disabled={isLoading}
-          >
-            <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
-            Go back
           </Button>
         </div>
       )}
@@ -274,12 +218,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             No images available? You can continue with a text-only assessment.
           </p>
           <Button
-            type="button"
-            variant="outline"
-            size="sm"
+            type="button" variant="outline" size="sm"
             className="w-full border-primary/30 text-primary hover:bg-primary/10 font-medium"
-            onClick={onProceedNoImages}
-            disabled={isLoading}
+            onClick={onProceedNoImages} disabled={isLoading}
           >
             <ImageOff className="h-3.5 w-3.5 mr-1.5" />
             Proceed without images
@@ -287,13 +228,80 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Input — hidden when privacy flagged */}
-      {!privacyFlagged && (
+      {/* Fix 4: Free tier exhausted banner */}
+      {freeTierExhausted && !showConsentButtons && (
+        <div className="border-t border-border bg-card px-4 py-4">
+          <div className="flex items-start gap-3 mb-3">
+            <Lock className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Free consultation limit reached</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                You've used your 3 free AI responses. To continue and connect directly with Dr. Attili for a full dermatologist review, please proceed to payment.
+              </p>
+            </div>
+          </div>
+          {showUpgradeButton && onUpgradeClick && (
+            <Button
+              type="button" variant="default" size="sm"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+              onClick={onUpgradeClick} disabled={isLoading}
+            >
+              <ArrowUpCircle className="h-3.5 w-3.5 mr-1.5" />
+              Yes, get dermatologist review
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Fix 1: Upgrade button after every AI reply in MODE 1 (not exhausted) */}
+      {!freeTierExhausted && showUpgradeButton && onUpgradeClick && !showConsentButtons && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
+          <Button
+            type="button" variant="default" size="sm"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+            onClick={onUpgradeClick} disabled={isLoading}
+          >
+            <ArrowUpCircle className="h-3.5 w-3.5 mr-1.5" />
+            Yes, get dermatologist review
+          </Button>
+        </div>
+      )}
+
+      {/* Fix 2: Consent mode — two buttons, no free text input */}
+      {showConsentButtons && onConsentProceed && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
+          <p className="text-xs text-muted-foreground mb-3 font-medium">
+            This provides a dermatologist-prepared educational overview — not medical advice.
+          </p>
+          <div className="flex gap-2">
+            {showGoBack && onGoBack && (
+              <Button
+                type="button" variant="outline" size="sm"
+                className="border-gray-300 text-gray-600 hover:bg-gray-50 font-medium"
+                onClick={onGoBack} disabled={isLoading}
+              >
+                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+                Go back
+              </Button>
+            )}
+            <Button
+              type="button" variant="default" size="sm"
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
+              onClick={onConsentProceed} disabled={isLoading}
+            >
+              I understand — proceed to payment
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Input — hidden in consent mode, free tier exhausted, privacy flag, waiting for doctor */}
+      {!hideInput && (
         <ChatInput
           onSend={onSendMessage}
           isLoading={isLoading}
           mode={mode}
-          disabled={isWaitingForDoctor}
+          disabled={false}
         />
       )}
     </div>
