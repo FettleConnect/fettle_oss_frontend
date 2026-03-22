@@ -54,24 +54,16 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
-  // Point 6: apply replaces the editor content entirely — format preserved
-  // Strips markdown formatting for plain-text editor compatibility
   const handleApply = (content: string, index: number) => {
     if (!onApplyContent) return;
-
-    // Point 5: reformat the content to match the required output structure
-    // The content is already formatted by the AI — we clean markdown syntax
-    // but preserve the section headings and paragraph structure
     const formatted = content
-      .replace(/^#{1,6}\s+/gm, '')           // remove # headings (keep text)
-      .replace(/\*\*(.*?)\*\*/g, '$1')        // remove bold markers
-      .replace(/\*(.*?)\*/g, '$1')            // remove italic markers
-      .replace(/`(.*?)`/g, '$1')              // remove inline code
-      .replace(/_{1,2}(.*?)_{1,2}/g, '$1')   // remove underscores
-      .replace(/\n{3,}/g, '\n\n')             // collapse excess blank lines
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`(.*?)`/g, '$1')
+      .replace(/_{1,2}(.*?)_{1,2}/g, '$1')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
-
-    // Replace — not append
     onApplyContent(formatted);
     setAppliedIndex(index);
     setTimeout(() => setAppliedIndex(null), 2000);
