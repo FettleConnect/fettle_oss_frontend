@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle } from 'lucide-react';
+import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle, Maximize2, Minimize2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -25,19 +25,15 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
     m => m.content && m.content.includes('INTAKE COMPLETE') && m.content.includes('Summary:')
   );
   if (!intakeMsg) return null;
-
   const text = intakeMsg.content;
   const extract = (label: string): string => {
     const regex = new RegExp(`${label}:\\s*([^\\n]*)`, 'i');
     const match = text.match(regex);
     return match ? match[1].trim() : '';
   };
-
-  // ✅ FIX: Collect all images from ALL patient messages, not just intake message
   const allPatientImages: string[] = messages
     .filter(m => m.role === 'patient')
     .flatMap(m => m.images ?? []);
-
   return {
     duration: extract('Duration'),
     symptoms: extract('Symptoms'),
@@ -45,7 +41,7 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
     medicationsTried: extract('Meds'),
     priorDiagnoses: extract('Prior Diagnoses') || extract('Prior') || '',
     relevantHealthHistory: extract('History'),
-    images: allPatientImages, // ✅ FIX: was hardcoded as []
+    images: allPatientImages,
   };
 }
 
@@ -62,6 +58,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const [caseCompleted, setCaseCompleted] = useState(false);
   const [images, setImages] = useState<string[]>([]);
   const [showAI, setShowAI] = useState(false);
+  // Point 5: expand/collapse assessment textarea
+  const [assessmentExpanded, setAssessmentExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setShowAI(!isMobile); }, [isMobile]);
@@ -77,12 +75,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [conversation.id, conversation.mode]);
 
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
-    // ✅ FIX: Always re-parse from messages to get real images,
-    // even if conversation.intakeData exists (it never has images)
     const parsed = parseIntakeFromMessages(messages);
     if (!parsed) return conversation.intakeData;
-
-    // Merge: prefer conversation.intakeData fields but always use parsed images
     return {
       ...(conversation.intakeData ?? parsed),
       images: parsed.images.length > 0
@@ -119,7 +113,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const removeImage = (index: number) => setImages(prev => prev.filter((_, i) => i !== index));
 
-  // ✅ FIX: Use same reliable dataURLtoBlob helper as PatientView
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
     if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http')) {
       const res = await fetch(dataUrl);
@@ -144,8 +137,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const formData = new FormData();
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
-
-      // ✅ FIX: Use reliable blob conversion instead of fetch(dataUrl)
       if (images.length > 0) {
         for (let i = 0; i < images.length; i++) {
           const blob = await dataURLtoBlob(images[i]);
@@ -153,7 +144,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           formData.append('image', blob, `image_${i + 1}.${ext}`);
         }
       }
-
       const response = await fetch(`${BASE_URL}/api/doctor_send_response/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${authToken}` },
@@ -162,6 +152,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       if (!response.ok) throw new Error('Failed to send message');
       setPatientMessage('');
       setImages([]);
+      setAssessmentExpanded(false);
       onUpdate();
       toast({ title: 'Response Sent', description: 'Your response has been sent to the patient.' });
     } catch (error) {
@@ -202,8 +193,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         conversationId={String(conversation.id)}
         contextData={JSON.stringify(conversation.intakeData || {})}
         onApplyContent={(content) => {
-          setPatientMessage(prev => prev ? `${prev}\n\n${content}` : content);
-          toast({ title: 'Content Added', description: 'AI suggestion has been appended to your response.' });
+          // Point 6: replace the current content, don't append
+          setPatientMessage(content);
+          toast({ title: 'Applied to Editor', description: 'Assessment replaced with AI suggestion.' });
           if (isMobile) setShowAI(false);
         }}
       />
@@ -225,8 +217,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           </div>
           <div className="flex items-center gap-2 md:gap-3">
             <Button
-              variant="outline"
-              size="sm"
+              variant="outline" size="sm"
               onClick={handleArchive}
               disabled={isCaseDone}
               className={`h-8 md:h-9 ${isCaseDone ? 'border-gray-200 text-gray-400 cursor-not-allowed opacity-60' : 'border-green-200 text-green-700 hover:bg-green-50'}`}
@@ -236,9 +227,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               ) : (
                 <Plus className="h-3.5 w-3.5 md:mr-2" />
               )}
-              <span className="hidden sm:inline">
-                {isCaseDone ? 'Case Completed' : 'Complete Case'}
-              </span>
+              <span className="hidden sm:inline">{isCaseDone ? 'Case Completed' : 'Complete Case'}</span>
             </Button>
             <Button variant="ghost" size="sm" onClick={onRefresh} className="h-8 md:h-9 text-muted-foreground hover:text-foreground">
               <RefreshCw className="h-3.5 w-3.5 md:mr-2" />
@@ -284,8 +273,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           </ScrollArea>
 
           {canRespond && !isCompleted && (
-            <div className="border-t border-border bg-card p-4 md:p-6 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-20">
-              <div className="max-w-4xl mx-auto space-y-3 md:space-y-4">
+            // Point 5: expanded overlay covers full panel
+            <div className={
+              assessmentExpanded
+                ? "fixed inset-0 z-50 bg-background flex flex-col p-4 md:p-8 shadow-2xl"
+                : "border-t border-border bg-card p-4 md:p-6 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-20"
+            }>
+              <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col space-y-3 md:space-y-4">
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs md:text-sm font-semibold flex items-center gap-2">
                     <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary" />
@@ -298,7 +292,23 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                         AI Draft
                       </Button>
                     )}
-                    <Button variant={showAI ? "default" : "secondary"} size="sm" onClick={() => setShowAI(!showAI)} className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs">
+                    {/* Point 5: expand/collapse button */}
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => setAssessmentExpanded(e => !e)}
+                      className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
+                      title={assessmentExpanded ? 'Collapse editor' : 'Expand editor'}
+                    >
+                      {assessmentExpanded
+                        ? <><Minimize2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Collapse</span></>
+                        : <><Maximize2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Expand</span></>
+                      }
+                    </Button>
+                    <Button
+                      variant={showAI ? "default" : "secondary"} size="sm"
+                      onClick={() => setShowAI(!showAI)}
+                      className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
+                    >
                       <Sparkles className="h-3.5 w-3.5" />
                       {showAI ? 'Hide AI Tools' : 'Refine with AI'}
                     </Button>
@@ -322,7 +332,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   value={patientMessage}
                   onChange={(e) => setPatientMessage(e.target.value)}
                   placeholder="Write your professional assessment here..."
-                  className="min-h-[100px] md:min-h-[150px] text-xs md:text-base leading-relaxed p-3 md:p-4 resize-y shadow-sm"
+                  className={
+                    assessmentExpanded
+                      ? "flex-1 text-xs md:text-base leading-relaxed p-3 md:p-4 resize-none shadow-sm"
+                      : "min-h-[100px] md:min-h-[150px] text-xs md:text-base leading-relaxed p-3 md:p-4 resize-y shadow-sm"
+                  }
+                  style={assessmentExpanded ? { minHeight: 0 } : undefined}
                 />
 
                 <div className="flex justify-between items-center gap-2">
@@ -333,7 +348,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       <span className="hidden sm:inline">Attach Images</span>
                     </Button>
                   </div>
-                  <Button onClick={handleSendToPatient} disabled={isSending || !patientMessage.trim()} size="lg" className="h-8 md:h-12 px-4 md:px-8 text-xs md:text-base shadow-md font-bold">
+                  <Button
+                    onClick={handleSendToPatient}
+                    disabled={isSending || !patientMessage.trim()}
+                    size="lg"
+                    className="h-8 md:h-12 px-4 md:px-8 text-xs md:text-base shadow-md font-bold"
+                  >
                     <Send className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
                     Send Response
                   </Button>
