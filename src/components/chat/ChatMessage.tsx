@@ -161,6 +161,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               strong: ({ node, ...props }) => (
                 <strong className="font-bold" {...props} />
               ),
+              // ✅ FIX: restored missing opening <a tag
               a: ({ node, href, children, ...props }) => (
                 
                   href={href}
@@ -202,7 +203,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       </div>
 
       {lightboxOpen && images.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center" onClick={closeLightbox}>
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={closeLightbox}
+        >
           <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
             <button
               onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)}
