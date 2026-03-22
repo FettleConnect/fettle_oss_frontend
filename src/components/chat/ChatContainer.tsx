@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   AlertTriangle, RefreshCw, ShieldCheck,
-  ArrowLeft, ImageOff, ChevronRight, Lock, Stethoscope, CreditCard
+  ArrowLeft, ImageOff, ChevronRight, Lock, Stethoscope, CreditCard, Info
 } from 'lucide-react';
 
 interface ChatContainerProps {
@@ -36,6 +36,10 @@ interface ChatContainerProps {
   onConfirmPayment?: () => void;
   onConfirmGoBack?: () => void;
   freeTierExhausted?: boolean;
+  // Point 1: free response counter
+  freeAiReplyCount?: number;
+  // Point 4: intake complete, allow additional info
+  intakeComplete?: boolean;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -64,8 +68,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onConfirmPayment,
   onConfirmGoBack,
   freeTierExhausted = false,
+  freeAiReplyCount = 0,
+  intakeComplete = false,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,13 +93,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   };
 
   const modeInfo = getModeLabel();
-  const isWaitingForDoctor = mode === 'dermatologist_review';
+
+  // Point 4: post-intake, input stays open for additional info
   const hideInput =
     privacyFlagged ||
     showConsentButtons ||
     showConfirmPayment ||
-    freeTierExhausted ||
-    isWaitingForDoctor;
+    freeTierExhausted;
+
+  // Point 2: pinned note text shown in general_education mode
+  const pinnedNote = mode === 'general_education'
+    ? 'Free mode is text-only. AI responses are educational only — not medical advice. Dermatologists are significantly better at interpreting skin patterns.'
+    : mode === 'dermatologist_review' && intakeComplete
+    ? 'Intake submitted. Dr. Attili will review your case. You may add any additional information or images below.'
+    : null;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -105,18 +117,47 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <h2 className="font-semibold text-foreground">Skin Consultation</h2>
           <p className="text-xs text-muted-foreground">OnlineSkinSpecialist.com</p>
         </div>
-        <Badge variant={modeInfo.variant}>{modeInfo.label}</Badge>
+        <div className="flex items-center gap-2">
+          {/* Point 1: response counter badge in general_education mode */}
+          {mode === 'general_education' && freeAiReplyCount > 0 && (
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+              freeAiReplyCount >= 3
+                ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400'
+                : freeAiReplyCount === 2
+                ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400'
+                : 'bg-muted text-muted-foreground border-border'
+            }`}>
+              {freeAiReplyCount}/3 free
+            </span>
+          )}
+          <Badge variant={modeInfo.variant}>{modeInfo.label}</Badge>
+        </div>
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-        <div className="space-y-4">
-          {showDisclaimer && (
-            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-100">
-              <pre className="whitespace-pre-wrap font-sans">{DISCLAIMER}</pre>
-            </div>
-          )}
+      {/* Point 2: pinned note bar — always visible, not inside scroll */}
+      {pinnedNote && (
+        <div className="border-b border-border bg-amber-50 dark:bg-amber-950/20 px-4 py-2 flex items-start gap-2">
+          <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">{pinnedNote}</p>
+        </div>
+      )}
 
+      {/* Point 1: Disclaimer pinned above scroll area — always visible when present */}
+      {showDisclaimer && (
+        <div className="px-4 pt-4 pb-0 flex-shrink-0">
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-100">
+            <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed">{DISCLAIMER}</pre>
+            {/* Point 1: mention 3 free responses in disclaimer */}
+            <p className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-800 dark:text-amber-200">
+              ⓘ Free educational mode includes up to 3 AI responses. After that, you can connect directly with Dr. Attili for a full dermatologist review.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Messages — scroll area no longer contains disclaimer */}
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4">
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
@@ -152,7 +193,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {/* ── Bottom action area ── */}
 
-      {/* Privacy flag banner */}
+      {/* Privacy flag */}
       {privacyFlagged && (
         <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-4">
           <div className="flex items-start gap-3 mb-3">
@@ -203,7 +244,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Yes / No quick reply */}
+      {/* Yes / No */}
       {!privacyFlagged && showYesNo && onQuickReply && (
         <div className="px-4 pb-3 pt-3 flex gap-2 bg-card border-t border-border">
           <Button
@@ -253,17 +294,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </div>
           </div>
           {showUpgradeButton && onUpgradeClick && (
-            <div className="flex items-center justify-start">
-              <Button
-                type="button" variant="default" size="sm"
-                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
-                onClick={onUpgradeClick} disabled={isLoading}
-              >
-                <Stethoscope className="h-3.5 w-3.5 mr-2" />
-                Yes, get dermatologist review
-                <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-              </Button>
-            </div>
+            <Button
+              type="button" variant="default" size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
+              onClick={onUpgradeClick} disabled={isLoading}
+            >
+              <Stethoscope className="h-3.5 w-3.5 mr-2" />
+              Yes, get dermatologist review
+              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
           )}
         </div>
       )}
@@ -288,7 +327,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
         )}
 
-      {/* Stage 2 — Consent screen: "I understand — proceed" + "Go back" */}
+      {/* Consent screen */}
       {showConsentButtons && onConsentProceed && (
         <div className="border-t border-border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground mb-3">
@@ -318,7 +357,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Stage 3 — Confirm payment screen: "Confirm — proceed to payment" + "Go back" */}
+      {/* Confirm payment screen */}
       {showConfirmPayment && onConfirmPayment && (
         <div className="border-t border-border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground mb-3">
@@ -328,8 +367,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <Button
               type="button" variant="ghost" size="sm"
               className="text-muted-foreground hover:text-foreground font-medium shrink-0"
-              onClick={onConfirmGoBack}
-              disabled={isLoading}
+              onClick={onConfirmGoBack} disabled={isLoading}
             >
               <ArrowLeft className="h-3.5 w-3.5 mr-1" />
               Go back
@@ -347,7 +385,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Chat input — hidden in consent, confirm, free tier exhausted, waiting for doctor */}
+      {/* Point 4: post-intake additional info label */}
+      {intakeComplete && mode === 'dermatologist_review' && !hideInput && (
+        <div className="px-4 pt-3 pb-1 bg-card border-t border-border">
+          <p className="text-xs text-muted-foreground font-medium">
+            Add any additional information or images for the dermatologist:
+          </p>
+        </div>
+      )}
+
+      {/* Chat input */}
       {!hideInput && (
         <ChatInput
           onSend={onSendMessage}
