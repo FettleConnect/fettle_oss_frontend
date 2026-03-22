@@ -7,7 +7,7 @@ export type ConversationMode =
   | 'final_output';
 
 // Message roles
-export type MessageRole = 'patient' | 'ai' | 'doctor';
+export type MessageRole = 'patient' | 'ai' | 'doctor' | 'system';
 
 // Message interface
 export interface Message {
@@ -15,26 +15,24 @@ export interface Message {
   conversationId: string;
   role: MessageRole;
   content: string;
-  images?: string[]; // S3 URLs
+  images?: string[];
   timestamp: Date;
-  isVisible: boolean; // For doctor internal notes
-  senderName?: string; // Original sender name/email from API
+  isVisible: boolean;
+  senderName?: string;
 }
 
 // Conversation interface
 export interface Conversation {
   id: string;
-  patient_id?: string; // Add patient_id to link back to UserModel
+  patient_id?: string;
   patientEmail: string;
   patientName: string;
   mode: ConversationMode;
   paymentStatus: 'unpaid' | 'paid';
   status: 'active' | 'completed';
-  // createdAt: Date;
-  // updatedAt: Date;
   intakeData?: IntakeData;
-  doctorNotes?: string; // Internal notes (not visible to patient)
-  draftResponse?: string; // AI-generated draft for doctor review
+  doctorNotes?: string;
+  draftResponse?: string;
 }
 
 // Intake data collected post-payment
@@ -45,7 +43,7 @@ export interface IntakeData {
   medicationsTried: string;
   priorDiagnoses: string;
   relevantHealthHistory: string;
-  images: string[]; // Base64 preview URLs
+  images: string[];
 }
 
 // User types
@@ -65,7 +63,7 @@ export interface AuthState {
   isLoading: boolean;
 }
 
-// Doctor credentials (dummy)
+// Doctor credentials
 export const DOCTOR_CREDENTIALS = {
   email: 'doctor@test.com',
   password: 'doctor123',
@@ -74,16 +72,13 @@ export const DOCTOR_CREDENTIALS = {
 // Consultation price
 export const CONSULTATION_PRICE = 49;
 
-// Initial disclaimer
+// Initial disclaimer — updated to mention 3 free responses (Point 1)
 export const DISCLAIMER = `⚠️ IMPORTANT DISCLAIMER
-
 This AI Educational Assistant provides general dermatological information for educational purposes ONLY. It is NOT a substitute for professional medical advice, diagnosis, or treatment.
-
 This assistant CANNOT and WILL NOT:
-• Diagnose any skin condition
-• Prescribe medications or treatments
-• Provide personalized medical advice
-
-For professional medical evaluation and diagnosis, please consider our paid consultation service ($${CONSULTATION_PRICE}) where Dr. Attili will review your case.
-
+- Diagnose any skin condition
+- Prescribe medications or treatments
+- Provide personalized medical advice
+Free educational mode includes up to 3 AI responses based on your text description. No image uploads are available in free mode. AI responses may be incomplete without visual assessment.
+For a full image-based review by Dr. Attili, please consider our paid consultation ($${CONSULTATION_PRICE}).
 By continuing, you acknowledge that you understand these limitations.`;
