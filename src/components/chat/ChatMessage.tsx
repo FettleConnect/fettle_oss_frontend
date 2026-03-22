@@ -63,8 +63,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
 
-  // Strip the "Note: Free educational mode..." disclaimer from AI message content
-  // It is shown in the pinned bar in ChatContainer instead
   const stripNote = (text: string): string => {
     const noteIndex = text.indexOf('Note: Free educational mode');
     if (noteIndex !== -1) return text.slice(0, noteIndex).trimEnd();
@@ -161,7 +159,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               strong: ({ node, ...props }) => (
                 <strong className="font-bold" {...props} />
               ),
-              // ✅ FIX: restored missing opening <a tag
               a: ({ node, href, children, ...props }) => (
                 
                   href={href}
