@@ -63,12 +63,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
 
-  // Point 2: strip the "Note: Free educational mode..." disclaimer from AI message content
-  // It will be shown in the pinned bar in ChatContainer instead
+  // Strip the "Note: Free educational mode..." disclaimer from AI message content
+  // It is shown in the pinned bar in ChatContainer instead
   const stripNote = (text: string): string => {
     const noteIndex = text.indexOf('Note: Free educational mode');
     if (noteIndex !== -1) return text.slice(0, noteIndex).trimEnd();
-    // Also strip lines starting with "Note:" that contain the disclaimer keywords
     return text
       .split('\n')
       .filter(line => {
@@ -154,11 +153,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           getBubbleColors(),
           isPatient ? 'rounded-br-md' : 'rounded-bl-md'
         )}>
-          {/* Point 2: hyperlinks rendered as blue + underlined */}
           <ReactMarkdown
             components={{
-              p: ({ node, ...props }) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />,
-              strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
+              p: ({ node, ...props }) => (
+                <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
+              ),
+              strong: ({ node, ...props }) => (
+                <strong className="font-bold" {...props} />
+              ),
               a: ({ node, href, children, ...props }) => (
                 
                   href={href}
@@ -217,12 +219,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               <X className="h-5 w-5" />
             </button>
           </div>
+
           <img
             src={images[lightboxIndex]}
             alt={`Clinical image ${lightboxIndex + 1}`}
             onClick={e => e.stopPropagation()}
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
           />
+
           {images.length > 1 && (
             <>
               <button
