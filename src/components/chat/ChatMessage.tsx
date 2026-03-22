@@ -26,11 +26,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   };
 
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
-
   const prevImage = useCallback(() => {
     setLightboxIndex(i => (i - 1 + images.length) % images.length);
   }, [images.length]);
-
   const nextImage = useCallback(() => {
     setLightboxIndex(i => (i + 1) % images.length);
   }, [images.length]);
@@ -65,9 +63,29 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
 
+  // Point 2: strip the "Note: Free educational mode..." disclaimer from AI message content
+  // It will be shown in the pinned bar in ChatContainer instead
+  const stripNote = (text: string): string => {
+    const noteIndex = text.indexOf('Note: Free educational mode');
+    if (noteIndex !== -1) return text.slice(0, noteIndex).trimEnd();
+    // Also strip lines starting with "Note:" that contain the disclaimer keywords
+    return text
+      .split('\n')
+      .filter(line => {
+        const l = line.toLowerCase();
+        return !(
+          l.startsWith('note:') &&
+          (l.includes('free educational') || l.includes('text-only') || l.includes('image uploads'))
+        );
+      })
+      .join('\n')
+      .trimEnd();
+  };
+
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const stripped = isAI ? stripNote(text) : text;
+    const normalized = stripped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     return normalized
       .split('\n')
       .map(line => {
@@ -136,10 +154,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           getBubbleColors(),
           isPatient ? 'rounded-br-md' : 'rounded-bl-md'
         )}>
+          {/* Point 2: hyperlinks rendered as blue + underlined */}
           <ReactMarkdown
             components={{
               p: ({ node, ...props }) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />,
               strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
+              a: ({ node, href, children, ...props }) => (
+                
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
+                  {...props}
+                >
+                  {children}
+                </a>
+              ),
             }}
           >
             {renderedContent}
@@ -169,17 +199,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         </span>
       </div>
 
-      {/* Lightbox */}
       {lightboxOpen && images.length > 0 && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
-          onClick={closeLightbox}
-        >
-          {/* Top right buttons */}
-          <div
-            className="absolute top-4 right-4 flex gap-2"
-            onClick={e => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center" onClick={closeLightbox}>
+          <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
             <button
               onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)}
               className="text-white bg-white/10 hover:bg-white/25 rounded-full p-2 transition-colors"
@@ -195,16 +217,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               <X className="h-5 w-5" />
             </button>
           </div>
-
-          {/* Image */}
           <img
             src={images[lightboxIndex]}
             alt={`Clinical image ${lightboxIndex + 1}`}
             onClick={e => e.stopPropagation()}
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
           />
-
-          {/* Prev / Next */}
           {images.length > 1 && (
             <>
               <button
