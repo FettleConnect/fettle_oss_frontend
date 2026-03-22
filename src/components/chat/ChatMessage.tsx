@@ -160,7 +160,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
                 <strong className="font-bold" {...props} />
               ),
               a: ({ node, href, children, ...props }) => (
-                
+                <a 
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
