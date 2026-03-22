@@ -36,9 +36,7 @@ interface ChatContainerProps {
   onConfirmPayment?: () => void;
   onConfirmGoBack?: () => void;
   freeTierExhausted?: boolean;
-  // Point 1: free response counter
   freeAiReplyCount?: number;
-  // Point 4: intake complete, allow additional info
   intakeComplete?: boolean;
 }
 
@@ -94,14 +92,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const modeInfo = getModeLabel();
 
-  // Point 4: post-intake, input stays open for additional info
   const hideInput =
     privacyFlagged ||
     showConsentButtons ||
     showConfirmPayment ||
     freeTierExhausted;
 
-  // Point 2: pinned note text shown in general_education mode
   const pinnedNote = mode === 'general_education'
     ? 'Free mode is text-only. AI responses are educational only — not medical advice. Dermatologists are significantly better at interpreting skin patterns.'
     : mode === 'dermatologist_review' && intakeComplete
@@ -118,7 +114,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <p className="text-xs text-muted-foreground">OnlineSkinSpecialist.com</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Point 1: response counter badge in general_education mode */}
           {mode === 'general_education' && freeAiReplyCount > 0 && (
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
               freeAiReplyCount >= 3
@@ -134,7 +129,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </div>
 
-      {/* Point 2: pinned note bar — always visible, not inside scroll */}
+      {/* Pinned note bar */}
       {pinnedNote && (
         <div className="border-b border-border bg-amber-50 dark:bg-amber-950/20 px-4 py-2 flex items-start gap-2">
           <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
@@ -142,12 +137,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Point 1: Disclaimer pinned above scroll area — always visible when present */}
+      {/* Disclaimer — pinned above scroll, always visible */}
       {showDisclaimer && (
         <div className="px-4 pt-4 pb-0 flex-shrink-0">
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-100">
             <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed">{DISCLAIMER}</pre>
-            {/* Point 1: mention 3 free responses in disclaimer */}
             <p className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-800 dark:text-amber-200">
               ⓘ Free educational mode includes up to 3 AI responses. After that, you can connect directly with Dr. Attili for a full dermatologist review.
             </p>
@@ -155,7 +149,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Messages — scroll area no longer contains disclaimer */}
+      {/* Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
           {messages.map((message) => (
@@ -190,8 +184,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
-
-      {/* ── Bottom action area ── */}
 
       {/* Privacy flag */}
       {privacyFlagged && (
@@ -307,25 +299,21 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Upgrade button — after every AI reply in MODE 1, not exhausted */}
-      {!freeTierExhausted &&
-        showUpgradeButton &&
-        onUpgradeClick &&
-        !showConsentButtons &&
-        !showConfirmPayment && (
-          <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground shrink-0">Want a specialist review?</p>
-            <Button
-              type="button" variant="default" size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
-              onClick={onUpgradeClick} disabled={isLoading}
-            >
-              <Stethoscope className="h-3.5 w-3.5 mr-2" />
-              Yes, get dermatologist review
-              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-            </Button>
-          </div>
-        )}
+      {/* Upgrade button */}
+      {!freeTierExhausted && showUpgradeButton && onUpgradeClick && !showConsentButtons && !showConfirmPayment && (
+        <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground shrink-0">Want a specialist review?</p>
+          <Button
+            type="button" variant="default" size="sm"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
+            onClick={onUpgradeClick} disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Yes, get dermatologist review
+            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+          </Button>
+        </div>
+      )}
 
       {/* Consent screen */}
       {showConsentButtons && onConsentProceed && (
@@ -385,7 +373,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Point 4: post-intake additional info label */}
+      {/* Post-intake additional info label */}
       {intakeComplete && mode === 'dermatologist_review' && !hideInput && (
         <div className="px-4 pt-3 pb-1 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground font-medium">
