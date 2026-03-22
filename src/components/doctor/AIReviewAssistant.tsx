@@ -25,7 +25,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -54,18 +54,27 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
+  // Point 6: apply replaces the editor content entirely — format preserved
+  // Strips markdown formatting for plain-text editor compatibility
   const handleApply = (content: string, index: number) => {
-    if (onApplyContent) {
-      const cleanContent = content
-        .replace(/#{1,6}\s/g, '')
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/`(.*?)`/g, '$1')
-        .replace(/_{1,2}(.*?)_{1,2}/g, '$1');
-      onApplyContent(cleanContent);
-      setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000);
-    }
+    if (!onApplyContent) return;
+
+    // Point 5: reformat the content to match the required output structure
+    // The content is already formatted by the AI — we clean markdown syntax
+    // but preserve the section headings and paragraph structure
+    const formatted = content
+      .replace(/^#{1,6}\s+/gm, '')           // remove # headings (keep text)
+      .replace(/\*\*(.*?)\*\*/g, '$1')        // remove bold markers
+      .replace(/\*(.*?)\*/g, '$1')            // remove italic markers
+      .replace(/`(.*?)`/g, '$1')              // remove inline code
+      .replace(/_{1,2}(.*?)_{1,2}/g, '$1')   // remove underscores
+      .replace(/\n{3,}/g, '\n\n')             // collapse excess blank lines
+      .trim();
+
+    // Replace — not append
+    onApplyContent(formatted);
+    setAppliedIndex(index);
+    setTimeout(() => setAppliedIndex(null), 2000);
   };
 
   return (
@@ -106,15 +115,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                   )}
 
                   {m.role === 'ai' && onApplyContent && (
-                    <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
+                    <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between gap-2">
+                      <p className="text-[10px] text-muted-foreground">
+                        Replaces current assessment
+                      </p>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-[10px] gap-1 hover:bg-background/50"
                         onClick={() => handleApply(m.content, i)}
                       >
-                        {copiedIndex === i ? (
-                          <><Check className="h-3 w-3" />Applied</>
+                        {appliedIndex === i ? (
+                          <><Check className="h-3 w-3 text-green-600" />Applied</>
                         ) : (
                           <><Copy className="h-3 w-3" />Apply to Editor</>
                         )}
