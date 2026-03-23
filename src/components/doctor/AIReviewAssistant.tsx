@@ -54,17 +54,21 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
+  // ── Issue 6 fix: preserve structure, replace entire editor content ──
   const handleApply = (content: string, index: number) => {
     if (!onApplyContent) return;
-    const formatted = content
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/`(.*?)`/g, '$1')
-      .replace(/_{1,2}(.*?)_{1,2}/g, '$1')
-      .replace(/\n{3,}/g, '\n\n')
+
+    // Keep the structured format intact — only clean up
+    // excessive blank lines and leading/trailing whitespace.
+    // Do NOT strip markdown bold/headers as the structured
+    // section titles (1. Most Consistent With, etc.) rely on them.
+    const cleaned = content
+      .replace(/\n{3,}/g, '\n\n')  // collapse 3+ newlines to 2
       .trim();
-    onApplyContent(formatted);
+
+    // onApplyContent calls setPatientMessage(content) in DoctorChatView
+    // which fully REPLACES the editor — not appends.
+    onApplyContent(cleaned);
     setAppliedIndex(index);
     setTimeout(() => setAppliedIndex(null), 2000);
   };
@@ -80,7 +84,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
           <X className="h-4 w-4" />
         </Button>
       </CardHeader>
-
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
@@ -105,8 +108,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
-
-                  {m.role === 'ai' && onApplyContent && (
+                  {m.role === 'ai' && i > 0 && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between gap-2">
                       <p className="text-[10px] text-muted-foreground">
                         Replaces current assessment
@@ -139,7 +141,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             )}
           </div>
         </ScrollArea>
-
         <div className="p-3 border-t bg-background">
           <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
             <Input
