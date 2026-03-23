@@ -3,6 +3,7 @@ import { Message } from '@/types/dermatology';
 import { cn } from '@/lib/utils';
 import { Bot, User, Stethoscope, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatMessageProps {
   message: Message;
@@ -152,6 +153,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           isPatient ? 'rounded-br-md' : 'rounded-bl-md'
         )}>
           <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
             components={{
               p: ({ node, ...props }) => (
                 <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
@@ -159,12 +161,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               strong: ({ node, ...props }) => (
                 <strong className="font-bold" {...props} />
               ),
+              ul: ({ node, ...props }) => (
+                <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />
+              ),
+              ol: ({ node, ...props }) => (
+                <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />
+              ),
+              li: ({ node, ...props }) => (
+                <li className="text-sm leading-relaxed" {...props} />
+              ),
               a: ({ node, href, children, ...props }) => (
-                <a 
+                
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
+                  className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 font-medium cursor-pointer"
                   {...props}
                 >
                   {children}
