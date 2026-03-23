@@ -172,7 +172,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               ),
               a: ({ node, href, children, ...props }) => {
   return (
-    
+      <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
