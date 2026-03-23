@@ -3,7 +3,6 @@ import { Message } from '@/types/dermatology';
 import { cn } from '@/lib/utils';
 import { Bot, User, Stethoscope, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 interface ChatMessageProps {
   message: Message;
@@ -152,9 +151,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           getBubbleColors(),
           isPatient ? 'rounded-br-md' : 'rounded-bl-md'
         )}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
+         <ReactMarkdown
+  components={{
               p: ({ node, ...props }) => (
                 <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />
               ),
