@@ -60,20 +60,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
   const [consentAcknowledged, setConsentAcknowledged] = useState(false);
   const [proceedNoImages, setProceedNoImages] = useState(false);
-  // Point 4: track intake completion
   const [intakeComplete, setIntakeComplete] = useState(false);
 
   const paymentProcessedRef = useRef(false);
   const isSendingRef = useRef(false);
 
-  // Point 3: split image intake into step 0 (skin image) and step 1 (report image)
-  // Steps 2-7 are the 6 clinical questions
   const INTAKE_QUESTIONS = [
-    // Step 0: skin condition image
     "Please upload a clear image of the skin condition — rash, lesion, or affected area. Do not include your face or any personally identifiable information. Only a direct image of the skin issue is required.",
-    // Step 1: report image
     "Thank you. Now please upload any relevant medical reports or test results if you have them. Ensure all personal information such as your name and mobile number is redacted or covered before uploading. If you have no reports, type 'none'.",
-    // Steps 2-7: clinical questions
     "1. How long has this skin concern been present? (Duration)",
     "2. What symptoms are you experiencing? (e.g. itching, pain, bleeding, spreading)",
     "3. Where on your body is this located?",
@@ -82,7 +76,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     "6. Do you have any other relevant medical history or allergies?",
   ];
 
-  // Keys matching each step
   const STEP_KEYS = ['images', 'reportImages', 'duration', 'symptoms', 'location', 'meds', 'history', 'history'];
 
   const DURATION_OPTIONS = [
@@ -144,13 +137,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     content.toLowerCase().includes('these images may contain identifiable personal information') ||
     content.toLowerCase().includes('intake is paused');
 
-  // Point 3: detect face detection warning from backend
   const isFaceDetectedMessage = (content: string) =>
     content.toLowerCase().includes('no clinical image of skin issue is visible') ||
     content.toLowerCase().includes('dermatological findings') ||
     content.toLowerCase().includes('face detected');
 
-  // Point 3: detect PII in report warning from backend
   const isReportPiiMessage = (content: string) =>
     content.toLowerCase().includes('personal information visible') ||
     content.toLowerCase().includes('name or number') ||
@@ -317,7 +308,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
-      // Skip both image steps (0 and 1), go to clinical question 1
       const nextStep = 2;
       setIntakeStep(nextStep);
       setMessages(prev => [...prev, {
@@ -418,7 +408,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
     if (mode === 'post_payment_intake') {
 
-      // Point 3: Step 0 — skin condition image
       if (intakeStep === 0) {
         if (images && images.length > 0) {
           setIntakeData(prev => ({ ...prev, images }));
@@ -440,7 +429,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           });
           const data = await response.json();
 
-          // Point 3: face detected — warn and stay on step 0
           if (data.result && isFaceDetectedMessage(data.result)) {
             setMessages(prev => [...prev, {
               id: `ai-${Date.now()}`,
@@ -463,7 +451,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           console.error('Error sending skin image step:', error);
         }
 
-        // Move to step 1 — report image
         const nextStep = 1;
         setIntakeStep(nextStep);
         setTimeout(() => {
@@ -478,7 +465,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // Point 3: Step 1 — medical report image
       if (intakeStep === 1) {
         if (images && images.length > 0) {
           setIntakeData(prev => ({ ...prev, reportImages: images }));
@@ -500,7 +486,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           });
           const data = await response.json();
 
-          // Point 3: PII detected in report — warn and stay on step 1
           if (data.result && isReportPiiMessage(data.result)) {
             setMessages(prev => [...prev, {
               id: `ai-${Date.now()}`,
@@ -523,7 +508,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           console.error('Error sending report image step:', error);
         }
 
-        // Move to step 2 — first clinical question
         const nextStep = 2;
         setIntakeStep(nextStep);
         setTimeout(() => {
@@ -538,7 +522,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // Steps 2-7: clinical questions
       const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
       if (currentStepKey !== 'images' && currentStepKey !== 'reportImages') {
         setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
@@ -565,7 +548,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             headers: { 'Authorization': `Bearer ${authToken}` },
             body: formData,
           });
-          // Point 4: set intakeComplete, change mode but keep input open
           setMode('dermatologist_review');
           setIntakeComplete(true);
           setPrivacyFlagged(false);
@@ -622,7 +604,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       return;
     }
 
-    // Point 4: dermatologist_review mode — send additional info to backend
     if (mode === 'dermatologist_review') {
       setIsLoading(true);
       try {
@@ -767,7 +748,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           onPaymentSuccess={handlePaymentSuccess}
           onCancel={() => {
             setMode('general_education');
-            setConsentAcknowledged(true);
+            setConsentAcknowledged(false); // ← FIXED: was true, caused wrong state on cancel
           }}
           threadId={activeThreadId || ''}
         />
@@ -841,7 +822,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </Button>
           </div>
         </div>
-
         <div className="flex-1 min-h-0">
           <ChatContainer
             messages={transformedMessages}
