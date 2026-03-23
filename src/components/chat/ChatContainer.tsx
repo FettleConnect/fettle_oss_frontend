@@ -104,6 +104,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     ? 'Intake submitted. Dr. Attili will review your case. You may add any additional information or images below.'
     : null;
 
+  // Only one panel renders at a time, in priority order
+  const showPrivacyPanel = privacyFlagged;
+  const showConfirmPanel = !showPrivacyPanel && showConfirmPayment;
+  const showUpgradePanel = !showPrivacyPanel && !showConfirmPanel && showUpgradeButton;
+  const showExhaustedPanel = !showPrivacyPanel && !showConfirmPanel && !showUpgradePanel && freeTierExhausted;
+  const showDurationPanel = !showPrivacyPanel && !showConfirmPanel && showDurationChips;
+  const showYesNoPanel = !showPrivacyPanel && !showConfirmPanel && showYesNo;
+  const showProceedPanel = !showPrivacyPanel && !showConfirmPanel && showProceedNoImages;
+
   return (
     <div className="flex flex-col h-full bg-background">
 
@@ -137,7 +146,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Disclaimer — pinned above scroll, always visible */}
+      {/* Disclaimer */}
       {showDisclaimer && (
         <div className="px-4 pt-4 pb-0 flex-shrink-0">
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-100">
@@ -155,7 +164,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
-
           {streamingContent && (
             <ChatMessage
               message={{
@@ -169,7 +177,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               isStreaming
             />
           )}
-
           {isLoading && !streamingContent && (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <div className="flex gap-1">
@@ -180,13 +187,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <span>AI is typing...</span>
             </div>
           )}
-
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
 
-      {/* Privacy flag */}
-      {privacyFlagged && (
+      {/* 1. Privacy flag — highest priority */}
+      {showPrivacyPanel && (
         <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-4">
           <div className="flex items-start gap-3 mb-3">
             <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -218,8 +224,90 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Duration chips */}
-      {!privacyFlagged && showDurationChips && onQuickReply && (
+      {/* 2. Confirm payment — after clicking "Yes, get dermatologist review" */}
+      {showConfirmPanel && onConfirmPayment && (
+        <div className="border-t border-border bg-card px-4 py-4">
+          <div className="flex items-start gap-3 mb-3">
+            <CreditCard className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Proceed to Dermatologist Review</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                You'll be taken to the payment page to complete your consultation booking with Dr. Attili.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button" variant="ghost" size="sm"
+              className="text-muted-foreground hover:text-foreground font-medium shrink-0"
+              onClick={onConfirmGoBack} disabled={isLoading}
+            >
+              <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+              Go back
+            </Button>
+            <Button
+              type="button" variant="default" size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
+              onClick={onConfirmPayment} disabled={isLoading}
+            >
+              <CreditCard className="h-3.5 w-3.5 mr-2" />
+              I confirm — proceed to payment
+              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Upgrade button — shown after first AI reply */}
+      {showUpgradePanel && onUpgradeClick && (
+        <div className="border-t border-border bg-gradient-to-r from-primary/5 to-primary/10 px-4 py-4">
+          <div className="flex items-start gap-3 mb-3">
+            <Stethoscope className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Get a full dermatologist review</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Dr. Attili will personally review your case including images for an accurate clinical assessment.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button" variant="default" size="sm"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
+            onClick={onUpgradeClick} disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Yes, continue with dermatologist review
+            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+          </Button>
+        </div>
+      )}
+
+      {/* 4. Free tier exhausted */}
+      {showExhaustedPanel && (
+        <div className="border-t border-border bg-gradient-to-r from-primary/5 to-primary/10 px-4 py-4">
+          <div className="flex items-start gap-3 mb-3">
+            <Lock className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Free responses used</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                You've used all 3 free educational responses. Connect with Dr. Attili for a full image-based dermatologist review.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button" variant="default" size="sm"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
+            onClick={onUpgradeClick} disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Yes, get dermatologist review
+            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+          </Button>
+        </div>
+      )}
+
+      {/* 5. Duration chips */}
+      {showDurationPanel && onQuickReply && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">Select duration:</p>
           <div className="flex flex-wrap gap-2">
@@ -236,8 +324,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Yes / No */}
-      {!privacyFlagged && showYesNo && onQuickReply && (
+      {/* 6. Yes / No */}
+      {showYesNoPanel && onQuickReply && (
         <div className="px-4 pb-3 pt-3 flex gap-2 bg-card border-t border-border">
           <Button
             type="button" variant="outline"
@@ -256,8 +344,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Proceed without images */}
-      {!privacyFlagged && showProceedNoImages && onProceedNoImages && (
+      {/* 7. Proceed without images */}
+      {showProceedPanel && onProceedNoImages && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">
             No images? Continue with text-only assessment.
@@ -273,107 +361,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      {/* Free tier exhausted */}
-      {freeTierExhausted && !showConsentButtons && !showConfirmPayment && (
-        <div className="border-t border-border bg-gradient-to-r from-primary/5 to-primary/10 px-4 py-4">
-          <div className="flex items-start gap-3 mb-3">
-            <Lock className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-foreground">Free responses used</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Connect with Dr. Attili for a full image-based dermatologist review.
-              </p>
-            </div>
-          </div>
-          {showUpgradeButton && onUpgradeClick && (
-            <Button
-              type="button" variant="default" size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
-              onClick={onUpgradeClick} disabled={isLoading}
-            >
-              <Stethoscope className="h-3.5 w-3.5 mr-2" />
-              Yes, get dermatologist review
-              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* Upgrade button */}
-      {!freeTierExhausted && showUpgradeButton && onUpgradeClick && !showConsentButtons && !showConfirmPayment && (
-        <div className="px-4 pb-3 pt-3 bg-card border-t border-border flex items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground shrink-0">Want a specialist review?</p>
-          <Button
-            type="button" variant="default" size="sm"
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
-            onClick={onUpgradeClick} disabled={isLoading}
-          >
-            <Stethoscope className="h-3.5 w-3.5 mr-2" />
-            Yes, get dermatologist review
-            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-          </Button>
-        </div>
-      )}
-
-      {/* Consent screen */}
-      {showConsentButtons && onConsentProceed && (
-        <div className="border-t border-border bg-card px-4 py-3">
-          <p className="text-xs text-muted-foreground mb-3">
-            This provides a dermatologist-prepared educational overview — not medical advice.
-          </p>
-          <div className="flex items-center gap-2">
-            {showGoBack && onGoBack && (
-              <Button
-                type="button" variant="ghost" size="sm"
-                className="text-muted-foreground hover:text-foreground font-medium shrink-0"
-                onClick={onGoBack} disabled={isLoading}
-              >
-                <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-                Go back
-              </Button>
-            )}
-            <Button
-              type="button" variant="default" size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
-              onClick={onConsentProceed} disabled={isLoading}
-            >
-              <Stethoscope className="h-3.5 w-3.5 mr-2" />
-              I understand — proceed
-              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm payment screen */}
-      {showConfirmPayment && onConfirmPayment && (
-        <div className="border-t border-border bg-card px-4 py-3">
-          <p className="text-xs text-muted-foreground mb-3">
-            You're ready to proceed. Click below to open the payment page.
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button" variant="ghost" size="sm"
-              className="text-muted-foreground hover:text-foreground font-medium shrink-0"
-              onClick={onConfirmGoBack} disabled={isLoading}
-            >
-              <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-              Go back
-            </Button>
-            <Button
-              type="button" variant="default" size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
-              onClick={onConfirmPayment} disabled={isLoading}
-            >
-              <CreditCard className="h-3.5 w-3.5 mr-2" />
-              Confirm — proceed to payment
-              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Post-intake additional info label */}
+      {/* Post-intake label */}
       {intakeComplete && mode === 'dermatologist_review' && !hideInput && (
         <div className="px-4 pt-3 pb-1 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground font-medium">
