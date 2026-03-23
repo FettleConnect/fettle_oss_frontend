@@ -37,6 +37,11 @@ Cite NHS, DermNet NZ, BAD, or CDC sources only. Descriptive, not instructive.
 
 Length: Total response should not exceed 400 words unless clinical complexity genuinely requires it.
 Tone: Textbook-style. Calm authority. No personalisation or directives. Emotionally stable ending.
+
+Closing Line:
+End every Final Patient Output response with:
+You're welcome to ask follow-up questions.
+
 Do NOT use headings like "Diagnosis", "Differential", "Prescription Regimen", or "Technical Justification".
 Do NOT include dosing, timing, or application instructions.`;
 
@@ -44,7 +49,10 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose, contextData, conversationId, onApplyContent
 }) => {
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
-    { role: 'ai', content: "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nAny draft I generate will follow the structured format: Most Consistent With → Close Differentials → Morphologic Justification → Educational Treatment Framework → Investigations → References." }
+    {
+      role: 'ai',
+      content: "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nAny draft I generate will follow the structured format: Most Consistent With → Close Differentials → Morphologic Justification → Educational Treatment Framework → Investigations → References. All responses will end with: 'You're welcome to ask follow-up questions.'"
+    }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -111,8 +119,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                     <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between gap-2">
                       <p className="text-[10px] text-muted-foreground">Replaces current assessment</p>
                       <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 hover:bg-background/50" onClick={() => handleApply(m.content, i)}>
-                        {appliedIndex === i ? <><Check className="h-3 w-3 text-green-600" />Applied</> : <><Copy className="h-3 w-3" />Apply to Editor</>}
-                      </Button>
+                        {appliedIndex === i ? <><Check className="h-3 w-3 text-green-600" />Applied</> : <><Copy className="h-3 w-3" />Apply to Editor</>}</Button>
                     </div>
                   )}
                 </div>

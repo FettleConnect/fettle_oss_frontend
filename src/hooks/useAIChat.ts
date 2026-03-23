@@ -27,25 +27,25 @@ export const useAIChat = ({ conversationId, mode, onModeChange }: UseAIChatProps
       
       // Simulate Backend: Generate Draft Response for Doctor
       // In a real implementation, the backend would generate this when mode changes to 'dermatologist_review'
-      const mockDraftResponse = `Dr. Attili's Review (Draft):
+      const mockDraftResponse = `1. Most Consistent With
+The presentation is most consistent with Nummular Eczema (Discoid Eczema), a common inflammatory skin pattern. This classification is based on the characteristic discrete, coin-shaped morphology of the lesions and their typical distribution.
 
-Based on the images and history provided, the presentation is most consistent with **Nummular Eczema (Discoid Eczema)**.
+2. Close Differentials
+Close differential patterns include Tinea Corporis (fungal infection) and Guttate Psoriasis.
 
-**Morphologic Reasoning:**
-The photos show well-defined, coin-shaped plaques with erythema (redness) and some scaling. The distribution on the [Location provided] is classic. The patient reports itching, which correlates with the inflammatory nature of eczema.
+3. Morphologic Justification
+The skin shows multiple well-demarcated, erythematous, disc-shaped plaques. There is evidence of fine scaling and mild crusting, which is typical for the subacute phase of this pattern. The absence of central clearing helps distinguish it from classic fungal patterns.
 
-**Differential Diagnoses:**
-1. **Tinea Corporis (Ringworm):** Usually has a more active border and central clearing.
-2. **Psoriasis:** Typically has thicker, silvery scales and is often on extensor surfaces.
-3. **Contact Dermatitis:** Pattern would match specific exposure, which is less likely here given the discrete round shape.
+4. Educational Treatment Framework
+Management typically begins with foundational care including soap substitutes and thick emollients. Topical corticosteroids are the primary escalation for active inflammation. In persistent cases, calcineurin inhibitors or phototherapy may be considered.
 
-**Plan:**
-- **Moisturize:** Apply thick emollients (e.g., Vaseline, CeraVe) frequently.
-- **Topical Steroids:** A mid-potency steroid (like Triamcinolone) is often prescribed for 2 weeks to reduce inflammation.
-- **Avoid Irritants:** Harsh soaps and hot water can exacerbate the condition.
+5. Investigations Commonly Considered
+Skin scrapings for mycology are often performed to definitively exclude fungal infection. A skin biopsy may be considered in atypical presentations to confirm the inflammatory pattern.
 
-**Red Flags:**
-If signs of infection appear (increased warmth, pus, spreading redness), please seek in-person care immediately.`;
+6. Educational References
+Information is based on educational resources from the NHS (UK), DermNet NZ, and the British Association of Dermatologists (BAD).
+
+You're welcome to ask follow-up questions.`;
 
       // Update store with draft response (this would normally be fetched from backend)
       import('@/store/dataStore').then(({ setDraftResponse }) => {
