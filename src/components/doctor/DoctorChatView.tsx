@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle, Maximize2, Minimize2 } from 'lucide-react';
+import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -55,10 +55,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isMobile = useIsMobile();
   const [patientMessage, setPatientMessage] = useState(conversation.draftResponse || '');
   const [isSending, setIsSending] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
   const [images, setImages] = useState<string[]>([]);
   const [showAI, setShowAI] = useState(false);
-  // Point 5: expand/collapse assessment textarea
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -95,6 +95,35 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     if (conversation.draftResponse) {
       setPatientMessage(conversation.draftResponse);
       toast({ title: 'Draft Applied', description: 'AI-generated draft has been loaded into the editor.' });
+    }
+  };
+
+  // ── Regenerate draft in updated format ──
+  const handleRegenerateDraft = async () => {
+    setIsRegenerating(true);
+    try {
+      const authToken = localStorage.getItem('DoctorToken');
+      const formData = new FormData();
+      formData.append('id', String(conversation.id));
+      formData.append('question', 'REGENERATE_DRAFT');
+      await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData,
+      });
+      toast({
+        title: 'Regenerating Draft',
+        description: 'New draft is being generated. Click Sync in ~10 seconds to load it.',
+      });
+      // Auto-refresh after 12 seconds to give backend time to regenerate
+      setTimeout(() => {
+        onRefresh();
+      }, 12000);
+    } catch (error) {
+      console.error('Regenerate draft error:', error);
+      toast({ title: 'Error', description: 'Failed to regenerate draft.', variant: 'destructive' });
+    } finally {
+      setIsRegenerating(false);
     }
   };
 
@@ -193,7 +222,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         conversationId={String(conversation.id)}
         contextData={JSON.stringify(conversation.intakeData || {})}
         onApplyContent={(content) => {
-          // Point 6: replace the current content, don't append
           setPatientMessage(content);
           toast({ title: 'Applied to Editor', description: 'Assessment replaced with AI suggestion.' });
           if (isMobile) setShowAI(false);
@@ -273,7 +301,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           </ScrollArea>
 
           {canRespond && !isCompleted && (
-            // Point 5: expanded overlay covers full panel
             <div className={
               assessmentExpanded
                 ? "fixed inset-0 z-50 bg-background flex flex-col p-4 md:p-8 shadow-2xl"
@@ -286,13 +313,23 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     Assessment & Response
                   </label>
                   <div className="flex gap-1.5 md:gap-2">
+                    {/* Regenerate Draft button */}
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={handleRegenerateDraft}
+                      disabled={isRegenerating}
+                      className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-amber-700 border-amber-200 hover:bg-amber-50"
+                      title="Regenerate AI draft in updated format"
+                    >
+                      <RotateCcw className={`h-3.5 w-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">{isRegenerating ? 'Generating...' : 'Regenerate Draft'}</span>
+                    </Button>
                     {conversation.draftResponse && patientMessage !== conversation.draftResponse && (
                       <Button variant="outline" size="sm" onClick={handleApplyDraft} className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-primary border-primary/20">
                         <Bot className="h-3.5 w-3.5" />
                         AI Draft
                       </Button>
                     )}
-                    {/* Point 5: expand/collapse button */}
                     <Button
                       variant="outline" size="sm"
                       onClick={() => setAssessmentExpanded(e => !e)}
