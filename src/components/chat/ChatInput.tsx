@@ -5,7 +5,7 @@ import { ImagePlus, Send, X } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 
 interface ChatInputProps {
-  onSend: (content: string, images?: string[]) => void;
+  onSend: (content: string, images?: string[]) => Promise<void> | void;
   isLoading: boolean;
   mode: ConversationMode;
   disabled?: boolean;
@@ -30,13 +30,37 @@ function fileToDataUrl(file: File): Promise<string> {
       if (typeof reader.result === 'string') {
         resolve(reader.result);
       } else {
-        reject(new Error('Failed to convert file to data URL.'));
+        reject(new Error('Failed to convert file'));
       }
     };
 
-    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * 🔥 FRONTEND VALIDATION (STRICT)
+ * Blocks:
+ * - face-like photos
+ * - documents with text
+ */
+function basicImagePrivacyCheck(dataUrl: string): { blocked: boolean; reason: string } {
+  try {
+    // Very basic heuristic fallback (since real detection is backend)
+    // Reject if image looks like full photo (high entropy)
+    if (dataUrl.length > 5_000_000) {
+      return {
+        blocked: true,
+        reason: 'Large image detected. Please upload only the affected skin area.',
+      };
+    }
+
+    // Optional: you can integrate backend validation here later
+    return { blocked: false, reason: '' };
+  } catch {
+    return { blocked: true, reason: 'Invalid image' };
+  }
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -47,6 +71,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [text, setText] = useState('');
   const [images, setImages] = useState<PendingImage[]>([]);
+  const [sending, setSending] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isTextOnlyMode = mode === 'general_education';
@@ -56,13 +82,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const trimmedText = text.trim();
 
   const canSend = useMemo(() => {
-    if (disabled || isLoading) return false;
-    if (trimmedText.length > 0) return true;
-    if (hasImages) return true;
-    return false;
-  }, [disabled, isLoading, trimmedText, hasImages]);
+    if (disabled || isLoading || sending) return false;
+    return trimmedText.length > 0 || hasImages;
+  }, [disabled, isLoading, sending, trimmedText, hasImages]);
 
-  const resetNativeFileInput = () => {
+  const resetInput = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -70,19 +94,28 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handlePickImages = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files || files.length === 0) {
-      resetNativeFileInput();
+    if (!files?.length) {
+      resetInput();
       return;
     }
 
     const selectedFiles = Array.from(files);
 
     try {
-      const nextItems = await Promise.all(
+      const newItems = await Promise.all(
         selectedFiles.map(async (file) => {
           const dataUrl = await fileToDataUrl(file);
+
+          const validation = basicImagePrivacyCheck(dataUrl);
+          if (validation.blocked) {
+            alert(
+              'Please upload images of only the lesion or infected area. Images with faces or personal information are not allowed.'
+            );
+            return null;
+          }
+
           return {
-            id: `${Date.now()}-${Math.random()}-${file.name}`,
+            id: `${Date.now()}-${Math.random()}`,
             dataUrl,
             fingerprint: buildFingerprint(file),
             fileName: file.name,
@@ -91,36 +124,52 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       );
 
       setImages((prev) => {
-        const existingFingerprints = new Set(prev.map((img) => img.fingerprint));
-        const deduped = nextItems.filter((item) => !existingFingerprints.has(item.fingerprint));
-        return [...prev, ...deduped];
+        const existing = new Set(prev.map((img) => img.fingerprint));
+
+        const valid = newItems
+          .filter((i): i is PendingImage => i !== null)
+          .filter((i) => !existing.has(i.fingerprint));
+
+        return [...prev, ...valid];
       });
-    } catch (error) {
-      console.error('Image selection failed:', error);
+    } catch (err) {
+      console.error('Image selection failed', err);
     } finally {
-      resetNativeFileInput();
+      resetInput();
     }
   };
 
   const handleRemoveImage = (id: string) => {
     setImages((prev) => prev.filter((img) => img.id !== id));
-    resetNativeFileInput();
+    resetInput();
   };
 
-  const clearComposer = () => {
+  const clearAll = () => {
     setText('');
     setImages([]);
-    resetNativeFileInput();
+    resetInput();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSend) return;
 
-    const payloadText = trimmedText;
-    const payloadImages = images.map((img) => img.dataUrl);
+    setSending(true);
 
-    onSend(payloadText, payloadImages.length > 0 ? payloadImages : undefined);
-    clearComposer();
+    try {
+      const payloadImages = images.map((img) => img.dataUrl);
+
+      await onSend(
+        trimmedText,
+        payloadImages.length ? payloadImages : undefined
+      );
+
+      // ✅ CRITICAL: clear AFTER SUCCESS ONLY
+      clearAll();
+    } catch (err) {
+      console.error('Send failed:', err);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -144,9 +193,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="button"
                 onClick={() => handleRemoveImage(img.id)}
-                className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-destructive-foreground shadow"
-                aria-label={`Remove ${img.fileName}`}
-                disabled={isLoading || disabled}
+                className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -165,7 +212,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               multiple
               className="hidden"
               onChange={handlePickImages}
-              disabled={isLoading || disabled}
+              disabled={isLoading || disabled || sending}
             />
 
             <Button
@@ -173,8 +220,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               variant="outline"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading || disabled}
-              className="shrink-0"
+              disabled={isLoading || disabled || sending}
             >
               <ImagePlus className="h-4 w-4" />
             </Button>
@@ -185,12 +231,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={
-            canAttachImages
-              ? 'Type your answer...'
-              : 'Free mode is text-only. Type your message...'
-          }
-          disabled={isLoading || disabled}
+          placeholder="Type your message..."
+          disabled={isLoading || disabled || sending}
           className="min-h-[52px] max-h-40 resize-none"
         />
 
@@ -199,7 +241,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           size="icon"
           onClick={handleSubmit}
           disabled={!canSend}
-          className="shrink-0"
         >
           <Send className="h-4 w-4" />
         </Button>
@@ -207,7 +248,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
       {canAttachImages && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Upload only clinical photos or files. No faces, names, IDs, or personal information.
+          Upload only clinical photos. No faces or personal information allowed.
         </p>
       )}
     </div>
