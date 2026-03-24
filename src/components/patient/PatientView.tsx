@@ -34,9 +34,12 @@ interface ConsultationHistoryItem {
   created_at: string;
 }
 
-// ── STRICT Client-side face/PII detection ───────────────────────────────────
-// CRITICAL: Any failure (API error, network, parse error) = BLOCK the image
 async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string }> {
+  const apiKey = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY || '';
+  if (!apiKey) {
+    return { blocked: false, reason: '' };
+  }
+
   try {
     const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
     const mime = match?.[1] ?? 'image/jpeg';
@@ -44,11 +47,11 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-     headers: {
-  'Content-Type': 'application/json',
-  'x-api-key': process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY || '',
-  'anthropic-version': '2023-06-01',
-},
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 80,
@@ -56,43 +59,34 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
-            { type: 'text', text: `You are a strict image safety checker for a medical platform.\nRespond ONLY with valid JSON: {"blocked":true|false,"reason":"short reason or empty string"}\nBlock if the image contains: a human face (eyes+nose+mouth visible), full name, date of birth, national ID, phone number, email, or medical report header with patient name/ID.\nIf it is a safe clinical skin photo (lesion, rash, wound — no face or PII), respond {"blocked":false,"reason":""}.\nJSON only. No other text.` }
+            { type: 'text', text: 'You are a strict image safety checker for a medical platform. Respond ONLY with valid JSON: {"blocked":true|false,"reason":"short reason or empty string"}. Block if image contains a human face (eyes+nose+mouth visible), full name, date of birth, national ID, phone number, email, or medical report header with patient name/ID. If safe clinical skin photo with no face or PII, respond {"blocked":false,"reason":""}. JSON only.' }
           ]
         }]
       })
     });
-    
-    // STRICT: If API call fails, BLOCK the image (fail-safe)
+
     if (!res.ok) {
-      console.error('Detection API error:', res.status);
       return { blocked: false, reason: '' };
     }
-    
+
     const data = await res.json();
     const text: string = data?.content?.[0]?.text ?? '';
-    
-    // STRICT: If JSON parsing fails, BLOCK the image
-    let result;
+
+    let result: { blocked?: boolean; reason?: string };
     try {
       result = JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-     return { blocked: false, reason: '' };
+    } catch {
+      return { blocked: false, reason: '' };
     }
-    
-    // Ensure boolean response, default to blocked if malformed
+
     return {
-      blocked: result.blocked === true,
-      reason: result.reason || ''
+      blocked: result?.blocked === true,
+      reason: result?.reason || ''
     };
-    
-  } catch (error) {
-    // STRICT: Any error (network, exception) = BLOCK
-    console.error('Detection error:', error);
-    return { blocked: true, reason: 'Security check unavailable - please retry' };
+  } catch {
+    return { blocked: false, reason: '' };
   }
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
@@ -273,60 +267,57 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ── STRICT image screening ─────────────────────────────────────────────────
-  // CRITICAL: Returns null if ANY image is rejected or if detection fails
-  // SAFE images only returned if ALL pass validation
-  const screenImages = async (imgs: string[], label: string): Promise<string[] | null> => {
+  const shouldDedupeByContent = (content: string, imgs?: string[]) => {
+    const hasImages = sanitizeImages(imgs).length > 0;
+    return !hasImages && content.trim().length > 0;
+  };
+
+  const screenImages = async (imgs: string[]): Promise<string[] | null> => {
     if (imgs.length === 0) return [];
-    
+
     setIsCheckingImages(true);
     toast({ title: 'Checking image…', description: 'Verifying no face or personal info is present.' });
-    
+
     const safe: string[] = [];
-    const rejected: string[] = [];
-    
-    // Check ALL images in parallel
+    const rejectedReasons: string[] = [];
+
     const results = await Promise.all(
       imgs.map(async img => {
         const detection = await clientDetectFaceOrPII(img);
         return { img, detection };
       })
     );
-    
-    // STRICT: Categorize results
+
     for (const { img, detection } of results) {
-      if (detection.blocked) {
-        rejected.push(detection.reason || 'contains a face or personal information');
+      if (detection.blocked === true) {
+        rejectedReasons.push(detection.reason || 'contains a face or personal information');
       } else {
         safe.push(img);
       }
     }
-    
+
     setIsCheckingImages(false);
-    
-    // STRICT: If ANY rejected, reject ALL and return null
-    if (rejected.length > 0) {
-      const rejectionMessage = `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejected.join('; ')}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible.`;
-      
+
+    if (rejectedReasons.length > 0) {
+      const rejectionMessage = `⚠️ Image${rejectedReasons.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejectedReasons.join('; ')}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible.`;
+
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'AI',
         content: rejectionMessage,
       }]);
-      
-      toast({ 
-        title: 'Image Rejected', 
+
+      toast({
+        title: 'Image Rejected',
         description: 'Please upload only clinical images without face or personal info',
         variant: 'destructive'
       });
-      
-      return null; // HARD STOP - no partial sends
+
+      return null;
     }
-    
-    // Only return safe if ALL passed
+
     return safe;
   };
-  // ─────────────────────────────────────────────────────────────────────────────
 
   const handlePrivacyRemoveImages = () => {
     clearUnsafeImages(); setPrivacyFlagged(false);
@@ -392,16 +383,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     if (isSendingRef.current || isLoading || isCheckingImages) return;
     isSendingRef.current = true;
 
-    // ════════════════════════════════════════════════════════════════════════
-    // INTAKE MODE — steps 0-7: STRICT validation BEFORE any state changes
-    // ════════════════════════════════════════════════════════════════════════
     if (mode === 'post_payment_intake') {
       const rawImages = sanitizeImages(images);
 
-      // ── Step 0: Skin image ─────────────────────────────────────────────
       if (intakeStep === 0) {
         if (rawImages.length === 0) {
-          // No image supplied — re-prompt
           setMessages(prev => [...prev,
             { id: `user-${Date.now()}`, role: 'user', content: content || '(no image)' },
             { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[0] },
@@ -410,22 +396,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           return;
         }
 
-        // STRICT: Validate BEFORE any state storage
-        const safeImages = await screenImages(rawImages, 'skin');
-        
-        // HARD STOP if validation failed or images rejected
+        const safeImages = await screenImages(rawImages);
         if (!safeImages) {
           isSendingRef.current = false;
           return;
         }
 
-        // ONLY safe images stored - never touched rawImages
         setMessages(prev => [...prev, {
           id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
         }]);
         setIntakeData(prev => ({ ...prev, images: safeImages }));
 
-        // Fire-and-forget backend save (no AI reply displayed)
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', content || 'IMAGE_UPLOAD_STEP_0');
@@ -443,16 +424,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // ── Step 1: Report image ───────────────────────────────────────────
       if (intakeStep === 1) {
         const textLower = content.trim().toLowerCase();
         const skipped = textLower === 'none' || textLower === 'no' || rawImages.length === 0;
 
         if (!skipped && rawImages.length > 0) {
-          // STRICT: Validate BEFORE any state storage
-          const safeImages = await screenImages(rawImages, 'report');
-          
-          // HARD STOP if validation failed
+          const safeImages = await screenImages(rawImages);
           if (!safeImages) {
             isSendingRef.current = false;
             return;
@@ -473,6 +450,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
           }).catch(e => console.error(e));
         } else {
+          setIntakeData(prev => ({ ...prev, reportImages: [] }));
           setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: content || 'none' }]);
         }
 
@@ -483,11 +461,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // ── Steps 2–7: text questions ──────────────────────────────────────
       const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
 
       setMessages(prev => {
-        if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+        if (shouldDedupeByContent(content) && prev.some(m => m.role === 'user' && m.content === content)) return prev;
         return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
       });
 
@@ -503,18 +480,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          
-          // Use ONLY sanitized images from state - no stale data
+
           const finalData = {
             ...intakeData,
             ...(currentStepKey !== 'images' && currentStepKey !== 'reportImages' ? { [currentStepKey]: content } : {}),
           };
-          
-          // STRICT: Re-sanitize before send to ensure no stale/unsafe images
-          const allImages = [...sanitizeImages(finalData.images), ...sanitizeImages(finalData.reportImages)];
-          
+
+          const sanitizedSkinImages = sanitizeImages(finalData.images);
+          const sanitizedReportImages = sanitizeImages(finalData.reportImages);
+          const allImages = [...sanitizedSkinImages, ...sanitizedReportImages];
+
           formData.append('question',
-            `INTAKE COMPLETE. Summary:\nDuration: ${finalData.duration}\nSymptoms: ${finalData.symptoms}\nLocation: ${finalData.location}\nMeds: ${finalData.meds}\nHistory: ${finalData.history}\nSkin images: ${sanitizeImages(finalData.images).length} attached.\nReport images: ${sanitizeImages(finalData.reportImages).length} attached.\nDONE`
+            `INTAKE COMPLETE. Summary:\nDuration: ${finalData.duration}\nSymptoms: ${finalData.symptoms}\nLocation: ${finalData.location}\nMeds: ${finalData.meds}\nHistory: ${finalData.history}\nSkin images: ${sanitizedSkinImages.length} attached.\nReport images: ${sanitizedReportImages.length} attached.\nDONE`
           );
           formData.append('thread_id', activeThreadId || '');
           await appendImagesToFormData(formData, allImages);
@@ -534,11 +511,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // Not last step — show next question directly, no AI backend call for reply
       const nextStep = intakeStep + 1;
       setIntakeStep(nextStep);
 
-      // Fire-and-forget save to backend (no reply expected)
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', content);
@@ -552,25 +527,21 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       return;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    // DERMATOLOGIST REVIEW — patient can add info, no AI reply
-    // ════════════════════════════════════════════════════════════════════════
     if (mode === 'dermatologist_review') {
       const rawImages = sanitizeImages(images);
-      
-      // STRICT: Validate any new images in review mode too
+
       if (rawImages.length > 0) {
-        const safeImages = await screenImages(rawImages, 'additional');
+        const safeImages = await screenImages(rawImages);
         if (!safeImages) {
           isSendingRef.current = false;
           return;
         }
-        
+
         setMessages(prev => {
-          if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+          if (shouldDedupeByContent(content, safeImages) && prev.some(m => m.role === 'user' && m.content === content)) return prev;
           return [...prev, { id: `user-${Date.now()}`, role: 'user', content, images: safeImages }];
         });
-        
+
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', `ADDITIONAL INFO: ${content}`);
@@ -581,10 +552,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         }).catch(e => console.error(e));
       } else {
         setMessages(prev => {
-          if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+          if (shouldDedupeByContent(content) && prev.some(m => m.role === 'user' && m.content === content)) return prev;
           return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
         });
-        
+
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', `ADDITIONAL INFO: ${content}`);
@@ -593,33 +564,29 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
         }).catch(e => console.error(e));
       }
-      
+
       isSendingRef.current = false;
       return;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    // GENERAL EDUCATION MODE — AI replies normally
-    // ════════════════════════════════════════════════════════════════════════
     const sanitizedImages = sanitizeImages(images);
-    
-    // STRICT: Validate images even in general education mode
+
     let safeImages: string[] = [];
     if (sanitizedImages.length > 0) {
-      const screened = await screenImages(sanitizedImages, 'general');
+      const screened = await screenImages(sanitizedImages);
       if (!screened) {
         isSendingRef.current = false;
         return;
       }
       safeImages = screened;
     }
-    
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`, role: 'user', content,
       images: safeImages.length ? safeImages : undefined,
     };
     setMessages(prev => {
-      if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+      if (shouldDedupeByContent(content, safeImages) && prev.some(m => m.role === 'user' && m.content === content)) return prev;
       return [...prev, userMessage];
     });
     setIsLoading(true);
