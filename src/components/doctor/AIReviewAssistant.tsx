@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Send, X, ClipboardEdit } from 'lucide-react';
+import { Bot, Send, X, Sparkles } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
 
@@ -14,86 +14,260 @@ interface AIReviewAssistantProps {
   onApplyContent?: (content: string) => void;
 }
 
-const STRUCTURED_FORMAT_PROMPT = `When generating or refining a patient response draft, you MUST present the output in this exact order using short paragraphs — NOT heavily nested bullet lists:
+const SECTION_TITLES = [
+  'Most Consistent With',
+  'Close Differentials',
+  'Morphologic Justification',
+  'Educational Treatment Framework',
+  'Investigations Commonly Considered',
+  'References',
+];
 
-1. Most Consistent With
-State the most likely pattern category in 2–3 sentences. Use category-based classification. Provide a brief educational explanation of why this pattern fits.
+const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist.
 
-2. Close Differentials
-Name 2–3 differential patterns in 1–2 sentences. No need for detailed explanation of each.
+Every response MUST use this exact section order and section titles exactly as written below:
 
-3. Morphologic Justification
-Write a short paragraph explaining the visual features that support the primary classification. Do not use a bullet list here.
+Most Consistent With
 
-4. Educational Treatment Framework
-Present treatment classes in escalation order: foundational care first, then topical agents, then procedural options. Medication names are permitted. No dosing, timing, or application instructions.
+Close Differentials
 
-5. Investigations Commonly Considered
-Include if clinically relevant. Frame biopsy as a classification tool, not a diagnostic confirmation.
+Morphologic Justification
 
-6. Educational References
-Cite NHS, DermNet NZ, BAD, or CDC sources only. Descriptive, not instructive.
+Educational Treatment Framework
 
-Length: Total response should not exceed 400 words unless clinical complexity genuinely requires it.
-Tone: Textbook-style. Calm authority. No personalisation or directives. Emotionally stable ending.
+Investigations Commonly Considered
 
-Closing Line: End every response with: You're welcome to ask follow-up questions.
+References
 
-Do NOT use headings like "Diagnosis", "Differential", "Prescription Regimen", or "Technical Justification".
-Do NOT include dosing, timing, or application instructions.`;
+Rules:
+- Do not use numbered sections.
+- Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, or Plan.
+- Do not use heavily nested bullet lists.
+- Keep the tone textbook-style and concise.
+- No dosing, frequency, or application instructions.
+- References should be educational sources only.
+- End every response with exactly:
+You're welcome to ask follow-up questions.`;
 
-interface AiMessage {
-  role: 'user' | 'ai';
-  content: string;
+function cleanBody(text: string): string {
+  return (text || '')
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeHeading(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+function extractStructuredSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
+  if (!cleaned) return {};
+
+  const escaped = SECTION_TITLES.map(escapeRegex).join('|');
+  const regex = new RegExp(`(?:^|\\n)\\s*(${escaped})\\s*:?\\s*(?=\\n|$)`, 'gi');
+
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
+  }
+
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
+  }
+
+  return sections;
+}
+
+function extractLegacyNumberedSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
+  if (!cleaned) return {};
+
+  const mappings = [
+    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
+    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
+    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
+    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
+    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
+    { patterns: ['Educational References', 'References'], target: 'References' },
+  ];
+
+  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
+
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
+  }
+
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    const body = cleanBody(cleaned.slice(start, end));
+
+    const mapping = mappings.find((m) =>
+      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
+    );
+
+    if (mapping && body) {
+      sections[normalizeHeading(mapping.target)] = body;
+    }
+  }
+
+  return sections;
+}
+
+function normalizeAIContentToStructuredFormat(rawText: string): string {
+  const text = cleanBody(rawText);
+  if (!text) return '';
+
+  let sections = extractStructuredSections(text);
+
+  if (Object.keys(sections).length === 0) {
+    sections = extractLegacyNumberedSections(text);
+  }
+
+  if (Object.keys(sections).length === 0) {
+    return text;
+  }
+
+  let normalized = SECTION_TITLES.map((title) => {
+    const key = normalizeHeading(title);
+    const body = cleanBody(sections[key] || '');
+    return `${title}\n\n${body}`.trim();
+  }).join('\n\n');
+
+  normalized = cleanBody(normalized);
+
+  if (
+    normalized &&
+    !normalized.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())
+  ) {
+    normalized = `${normalized}\n\nYou're welcome to ask follow-up questions.`;
+  }
+
+  return normalized;
 }
 
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
-  onClose, contextData, conversationId, onApplyContent,
+  onClose,
+  contextData,
+  conversationId,
+  onApplyContent,
 }) => {
-  const [messages, setMessages] = useState<AiMessage[]>([
+  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
     {
       role: 'ai',
-      content: "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow the structured format: **Most Consistent With → Close Differentials → Morphologic Justification → Educational Treatment Framework → Investigations → References.**\n\nAll responses end with: *You're welcome to ask follow-up questions.*\n\nThe response will be applied to the Assessment editor automatically.",
+      content:
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.",
     },
   ]);
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [latestDraft, setLatestDraft] = useState<string>('');
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  const normalizedLatestDraft = useMemo(() => {
+    return normalizeAIContentToStructuredFormat(latestDraft);
+  }, [latestDraft]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+
     const userMsg = input.trim();
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
+
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
-      formData.append('question',
-        `${STRUCTURED_FORMAT_PROMPT}\n\nContext:\n${contextData}\n\nDoctor's question: ${userMsg}`
+      formData.append(
+        'question',
+        `${STRUCTURED_FORMAT_PROMPT}
+
+Context:
+${contextData}
+
+Doctor's request:
+${userMsg}`
       );
+
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
-      if (!response.ok) throw new Error('Failed to get AI response');
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
+
       const data = await response.json();
-      const aiContent: string = data.result || '';
-      setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
-    } catch {
-      setMessages(prev => [...prev, {
-        role: 'ai',
-        content: 'I encountered an error. Please ensure the backend is running and try again.',
-      }]);
+      const rawAiContent: string = data.result || '';
+      const normalizedContent = normalizeAIContentToStructuredFormat(rawAiContent);
+
+      setLatestDraft(normalizedContent || rawAiContent);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          content: normalizedContent || rawAiContent || 'No response received.',
+        },
+      ]);
+    } catch (error) {
+      console.error('Error consulting AI:', error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          content: 'I encountered an error. Please ensure the backend is running and try again.',
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleApply = () => {
+    const contentToApply = normalizedLatestDraft || latestDraft;
+    if (!contentToApply.trim() || !onApplyContent) return;
+
+    onApplyContent(contentToApply);
   };
 
   return (
@@ -112,41 +286,36 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => (
-              <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                  m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'
-                }`}>
+              <div
+                key={i}
+                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+              >
+                <div
+                  className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                    m.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
                   {m.role === 'ai' ? (
-                    <>
-                      <div className="prose prose-sm dark:prose-invert max-w-none
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none
                         [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
                         [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
                         [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
                         [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
                         [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold">
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
-                      </div>
-                      {/* Apply to Editor — shown on every AI message except the initial greeting */}
-                      {i > 0 && onApplyContent && (
-                        <div className="mt-3 pt-2 border-t border-border/40">
-                          <Button
-                            type="button" size="sm" variant="outline"
-                            className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/5"
-                            onClick={() => onApplyContent(m.content)}
-                          >
-                            <ClipboardEdit className="h-3.5 w-3.5" />
-                            Apply to Editor
-                          </Button>
-                        </div>
-                      )}
-                    </>
+                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold"
+                    >
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
                 </div>
               </div>
             ))}
+
             {isLoading && (
               <div className="flex justify-start">
                 <div className="bg-muted text-foreground rounded-lg px-3 py-2 text-sm flex gap-1 items-center">
@@ -156,16 +325,35 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                 </div>
               </div>
             )}
-            <div ref={bottomRef} />
           </div>
         </ScrollArea>
 
+        <div className="border-t bg-background px-3 py-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleApply}
+            disabled={!normalizedLatestDraft.trim() && !latestDraft.trim()}
+            className="w-full gap-2"
+          >
+            <Sparkles className="h-4 w-4" />
+            Apply to Editor
+          </Button>
+        </div>
+
         <div className="p-3 border-t bg-background">
-          <form onSubmit={e => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
             <Input
               value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Ask for refinement, alternate wording, or a better draft…"
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask for refinement, alternate wording, or a structured differential review..."
               disabled={isLoading}
             />
             <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
