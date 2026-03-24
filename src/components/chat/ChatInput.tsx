@@ -14,10 +14,12 @@ interface ChatInputProps {
 interface PendingImage {
   id: string;
   dataUrl: string;
+  /** Stable fingerprint built from file metadata — used to prevent duplicate adds. */
   fingerprint: string;
   fileName: string;
 }
 
+/** Stable fingerprint from file metadata (not content). Prevents selecting the same file twice. */
 function buildFingerprint(file: File): string {
   return `${file.name}__${file.size}__${file.lastModified}`;
 }
@@ -25,42 +27,35 @@ function buildFingerprint(file: File): string {
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         resolve(reader.result);
       } else {
-        reject(new Error('Failed to convert file'));
+        reject(new Error('Failed to convert file to data URL'));
       }
     };
-
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
 }
 
 /**
- * 🔥 FRONTEND VALIDATION (STRICT)
- * Blocks:
- * - face-like photos
- * - documents with text
+ * FIX (Bug 2): The previous implementation blocked any image whose base64 data URL
+ * exceeded 5,000,000 characters. A normal 3 MB skin-lesion JPEG produces a data URL
+ * of ~4–5 MB (base64 inflates by ~33%), so valid clinical photos were routinely
+ * rejected before the user even saw the AI safety check.
+ *
+ * The real face/PII check is done server-side (Django) AND via the Anthropic API call
+ * in PatientView.screenImages(). This lightweight client function now only rejects
+ * images that fail basic format validation — nothing more.
  */
 function basicImagePrivacyCheck(dataUrl: string): { blocked: boolean; reason: string } {
-  try {
-    // Very basic heuristic fallback (since real detection is backend)
-    // Reject if image looks like full photo (high entropy)
-    if (dataUrl.length > 5_000_000) {
-      return {
-        blocked: true,
-        reason: 'Large image detected. Please upload only the affected skin area.',
-      };
-    }
-
-    // Optional: you can integrate backend validation here later
-    return { blocked: false, reason: '' };
-  } catch {
-    return { blocked: true, reason: 'Invalid image' };
+  // Reject empty or clearly invalid data URLs
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+    return { blocked: true, reason: 'Invalid image format.' };
   }
+  // All other images pass here; the real AI-based check happens in PatientView.
+  return { blocked: false, reason: '' };
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -74,6 +69,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [sending, setSending] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * FIX (Bug 3): imagesRef mirrors the images state synchronously so that
+   * handleSubmit always snapshots the EXACT list of images at click time,
+   * even if React has batched state updates that haven't flushed yet.
+   */
   const imagesRef = useRef<PendingImage[]>([]);
 
   const isTextOnlyMode = mode === 'general_education';
@@ -87,16 +88,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return trimmedText.length > 0 || hasImages;
   }, [disabled, isLoading, sending, trimmedText, hasImages]);
 
-  const resetInput = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+  /** Clear the native file input so the same file can be re-selected after removal. */
+  const resetFileInput = () => {
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  /**
+   * Unified images state setter that keeps imagesRef in sync.
+   * Always call this instead of setImages directly.
+   */
   const setImagesState = (updater: (prev: PendingImage[]) => PendingImage[]) => {
-    setImages((prev) => {
+    setImages(prev => {
       const next = updater(prev);
-      imagesRef.current = next;
+      imagesRef.current = next; // keep ref in sync synchronously
       return next;
     });
   };
@@ -104,7 +108,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handlePickImages = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files?.length) {
-      resetInput();
+      resetFileInput();
       return;
     }
 
@@ -112,13 +116,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     try {
       const newItems = await Promise.all(
-        selectedFiles.map(async (file) => {
+        selectedFiles.map(async file => {
           const dataUrl = await fileToDataUrl(file);
 
+          // FIX (Bug 2): basicImagePrivacyCheck no longer rejects by file size.
+          // It only catches malformed data URLs. Real validation is in PatientView.
           const validation = basicImagePrivacyCheck(dataUrl);
           if (validation.blocked) {
             alert(
-              'Please upload images of only the lesion or infected area. Images with faces or personal information are not allowed.'
+              'Please upload images of only the lesion or infected area. ' +
+              'Images with faces or personal information are not allowed.'
             );
             return null;
           }
@@ -132,14 +139,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         })
       );
 
-      setImagesState((prev) => {
-        const seen = new Set(prev.map((img) => img.fingerprint));
+      // FIX (Bug 3): Deduplicate by fingerprint so selecting the same file twice
+      // or picking overlapping sets never adds a duplicate to the pending list.
+      setImagesState(prev => {
+        const seen = new Set(prev.map(img => img.fingerprint));
         const valid: PendingImage[] = [];
 
         for (const item of newItems) {
           if (!item) continue;
           if (seen.has(item.fingerprint)) continue;
-
           seen.add(item.fingerprint);
           valid.push(item);
         }
@@ -147,26 +155,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         return [...prev, ...valid];
       });
     } catch (err) {
-      console.error('Image selection failed', err);
+      console.error('Image selection failed:', err);
     } finally {
-      resetInput();
+      resetFileInput();
     }
   };
 
+  /** FIX (Bug 3): Remove by stable id — the deleted image is gone from state
+   *  and from imagesRef immediately, so it cannot sneak into the next send. */
   const handleRemoveImage = (id: string) => {
-    setImagesState((prev) => prev.filter((img) => img.id !== id));
-    resetInput();
+    setImagesState(prev => prev.filter(img => img.id !== id));
+    resetFileInput();
   };
 
   const clearAll = () => {
     setText('');
     setImagesState(() => []);
-    resetInput();
+    resetFileInput();
   };
 
   const handleSubmit = async () => {
+    // FIX (Bug 3): Read the SNAPSHOT from imagesRef.current at the moment the
+    // user clicks Send. This is the authoritative list:
+    //   • already-removed images are absent (their removal updated the ref)
+    //   • no stale closure over an old `images` value
     const currentTrimmedText = text.trim();
-    const currentImages = imagesRef.current;
+    const currentImages = [...imagesRef.current]; // snapshot
 
     if (disabled || isLoading || sending) return;
     if (currentTrimmedText.length === 0 && currentImages.length === 0) return;
@@ -174,14 +188,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setSending(true);
 
     try {
-      const payloadImages = currentImages.map((img) => img.dataUrl);
+      const payloadImages = currentImages.map(img => img.dataUrl);
 
-      await onSend(currentTrimmedText, payloadImages.length ? payloadImages : undefined);
+      await onSend(
+        currentTrimmedText,
+        payloadImages.length ? payloadImages : undefined
+      );
 
-      // ✅ CRITICAL: clear AFTER SUCCESS ONLY
+      // FIX (Bug 3): Clear state ONLY after a successful send so that
+      // if onSend throws, the user's images are not silently lost.
       clearAll();
     } catch (err) {
       console.error('Send failed:', err);
+      // Do NOT clear — let the user retry with the same images.
     } finally {
       setSending(false);
     }
@@ -196,9 +215,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className="border-t border-border bg-card p-3 md:p-4">
+      {/* Pending image previews */}
       {hasImages && (
         <div className="mb-3 flex flex-wrap gap-2 rounded-lg border border-dashed bg-muted/30 p-2">
-          {images.map((img) => (
+          {images.map(img => (
             <div key={img.id} className="relative">
               <img
                 src={img.dataUrl}
@@ -209,6 +229,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={() => handleRemoveImage(img.id)}
                 className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white"
+                aria-label={`Remove ${img.fileName}`}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -229,13 +250,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               onChange={handlePickImages}
               disabled={isLoading || disabled || sending}
             />
-
             <Button
               type="button"
               variant="outline"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading || disabled || sending}
+              aria-label="Attach images"
             >
               <ImagePlus className="h-4 w-4" />
             </Button>
@@ -244,21 +265,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         <Textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type your message..."
+          placeholder="Type your message…"
           disabled={isLoading || disabled || sending}
           className="min-h-[52px] max-h-40 resize-none"
         />
 
-        <Button type="button" size="icon" onClick={handleSubmit} disabled={!canSend}>
+        <Button
+          type="button"
+          size="icon"
+          onClick={handleSubmit}
+          disabled={!canSend}
+          aria-label="Send message"
+        >
           <Send className="h-4 w-4" />
         </Button>
       </div>
 
       {canAttachImages && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Upload only clinical photos. No faces or personal information allowed.
+          Upload only clinical photos of the affected skin area. No faces or personal information allowed.
         </p>
       )}
     </div>
