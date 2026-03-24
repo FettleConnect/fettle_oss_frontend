@@ -45,21 +45,28 @@ Do NOT use headings like "Diagnosis", "Differential", "Prescription Regimen", or
 Do NOT include dosing, timing, or application instructions.`;
 
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
-  onClose, contextData, conversationId, onApplyContent
+  onClose,
+  contextData,
+  conversationId,
+  onApplyContent,
 }) => {
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
     {
       role: 'ai',
-      content: "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow the structured format: Most Consistent With → Close Differentials → Morphologic Justification → Educational Treatment Framework → Investigations → References. All responses end with: 'You're welcome to ask follow-up questions.'\n\nThe response will be applied to the Assessment editor automatically."
-    }
+      content:
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow the structured format: Most Consistent With → Close Differentials → Morphologic Justification → Educational Treatment Framework → Investigations → References. All responses end with: 'You're welcome to ask follow-up questions.'\n\nUse Apply to Editor when you want to merge the latest AI draft into the assessment editor.",
+    },
   ]);
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [latestDraft, setLatestDraft] = useState<string>('');
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-    const userMsg = input;
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+
+    const userMsg = input.trim();
+    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
 
@@ -67,35 +74,41 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
-      formData.append('question', `${STRUCTURED_FORMAT_PROMPT}\n\nDoctor's question: ${userMsg}`);
+      formData.append(
+        'question',
+        `${STRUCTURED_FORMAT_PROMPT}\n\nContext:\n${contextData}\n\nDoctor's question: ${userMsg}`
+      );
 
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
 
       if (!response.ok) throw new Error('Failed to get AI response');
+
       const data = await response.json();
-      const aiContent: string = data.result;
+      const aiContent: string = data.result || '';
 
-      setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
-
-      // FIX #3: auto-apply EVERY AI response directly to the Assessment editor
-      // No "Apply to Editor" button needed — it happens automatically
-      if (onApplyContent) {
-        onApplyContent(aiContent);
-      }
-
+      setLatestDraft(aiContent);
+      setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error) {
       console.error('Error consulting AI:', error);
-      setMessages(prev => [...prev, {
-        role: 'ai',
-        content: 'I encountered an error. Please ensure the backend is running and try again.'
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          content: 'I encountered an error. Please ensure the backend is running and try again.',
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleApply = () => {
+    if (!latestDraft.trim() || !onApplyContent) return;
+    onApplyContent(latestDraft);
   };
 
   return (
@@ -114,26 +127,45 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => (
-              <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+              <div
+                key={i}
+                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+              >
+                <div
+                  className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                    m.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
                   {m.role === 'ai' ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none
-                      [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
-                      [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
-                      [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
-                      [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
-                      [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                      [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold">
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none
+                        [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
+                        [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
+                        [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
+                        [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
+                        [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
+                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold"
+                    >
                       <ReactMarkdown>{m.content}</ReactMarkdown>
                     </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
-                  {/* FIX #3: no "Apply to Editor" button — auto-applied on generate */}
-                  {m.role === 'ai' && i > 0 && (
-                    <p className="mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
-                      ✓ Applied to Assessment editor
-                    </p>
+
+                  {m.role === 'ai' && i > 0 && i === messages.length - 1 && (
+                    <div className="mt-3 pt-2 border-t border-border/50">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleApply}
+                        disabled={!latestDraft.trim()}
+                      >
+                        Apply to Editor
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -152,14 +184,20 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         </ScrollArea>
 
         <div className="p-3 border-t bg-background">
-          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
             <Input
               value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Ask for diagnosis, plan..."
-              className="flex-1 h-9 text-xs"
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask for refinement, alternate wording, or a better structured draft..."
+              disabled={isLoading}
             />
-            <Button type="submit" size="icon" className="h-9 w-9" disabled={isLoading || !input.trim()}>
+            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
               <Send className="h-4 w-4" />
             </Button>
           </form>
