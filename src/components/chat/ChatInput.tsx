@@ -1,89 +1,152 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, ImagePlus, X } from 'lucide-react';
+import { ImagePlus, Send, X } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 
 interface ChatInputProps {
-  onSend: (message: string, images?: string[]) => void;
+  onSend: (content: string, images?: string[]) => void;
   isLoading: boolean;
   mode: ConversationMode;
   disabled?: boolean;
 }
 
-export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, disabled }) => {
-  const [message, setMessage] = useState('');
-  const [images, setImages] = useState<string[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+interface PendingImage {
+  id: string;
+  dataUrl: string;
+  fingerprint: string;
+  fileName: string;
+}
 
-  useEffect(() => {
-    if (!isLoading && !disabled && textareaRef.current) {
-      const timer = setTimeout(() => {
-        textareaRef.current?.focus();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading, disabled, mode]);
+function buildFingerprint(file: File): string {
+  return `${file.name}__${file.size}__${file.lastModified}`;
+}
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (message.trim() && !isLoading && !disabled) {
-      onSend(message.trim(), images.length > 0 ? images : undefined);
-      setMessage('');
-      setImages([]);
-    }
-  };
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to convert file to data URL.'));
+      }
+    };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setImages(prev => [...prev, event.target!.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export const ChatInput: React.FC<ChatInputProps> = ({
+  onSend,
+  isLoading,
+  mode,
+  disabled = false,
+}) => {
+  const [text, setText] = useState('');
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isTextOnlyMode = mode === 'general_education';
+  const canAttachImages = !isTextOnlyMode;
+
+  const hasImages = images.length > 0;
+  const trimmedText = text.trim();
+
+  const canSend = useMemo(() => {
+    if (disabled || isLoading) return false;
+    if (trimmedText.length > 0) return true;
+    if (hasImages) return true;
+    return false;
+  }, [disabled, isLoading, trimmedText, hasImages]);
+
+  const resetNativeFileInput = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const removeImage = (index: number) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
+  const handlePickImages = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+      resetNativeFileInput();
+      return;
+    }
+
+    const selectedFiles = Array.from(files);
+
+    try {
+      const nextItems = await Promise.all(
+        selectedFiles.map(async (file) => {
+          const dataUrl = await fileToDataUrl(file);
+          return {
+            id: `${Date.now()}-${Math.random()}-${file.name}`,
+            dataUrl,
+            fingerprint: buildFingerprint(file),
+            fileName: file.name,
+          } as PendingImage;
+        })
+      );
+
+      setImages((prev) => {
+        const existingFingerprints = new Set(prev.map((img) => img.fingerprint));
+        const deduped = nextItems.filter((item) => !existingFingerprints.has(item.fingerprint));
+        return [...prev, ...deduped];
+      });
+    } catch (error) {
+      console.error('Image selection failed:', error);
+    } finally {
+      resetNativeFileInput();
+    }
   };
 
-  const getPlaceholder = () => {
-    if (disabled) return 'Waiting for dermatologist review...';
-    if (mode === 'post_payment_intake') return 'Type your answer...';
-    return 'Type your message...';
+  const handleRemoveImage = (id: string) => {
+    setImages((prev) => prev.filter((img) => img.id !== id));
+    resetNativeFileInput();
+  };
+
+  const clearComposer = () => {
+    setText('');
+    setImages([]);
+    resetNativeFileInput();
+  };
+
+  const handleSubmit = () => {
+    if (!canSend) return;
+
+    const payloadText = trimmedText;
+    const payloadImages = images.map((img) => img.dataUrl);
+
+    onSend(payloadText, payloadImages.length > 0 ? payloadImages : undefined);
+    clearComposer();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t border-border bg-card p-4">
-      {images.length > 0 && (
-        <div className="flex gap-2 mb-3 flex-wrap">
-          {images.map((img, index) => (
-            <div key={index} className="relative">
+    <div className="border-t border-border bg-card p-3 md:p-4">
+      {hasImages && (
+        <div className="mb-3 flex flex-wrap gap-2 rounded-lg border border-dashed bg-muted/30 p-2">
+          {images.map((img) => (
+            <div key={img.id} className="relative">
               <img
-                src={img}
-                alt={`Upload ${index + 1}`}
-                className="h-16 w-16 object-cover rounded-lg border border-border"
+                src={img.dataUrl}
+                alt={img.fileName}
+                className="h-20 w-20 rounded-md border object-cover"
               />
               <button
                 type="button"
-                onClick={() => removeImage(index)}
-                className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                onClick={() => handleRemoveImage(img.id)}
+                className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-destructive-foreground shadow"
+                aria-label={`Remove ${img.fileName}`}
+                disabled={isLoading || disabled}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -91,44 +154,62 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isLoading, mode, d
           ))}
         </div>
       )}
-      <div className="flex gap-2 items-end">
-        <>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleImageSelect}
-            className="hidden"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled}
-          >
-            <ImagePlus className="h-5 w-5" />
-          </Button>
-        </>
+
+      <div className="flex items-end gap-2">
+        {canAttachImages && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handlePickImages}
+              disabled={isLoading || disabled}
+            />
+
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || disabled}
+              className="shrink-0"
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+
         <Textarea
-          ref={textareaRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={getPlaceholder()}
+          placeholder={
+            canAttachImages
+              ? 'Type your answer...'
+              : 'Free mode is text-only. Type your message...'
+          }
           disabled={isLoading || disabled}
-          className="min-h-[44px] max-h-32 resize-none"
-          rows={1}
+          className="min-h-[52px] max-h-40 resize-none"
         />
+
         <Button
-          type="submit"
-          disabled={!message.trim() || isLoading || disabled}
+          type="button"
           size="icon"
+          onClick={handleSubmit}
+          disabled={!canSend}
+          className="shrink-0"
         >
-          <Send className="h-5 w-5" />
+          <Send className="h-4 w-4" />
         </Button>
       </div>
-    </form>
+
+      {canAttachImages && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Upload only clinical photos or files. No faces, names, IDs, or personal information.
+        </p>
+      )}
+    </div>
   );
 };
