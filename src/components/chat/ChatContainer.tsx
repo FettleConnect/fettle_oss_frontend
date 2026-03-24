@@ -41,33 +41,13 @@ interface ChatContainerProps {
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
-  messages,
-  streamingContent,
-  onSendMessage,
-  isLoading,
-  mode,
-  showDisclaimer,
-  showYesNo = false,
-  onQuickReply,
-  showDurationChips = false,
-  durationOptions = [],
-  privacyFlagged = false,
-  onPrivacyRemove,
-  onPrivacyOverride,
-  showGoBack = false,
-  onGoBack,
-  showProceedNoImages = false,
-  onProceedNoImages,
-  showUpgradeButton = false,
-  onUpgradeClick,
-  showConsentButtons = false,
-  onConsentProceed,
-  showConfirmPayment = false,
-  onConfirmPayment,
-  onConfirmGoBack,
-  freeTierExhausted = false,
-  freeAiReplyCount = 0,
-  intakeComplete = false,
+  messages, streamingContent, onSendMessage, isLoading, mode, showDisclaimer,
+  showYesNo = false, onQuickReply, showDurationChips = false, durationOptions = [],
+  privacyFlagged = false, onPrivacyRemove, onPrivacyOverride,
+  showGoBack = false, onGoBack, showProceedNoImages = false, onProceedNoImages,
+  showUpgradeButton = false, onUpgradeClick, showConsentButtons = false, onConsentProceed,
+  showConfirmPayment = false, onConfirmPayment, onConfirmGoBack,
+  freeTierExhausted = false, freeAiReplyCount = 0, intakeComplete = false,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -77,26 +57,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const getModeLabel = () => {
     switch (mode) {
-      case 'general_education':
-        return { label: 'Educational Mode', variant: 'secondary' as const };
-      case 'post_payment_intake':
-        return { label: 'Intake Mode', variant: 'default' as const };
-      case 'dermatologist_review':
-        return { label: 'Awaiting Review', variant: 'outline' as const };
-      case 'final_output':
-        return { label: 'Consultation Complete', variant: 'default' as const };
-      default:
-        return { label: mode, variant: 'secondary' as const };
+      case 'general_education': return { label: 'Educational Mode', variant: 'secondary' as const };
+      case 'post_payment_intake': return { label: 'Intake Mode', variant: 'default' as const };
+      case 'dermatologist_review': return { label: 'Awaiting Review', variant: 'outline' as const };
+      case 'final_output': return { label: 'Consultation Complete', variant: 'default' as const };
+      default: return { label: mode, variant: 'secondary' as const };
     }
   };
-
   const modeInfo = getModeLabel();
 
-  const hideInput =
-    privacyFlagged ||
-    showConsentButtons ||
-    showConfirmPayment ||
-    freeTierExhausted;
+  const hideInput = privacyFlagged || showConsentButtons || showConfirmPayment || freeTierExhausted;
 
   const pinnedNote = mode === 'general_education'
     ? 'Free mode is text-only. AI responses are educational only — not medical advice. Dermatologists are significantly better at interpreting skin patterns.'
@@ -104,7 +74,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     ? 'Intake submitted. Dr. Attili will review your case. You may add any additional information or images below.'
     : null;
 
-  // Only one panel renders at a time, in priority order
   const showPrivacyPanel = privacyFlagged;
   const showConfirmPanel = !showPrivacyPanel && showConfirmPayment;
   const showUpgradePanel = !showPrivacyPanel && !showConfirmPanel && showUpgradeButton;
@@ -113,9 +82,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const showYesNoPanel = !showPrivacyPanel && !showConfirmPanel && showYesNo;
   const showProceedPanel = !showPrivacyPanel && !showConfirmPanel && showProceedNoImages;
 
+  // Detect if we're checking images (isLoading in intake mode with no streamingContent)
+  const isCheckingImages = isLoading && mode === 'post_payment_intake' && !streamingContent;
+
   return (
     <div className="flex flex-col h-full bg-background">
-
       {/* Header */}
       <div className="border-b border-border bg-card px-4 py-3 flex items-center justify-between">
         <div>
@@ -125,12 +96,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         <div className="flex items-center gap-2">
           {mode === 'general_education' && freeAiReplyCount > 0 && (
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
-              freeAiReplyCount >= 3
-                ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400'
-                : freeAiReplyCount === 2
-                ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400'
-                : 'bg-muted text-muted-foreground border-border'
-            }`}>
+              freeAiReplyCount >= 3 ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400'
+              : freeAiReplyCount === 2 ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400'
+              : 'bg-muted text-muted-foreground border-border'}`}>
               {freeAiReplyCount}/3 free
             </span>
           )}
@@ -138,7 +106,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </div>
 
-      {/* Pinned note bar */}
+      {/* Pinned note */}
       {pinnedNote && (
         <div className="border-b border-border bg-amber-50 dark:bg-amber-950/20 px-4 py-2 flex items-start gap-2">
           <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
@@ -161,19 +129,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
-          {messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
-          ))}
+          {messages.map(message => <ChatMessage key={message.id} message={message} />)}
           {streamingContent && (
             <ChatMessage
-              message={{
-                id: 'streaming',
-                conversationId: '',
-                role: 'ai',
-                content: streamingContent,
-                timestamp: new Date(),
-                isVisible: true,
-              }}
+              message={{ id: 'streaming', conversationId: '', role: 'ai', content: streamingContent, timestamp: new Date(), isVisible: true }}
               isStreaming
             />
           )}
@@ -184,14 +143,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
-              <span>AI is typing...</span>
+              <span>{isCheckingImages ? 'Checking image for face / personal info…' : 'AI is typing…'}</span>
             </div>
           )}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
 
-      {/* 1. Privacy flag — highest priority */}
+      {/* 1. Privacy flag */}
       {showPrivacyPanel && (
         <div className="border-t border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-4">
           <div className="flex items-start gap-3 mb-3">
@@ -204,80 +163,49 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </div>
           </div>
           <div className="flex gap-2">
-            <Button
-              type="button" variant="outline" size="sm"
-              className="flex-1 border-amber-300 text-amber-800 hover:bg-amber-100 font-medium"
-              onClick={onPrivacyRemove} disabled={isLoading}
-            >
-              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-              Remove &amp; Re-upload
+            <Button type="button" variant="outline" size="sm" className="flex-1 border-amber-300 text-amber-800 hover:bg-amber-100 font-medium" onClick={onPrivacyRemove} disabled={isLoading}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Remove &amp; Re-upload
             </Button>
-            <Button
-              type="button" variant="outline" size="sm"
-              className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-medium"
-              onClick={onPrivacyOverride} disabled={isLoading}
-            >
-              <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
-              I Confirm — Not Identifiable
+            <Button type="button" variant="outline" size="sm" className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-medium" onClick={onPrivacyOverride} disabled={isLoading}>
+              <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />I Confirm — Not Identifiable
             </Button>
           </div>
         </div>
       )}
 
-      {/* 2. Confirm payment — after clicking "Yes, get dermatologist review" */}
+      {/* 2. Confirm payment */}
       {showConfirmPanel && onConfirmPayment && (
         <div className="border-t border-border bg-card px-4 py-4">
           <div className="flex items-start gap-3 mb-3">
             <CreditCard className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-foreground">Proceed to Dermatologist Review</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                You'll be taken to the payment page to complete your consultation booking with Dr. Attili.
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">You'll be taken to the payment page to complete your consultation booking with Dr. Attili.</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button" variant="ghost" size="sm"
-              className="text-muted-foreground hover:text-foreground font-medium shrink-0"
-              onClick={onConfirmGoBack} disabled={isLoading}
-            >
-              <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-              Go back
+            <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground font-medium shrink-0" onClick={onConfirmGoBack} disabled={isLoading}>
+              <ArrowLeft className="h-3.5 w-3.5 mr-1" />Go back
             </Button>
-            <Button
-              type="button" variant="default" size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0"
-              onClick={onConfirmPayment} disabled={isLoading}
-            >
-              <CreditCard className="h-3.5 w-3.5 mr-2" />
-              I confirm — proceed to payment
-              <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+            <Button type="button" variant="default" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 shrink-0" onClick={onConfirmPayment} disabled={isLoading}>
+              <CreditCard className="h-3.5 w-3.5 mr-2" />I confirm — proceed to payment<ChevronRight className="h-3.5 w-3.5 ml-1.5" />
             </Button>
           </div>
         </div>
       )}
 
-      {/* 3. Upgrade button — shown after first AI reply */}
+      {/* 3. Upgrade */}
       {showUpgradePanel && onUpgradeClick && (
         <div className="border-t border-border bg-gradient-to-r from-primary/5 to-primary/10 px-4 py-4">
           <div className="flex items-start gap-3 mb-3">
             <Stethoscope className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-foreground">Get a full dermatologist review</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Dr. Attili will personally review your case including images for an accurate clinical assessment.
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Dr. Attili will personally review your case including images for an accurate clinical assessment.</p>
             </div>
           </div>
-          <Button
-            type="button" variant="default" size="sm"
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
-            onClick={onUpgradeClick} disabled={isLoading}
-          >
-            <Stethoscope className="h-3.5 w-3.5 mr-2" />
-            Yes, continue with dermatologist review
-            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+          <Button type="button" variant="default" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4" onClick={onUpgradeClick} disabled={isLoading}>
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />Yes, continue with dermatologist review<ChevronRight className="h-3.5 w-3.5 ml-1.5" />
           </Button>
         </div>
       )}
@@ -289,19 +217,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <Lock className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-foreground">Free responses used</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                You've used all 3 free educational responses. Connect with Dr. Attili for a full image-based dermatologist review.
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">You've used all 3 free educational responses. Connect with Dr. Attili for a full image-based dermatologist review.</p>
             </div>
           </div>
-          <Button
-            type="button" variant="default" size="sm"
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
-            onClick={onUpgradeClick} disabled={isLoading}
-          >
-            <Stethoscope className="h-3.5 w-3.5 mr-2" />
-            Yes, get dermatologist review
-            <ChevronRight className="h-3.5 w-3.5 ml-1.5" />
+          <Button type="button" variant="default" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4" onClick={onUpgradeClick} disabled={isLoading}>
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />Yes, get dermatologist review<ChevronRight className="h-3.5 w-3.5 ml-1.5" />
           </Button>
         </div>
       )}
@@ -311,12 +231,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
           <p className="text-xs text-muted-foreground mb-2 font-medium">Select duration:</p>
           <div className="flex flex-wrap gap-2">
-            {durationOptions.map((option) => (
-              <Button
-                key={option} type="button" variant="outline" size="sm"
+            {durationOptions.map(option => (
+              <Button key={option} type="button" variant="outline" size="sm"
                 className="text-xs h-8 border-primary/30 text-primary hover:bg-primary/10"
-                onClick={() => onQuickReply(option)} disabled={isLoading}
-              >
+                onClick={() => onQuickReply(option)} disabled={isLoading}>
                 {option}
               </Button>
             ))}
@@ -327,36 +245,17 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* 6. Yes / No */}
       {showYesNoPanel && onQuickReply && (
         <div className="px-4 pb-3 pt-3 flex gap-2 bg-card border-t border-border">
-          <Button
-            type="button" variant="outline"
-            className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-semibold"
-            onClick={() => onQuickReply('Yes')} disabled={isLoading}
-          >
-            Yes
-          </Button>
-          <Button
-            type="button" variant="outline"
-            className="flex-1 border-red-300 text-red-700 hover:bg-red-50 font-semibold"
-            onClick={() => onQuickReply('No')} disabled={isLoading}
-          >
-            No
-          </Button>
+          <Button type="button" variant="outline" className="flex-1 border-green-300 text-green-700 hover:bg-green-50 font-semibold" onClick={() => onQuickReply('Yes')} disabled={isLoading}>Yes</Button>
+          <Button type="button" variant="outline" className="flex-1 border-red-300 text-red-700 hover:bg-red-50 font-semibold" onClick={() => onQuickReply('No')} disabled={isLoading}>No</Button>
         </div>
       )}
 
       {/* 7. Proceed without images */}
       {showProceedPanel && onProceedNoImages && (
         <div className="px-4 pb-3 pt-3 bg-card border-t border-border">
-          <p className="text-xs text-muted-foreground mb-2 font-medium">
-            No images? Continue with text-only assessment.
-          </p>
-          <Button
-            type="button" variant="outline" size="sm"
-            className="border-primary/30 text-primary hover:bg-primary/10 font-medium"
-            onClick={onProceedNoImages} disabled={isLoading}
-          >
-            <ImageOff className="h-3.5 w-3.5 mr-1.5" />
-            Proceed without images
+          <p className="text-xs text-muted-foreground mb-2 font-medium">No images? Continue with text-only assessment.</p>
+          <Button type="button" variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10 font-medium" onClick={onProceedNoImages} disabled={isLoading}>
+            <ImageOff className="h-3.5 w-3.5 mr-1.5" />Proceed without images
           </Button>
         </div>
       )}
@@ -364,20 +263,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Post-intake label */}
       {intakeComplete && mode === 'dermatologist_review' && !hideInput && (
         <div className="px-4 pt-3 pb-1 bg-card border-t border-border">
-          <p className="text-xs text-muted-foreground font-medium">
-            Add any additional information or images for the dermatologist:
-          </p>
+          <p className="text-xs text-muted-foreground font-medium">Add any additional information or images for the dermatologist:</p>
         </div>
       )}
 
       {/* Chat input */}
       {!hideInput && (
-        <ChatInput
-          onSend={onSendMessage}
-          isLoading={isLoading}
-          mode={mode}
-          disabled={false}
-        />
+        <ChatInput onSend={onSendMessage} isLoading={isLoading} mode={mode} disabled={false} />
       )}
     </div>
   );
