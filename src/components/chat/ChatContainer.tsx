@@ -108,8 +108,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     mode === 'general_education'
       ? 'Free mode is text-only. AI responses are educational only — not medical advice. Dermatologists are significantly better at interpreting skin patterns.'
       : mode === 'dermatologist_review' && intakeComplete
-      ? 'Intake submitted. Dr. Attili will review your case. You may add any additional information or images below.'
-      : null;
+        ? 'Intake submitted. Dr. Attili will review your case. You may add any additional information or images below.'
+        : null;
 
   const showPrivacyPanel = privacyFlagged;
   const showConfirmPanel = !showPrivacyPanel && showConfirmPayment;
@@ -133,7 +133,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     !streamingContent;
 
   const loadingLabel = isCheckingImages
-    ? 'Checking image for face / personal info…'
+    ? 'Checking images for faces or personal information…'
     : 'AI is typing…';
 
   return (
@@ -153,8 +153,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 freeAiReplyCount >= 3
                   ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400'
                   : freeAiReplyCount === 2
-                  ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400'
-                  : 'bg-muted text-muted-foreground border-border'
+                    ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400'
+                    : 'bg-muted text-muted-foreground border-border'
               }`}
             >
               {freeAiReplyCount}/3 free
