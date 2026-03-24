@@ -77,15 +77,23 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   // FIX #3: match exact strings returned by backend check_image_for_face()
   const isFaceDetectedMessage = (content: string) => {
-    const lower = content.toLowerCase();
-    return lower.includes('face detected') || lower.includes('no clinical image of skin issue is visible');
-  };
+  const lower = content.toLowerCase();
+  return (
+    lower.includes('face detected') ||
+    lower.includes('no clinical image of skin issue is visible') ||
+    lower.includes('no face visible')
+  );
+};
 
-  // FIX #3: match exact strings returned by backend check_report_for_pii()
-  const isReportPiiMessage = (content: string) => {
-    const lower = content.toLowerCase();
-    return lower.includes('personal information visible') || lower.includes('name or number');
-  };
+const isReportPiiMessage = (content: string) => {
+  const lower = content.toLowerCase();
+  return (
+    lower.includes('personal information visible') ||
+    lower.includes('name or number') ||
+    lower.includes('personal details detected') ||
+    lower.includes('identifiers and re-upload')
+  );
+};
 
   const fetchConsultationHistory = useCallback(async () => {
     try {
