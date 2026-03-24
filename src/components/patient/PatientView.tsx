@@ -34,9 +34,9 @@ interface ConsultationHistoryItem {
   created_at: string;
 }
 
-// ── STRICT Client-side face/PII detection ───────────────────────────────────
-// CRITICAL: Any failure (API error, network, parse error) = BLOCK the image
-async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string }> {
+// ── CALIBRATED Client-side face/PII detection ────────────────────────────────
+// Tuned to reduce false positives on hands/clinical photos while catching real PII
+async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string; confidence?: number }> {
   try {
     const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
     const mime = match?.[1] ?? 'image/jpeg';
@@ -47,12 +47,37 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 80,
+        max_tokens: 150,
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
-            { type: 'text', text: `You are a strict image safety checker for a medical platform.\nRespond ONLY with valid JSON: {"blocked":true|false,"reason":"short reason or empty string"}\nBlock if the image contains: a human face (eyes+nose+mouth visible), full name, date of birth, national ID, phone number, email, or medical report header with patient name/ID.\nIf it is a safe clinical skin photo (lesion, rash, wound — no face or PII), respond {"blocked":false,"reason":""}.\nJSON only. No other text.` }
+            { type: 'text', text: `You are a medical image safety analyzer. Examine this image carefully.
+
+CLASSIFICATION RULES - BE PRECISE:
+1. FACE DETECTION (Block only if CLEAR face present):
+   - BLOCK if: Full face with eyes+nose+mouth visible together, or clear partial face with 2+ facial features
+   - ALLOW if: Hands, fingers, arms, legs, feet, torso, back, scalp (without face), or clinical close-ups of skin lesions
+   - Hands and fingers are NOT faces - never block hands alone
+   
+2. PII TEXT DETECTION (Block only if LEGIBLE personal info):
+   - BLOCK if: Clearly readable name, date of birth, patient ID, phone number, email, or address
+   - ALLOW if: Blurry text, medical terminology, labels like "Report", "Lab", or unreadable characters
+   
+3. CLINICAL IMAGES (Always allow):
+   - Skin lesions, rashes, wounds, moles, acne, eczema, psoriasis
+   - Dermatology close-ups, even if on fingers/hands
+   - Medical reports where personal info is redacted/blurred
+
+RESPOND ONLY WITH JSON:
+{"blocked":true|false,"confidence":0-100,"reason":"specific reason if blocked, empty if allowed"}
+
+Confidence guide:
+- 90-100: Clear face or readable PII
+- 70-89: Likely face/PII but not certain
+- 0-69: Safe clinical image or no PII detected
+
+Be conservative - only block when confident. Hands and clinical skin photos should NEVER be blocked.` }
           ]
         }]
       })
@@ -61,7 +86,7 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
     // STRICT: If API call fails, BLOCK the image (fail-safe)
     if (!res.ok) {
       console.error('Detection API error:', res.status);
-      return { blocked: true, reason: 'Security check failed - please retry' };
+      return { blocked: true, reason: 'Security check failed - please retry', confidence: 0 };
     }
     
     const data = await res.json();
@@ -73,19 +98,24 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
       result = JSON.parse(text.replace(/```json|```/g, '').trim());
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
-      return { blocked: true, reason: 'Security validation error - please retry' };
+      return { blocked: true, reason: 'Security validation error - please retry', confidence: 0 };
     }
     
-    // Ensure boolean response, default to blocked if malformed
+    // CALIBRATED: Use confidence threshold to reduce false positives
+    // Only block if confidence >= 70 (high confidence)
+    const confidence = result.confidence || 0;
+    const isBlocked = result.blocked === true && confidence >= 70;
+    
     return {
-      blocked: result.blocked === true,
-      reason: result.reason || ''
+      blocked: isBlocked,
+      confidence: confidence,
+      reason: isBlocked ? (result.reason || 'Potential personal information detected') : ''
     };
     
   } catch (error) {
     // STRICT: Any error (network, exception) = BLOCK
     console.error('Detection error:', error);
-    return { blocked: true, reason: 'Security check unavailable - please retry' };
+    return { blocked: true, reason: 'Security check unavailable - please retry', confidence: 0 };
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,9 +299,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ── STRICT image screening ─────────────────────────────────────────────────
-  // CRITICAL: Returns null if ANY image is rejected or if detection fails
-  // SAFE images only returned if ALL pass validation
+  // ── CALIBRATED image screening with confidence threshold ────────────────────
   const screenImages = async (imgs: string[], label: string): Promise<string[] | null> => {
     if (imgs.length === 0) return [];
     
@@ -279,7 +307,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     toast({ title: 'Checking image…', description: 'Verifying no face or personal info is present.' });
     
     const safe: string[] = [];
-    const rejected: string[] = [];
+    const rejected: {reason: string; confidence?: number}[] = [];
     
     // Check ALL images in parallel
     const results = await Promise.all(
@@ -289,10 +317,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       })
     );
     
-    // STRICT: Categorize results
+    // Categorize results using confidence threshold
     for (const { img, detection } of results) {
       if (detection.blocked) {
-        rejected.push(detection.reason || 'contains a face or personal information');
+        rejected.push({reason: detection.reason || 'Potential personal information detected', confidence: detection.confidence});
       } else {
         safe.push(img);
       }
@@ -300,9 +328,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     
     setIsCheckingImages(false);
     
-    // STRICT: If ANY rejected, reject ALL and return null
+    // If ANY rejected, reject ALL and return null
     if (rejected.length > 0) {
-      const rejectionMessage = `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejected.join('; ')}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible.`;
+      const rejectionDetails = rejected.map(r => 
+        r.confidence ? `${r.reason} (confidence: ${r.confidence}%)` : r.reason
+      ).join('; ');
+      
+      const rejectionMessage = `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejectionDetails}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible. If this was a mistake (e.g., photo of hand was rejected), please try again with better lighting.`;
       
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
