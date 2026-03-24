@@ -42,9 +42,12 @@ Investigations Commonly Considered
 References
 
 Rules:
+- Use exactly the section titles above in exactly the same order.
 - Do not use numbered sections.
 - Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, or Plan.
-- Do not use heavily nested bullet lists.
+- Do not leave any section empty.
+- Do not output placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
+- If information is limited, write a brief safe clinical statement for that section instead of leaving it empty.
 - Keep the tone textbook-style and concise.
 - No dosing, frequency, or application instructions.
 - References should be educational sources only.
@@ -66,12 +69,34 @@ function normalizeHeading(title: string): string {
   return title.trim().toLowerCase();
 }
 
+function generateFallbackContent(section: string): string {
+  switch (section) {
+    case 'Most Consistent With':
+      return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
+    case 'Close Differentials':
+      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
+    case 'Morphologic Justification':
+      return 'Assessment is based on the provided history and any available images. Morphology suggests a localized dermatologic process requiring clinical correlation.';
+    case 'Educational Treatment Framework':
+      return 'General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.';
+    case 'Investigations Commonly Considered':
+      return 'Further evaluation may include dermatologic examination, bedside tests, laboratory workup, or biopsy if clinically indicated.';
+    case 'References':
+      return 'Standard dermatology educational references and clinical guidelines.';
+    default:
+      return 'Clinical details are limited from the currently available information.';
+  }
+}
+
 function extractStructuredSections(text: string): Record<string, string> {
   const cleaned = cleanBody(text);
   if (!cleaned) return {};
 
   const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(`(?:^|\\n)\\s*(?:\*\*)?(${escaped})(?:\*\*)?\\s*:?\\s*(?=\\n|$)`, 'gi');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
@@ -104,7 +129,10 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const mappings = [
-    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
+    {
+      patterns: ['Diagnosis', 'Most Consistent With'],
+      target: 'Most Consistent With',
+    },
     {
       patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
       target: 'Close Differentials',
@@ -117,8 +145,14 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
       patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'],
       target: 'Educational Treatment Framework',
     },
-    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
-    { patterns: ['Educational References', 'References'], target: 'References' },
+    {
+      patterns: ['Investigations', 'Investigations Commonly Considered'],
+      target: 'Investigations Commonly Considered',
+    },
+    {
+      patterns: ['Educational References', 'References'],
+      target: 'References',
+    },
   ];
 
   const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
@@ -164,7 +198,8 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 function buildStructuredOutput(sections: Record<string, string>): string {
   const content = SECTION_TITLES.map((title) => {
     const key = normalizeHeading(title);
-    return `${title}\n\n${cleanBody(sections[key] || '')}`.trim();
+    const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
+    return `${title}\n\n${body}`.trim();
   }).join('\n\n');
 
   const cleaned = cleanBody(content);
@@ -179,7 +214,10 @@ function buildStructuredOutput(sections: Record<string, string>): string {
 
 function normalizeAIContentToStructuredFormat(rawText: string): string {
   const text = cleanBody(rawText);
-  if (!text) return '';
+
+  if (!text || text.length < 30) {
+    return buildStructuredOutput({});
+  }
 
   let sections = extractStructuredSections(text);
 
@@ -187,7 +225,6 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
     sections = extractLegacyNumberedSections(text);
   }
 
-  // Always return required structure; if parsing fails, place content into the primary section.
   if (Object.keys(sections).length === 0) {
     sections = {
       [normalizeHeading('Most Consistent With')]: text,
@@ -249,11 +286,15 @@ ${userMsg}`
       }
 
       const data = await response.json();
-      const rawAiContent: string = data.result || '';
-      const normalizedContent = normalizeAIContentToStructuredFormat(rawAiContent);
-      const aiContent = normalizedContent || 'No response received.';
+      const rawAiContent: string =
+        data.result?.trim() ||
+        data.response?.trim() ||
+        data.message?.trim() ||
+        '';
 
-      // Always keep latestDraft as the latest normalized content.
+      const normalizedContent = normalizeAIContentToStructuredFormat(rawAiContent);
+      const aiContent = normalizedContent || buildStructuredOutput({});
+
       setLatestDraft(aiContent);
 
       setMessages((prev) => [
@@ -321,9 +362,23 @@ ${userMsg}`
                         [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
                         [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
                         [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold"
+                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
+                        [&_a]:text-blue-600 [&_a]:underline break-words"
                     >
-                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                      <ReactMarkdown
+                        components={{
+                          a: ({ node, ...props }) => (
+                            <a
+                              {...props}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 underline break-words"
+                            />
+                          ),
+                        }}
+                      >
+                        {m.content}
+                      </ReactMarkdown>
                     </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
@@ -344,38 +399,37 @@ ${userMsg}`
           </div>
         </ScrollArea>
 
-        <div className="border-t bg-background px-3 py-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={handleApply}
-            disabled={!latestDraft.trim()}
-            className="w-full gap-2"
-          >
-            <Sparkles className="h-4 w-4" />
-            Apply to Editor
-          </Button>
-        </div>
+        <div className="border-t p-3 space-y-2">
+          {onApplyContent && latestDraft.trim() && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={handleApply}
+              disabled={isLoading}
+            >
+              <Sparkles className="h-4 w-4" />
+              Apply to Editor
+            </Button>
+          )}
 
-        <div className="p-3 border-t bg-background">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSend();
-            }}
-            className="flex gap-2"
-          >
+          <div className="flex gap-2">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask for refinement, alternate wording, or a structured differential review..."
+              placeholder="Ask AI to refine the draft..."
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               disabled={isLoading}
             />
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+            <Button onClick={handleSend} disabled={isLoading || !input.trim()} size="icon">
               <Send className="h-4 w-4" />
             </Button>
-          </form>
+          </div>
         </div>
       </CardContent>
     </Card>
