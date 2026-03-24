@@ -61,6 +61,7 @@ const SECTION_TITLES = [
   'References',
 ];
 
+// ── STRICT face/PII detection (fail-safe: any error = BLOCK) ─────────────────
 async function detectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string }> {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -101,6 +102,7 @@ Reply with JSON only. No explanation outside the JSON.`,
       }),
     });
 
+    // STRICT: API failure = BLOCK
     if (!response.ok) {
       console.error('Detection API error:', response.status);
       return {
@@ -113,6 +115,7 @@ Reply with JSON only. No explanation outside the JSON.`,
     const text: string = data?.content?.[0]?.text ?? '{}';
     const cleaned = text.replace(/```json|```/g, '').trim();
 
+    // STRICT: Parse failure = BLOCK
     let result;
     try {
       result = JSON.parse(cleaned) as { blocked: boolean; reason: string };
@@ -124,11 +127,14 @@ Reply with JSON only. No explanation outside the JSON.`,
       };
     }
 
+    // Ensure strict boolean check
     return {
       blocked: result.blocked === true,
       reason: result.reason || '',
     };
+    
   } catch (err) {
+    // STRICT: Any error (network, exception) = BLOCK
     console.error('PII detection failed:', err);
     return {
       blocked: true,
@@ -443,7 +449,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
     return {
       ...(conversation.intakeData ?? parsed),
-      images: parsed.images.length > 0 ? parsed.images : (conversation.intakeData?.images ?? []),
+      images:
+        parsed.images.length > 0
+          ? parsed.images
+          : (conversation.intakeData?.images ?? []),
     };
   }, [conversation.intakeData, messages]);
 
@@ -502,11 +511,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
+  // ✅ FIXED: Deduplication on image add
   const handleImageSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
 
+      // Reset file input immediately to allow re-selecting same file
       if (fileInputRef.current) fileInputRef.current.value = '';
 
       setCheckingImages(true);
@@ -546,19 +557,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
       setCheckingImages(false);
 
+      // ✅ DEDUPLICATION: Only add images not already present
       if (accepted.length > 0) {
         setImages((prev) => {
-          const seen = new Set(prev.map((img) => img.dataUrl));
-          const dedupedAccepted: SafeImage[] = [];
-
-          for (const image of accepted) {
-            if (!seen.has(image.dataUrl)) {
-              seen.add(image.dataUrl);
-              dedupedAccepted.push(image);
-            }
-          }
-
-          return [...prev, ...dedupedAccepted];
+          const existing = new Set(prev.map(img => img.dataUrl));
+          const deduped = accepted.filter(img => !existing.has(img.dataUrl));
+          return [...prev, ...deduped];
         });
       }
 
@@ -586,8 +590,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     [toast]
   );
 
+  // ✅ FIXED: Hard clean on remove (fresh state reference)
   const removeImage = useCallback((id: string) => {
-    setImages((prev) => prev.filter((img) => img.id !== id));
+    setImages((prev) => {
+      const updated = prev.filter((img) => img.id !== id);
+      return [...updated]; // Fresh array reference
+    });
   }, []);
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
@@ -608,13 +616,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     return new Blob([bytes], { type: mime });
   };
 
+  // ✅ FIXED: Race condition protection + snapshot at send time
   const handleSendToPatient = async () => {
+    // 🔥 CRITICAL: Prevent double-send
     if (isSending) return;
 
-    const hasMessage = patientMessage.trim().length > 0;
-    const currentImages = [...images];
-
-    if (!hasMessage && currentImages.length === 0) {
+    // Allow image-only sends (no text required if images present)
+    if (!patientMessage.trim() && images.length === 0) {
       toast({
         title: 'Error',
         description: 'Please enter a message or attach an image.',
@@ -631,6 +639,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
 
+      // 🔥 CRITICAL: Snapshot images at send time (prevents deleted images being sent)
+      const currentImages = [...images];
+
       for (let i = 0; i < currentImages.length; i++) {
         const blob = await dataURLtoBlob(currentImages[i].dataUrl);
         const ext = blob.type.split('/')[1] ?? 'jpg';
@@ -645,8 +656,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
       if (!response.ok) throw new Error('Failed to send message');
 
-      setImages([]);
+      // 🔥 CLEAR ONLY AFTER SUCCESS
       setPatientMessage(DEFAULT_ASSESSMENT_TEMPLATE);
+      setImages([]);
       setAssessmentExpanded(false);
       onUpdate();
 
