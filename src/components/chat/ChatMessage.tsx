@@ -6,6 +6,8 @@ import ReactMarkdown from 'react-markdown';
 
 interface ChatMessageProps { message: Message; isStreaming?: boolean; }
 
+const URL_REGEX = /(https?:\/\/[^\s<>")\]]+)/g;
+
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
   const isPatient = message.role === 'patient';
   const isDoctor = message.role === 'doctor';
@@ -53,7 +55,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     }).join('\n').trimEnd();
   };
 
-  // FIX #1: convert bare URLs to markdown links so ReactMarkdown renders them as <a> tags
   const linkifyUrls = (text: string): string => {
     return text.replace(/(?<!\]\()(https?:\/\/[^\s\)\]>"'\n]+)/g, (url) => `[${url}](${url})`);
   };
@@ -62,7 +63,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     if (!text) return '';
     const stripped = isAI ? stripNote(text) : text;
     const normalized = stripped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const withLinks = isAI ? linkifyUrls(normalized) : normalized;
+    const withLinks = (isDoctor || isAI) ? linkifyUrls(normalized) : normalized;
     return withLinks.split('\n').map(line => {
       const trimmed = line.trimEnd(); const content = trimmed.trim();
       if (content.length < 2) return line;
@@ -72,6 +73,27 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       if (/^[A-Z][^.!?\n]*:\s+\S/.test(content)) return line.replace(/^([^:]+:)/, '**$1**');
       return line;
     }).join('\n');
+  };
+
+  const renderTextWithLinks = (text: string) => {
+    const parts = text.split(URL_REGEX);
+    return parts.map((part, idx) => {
+      if (!part) return null;
+      if (/^https?:\/\//.test(part)) {
+        return (
+          <a
+            key={`url-${idx}`}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
+          >
+            {part}
+          </a>
+        );
+      }
+      return <React.Fragment key={`text-${idx}`}>{part}</React.Fragment>;
+    });
   };
 
   const getRoleLabel = () => {
@@ -99,7 +121,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return (
       <div className="flex flex-col items-center gap-2 w-full my-4">
         <div className={cn('rounded-lg px-6 py-3 text-sm text-center font-medium max-w-[90%]', getBubbleColors())}>
-          {message.content ?? ''}
+          {renderTextWithLinks(message.content ?? '')}
         </div>
       </div>
     );
@@ -122,7 +144,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               ul: ({ node, ...props }) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
               ol: ({ node, ...props }) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,
               li: ({ node, ...props }) => <li className="text-sm leading-relaxed" {...props} />,
-              // FIX #1: blue + underlined + pointer cursor
               a: ({ node, href, children, ...props }) => (
                 <a href={href} target="_blank" rel="noopener noreferrer"
                   className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
@@ -131,7 +152,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
             }}
           >{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
-            <div className={cn("grid gap-2 mt-3", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+            <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
               {images.map((url, idx) => (
                 <img key={idx} src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)}
                   className="w-full h-auto object-cover max-h-64 rounded-lg border border-black/10 cursor-pointer hover:opacity-90 transition-opacity" />
