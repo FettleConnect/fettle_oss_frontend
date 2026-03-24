@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,8 @@ const SECTION_TITLES = [
   'Investigations Commonly Considered',
   'References',
 ];
+
+const FINAL_LINE = "You're welcome to ask follow-up questions.";
 
 const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist.
 
@@ -69,7 +71,7 @@ function extractStructuredSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(`(?:^|\\n)\\s*(${escaped})\\s*:?\\s*(?=\\n|$)`, 'gi');
+  const regex = new RegExp(`(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`, 'gi');
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
@@ -103,9 +105,18 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 
   const mappings = [
     { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
-    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
-    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
-    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
+    {
+      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
+      target: 'Close Differentials',
+    },
+    {
+      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'],
+      target: 'Morphologic Justification',
+    },
+    {
+      patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'],
+      target: 'Educational Treatment Framework',
+    },
     { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
     { patterns: ['Educational References', 'References'], target: 'References' },
   ];
@@ -150,6 +161,22 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   return sections;
 }
 
+function buildStructuredOutput(sections: Record<string, string>): string {
+  const content = SECTION_TITLES.map((title) => {
+    const key = normalizeHeading(title);
+    return `${title}\n\n${cleanBody(sections[key] || '')}`.trim();
+  }).join('\n\n');
+
+  const cleaned = cleanBody(content);
+  if (!cleaned) return '';
+
+  if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) {
+    return cleaned;
+  }
+
+  return `${cleaned}\n\n${FINAL_LINE}`;
+}
+
 function normalizeAIContentToStructuredFormat(rawText: string): string {
   const text = cleanBody(rawText);
   if (!text) return '';
@@ -160,26 +187,14 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
     sections = extractLegacyNumberedSections(text);
   }
 
+  // Always return required structure; if parsing fails, place content into the primary section.
   if (Object.keys(sections).length === 0) {
-    return text;
+    sections = {
+      [normalizeHeading('Most Consistent With')]: text,
+    };
   }
 
-  let normalized = SECTION_TITLES.map((title) => {
-    const key = normalizeHeading(title);
-    const body = cleanBody(sections[key] || '');
-    return `${title}\n\n${body}`.trim();
-  }).join('\n\n');
-
-  normalized = cleanBody(normalized);
-
-  if (
-    normalized &&
-    !normalized.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())
-  ) {
-    normalized = `${normalized}\n\nYou're welcome to ask follow-up questions.`;
-  }
-
-  return normalized;
+  return buildStructuredOutput(sections);
 }
 
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
@@ -199,10 +214,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [latestDraft, setLatestDraft] = useState<string>('');
-
-  const normalizedLatestDraft = useMemo(() => {
-    return normalizeAIContentToStructuredFormat(latestDraft);
-  }, [latestDraft]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -240,13 +251,16 @@ ${userMsg}`
       const data = await response.json();
       const rawAiContent: string = data.result || '';
       const normalizedContent = normalizeAIContentToStructuredFormat(rawAiContent);
+      const aiContent = normalizedContent || 'No response received.';
 
-      setLatestDraft(normalizedContent || rawAiContent);
+      // Always keep latestDraft as the latest normalized content.
+      setLatestDraft(aiContent);
+
       setMessages((prev) => [
         ...prev,
         {
           role: 'ai',
-          content: normalizedContent || rawAiContent || 'No response received.',
+          content: aiContent,
         },
       ]);
     } catch (error) {
@@ -264,8 +278,10 @@ ${userMsg}`
   };
 
   const handleApply = () => {
-    const contentToApply = normalizedLatestDraft || latestDraft;
-    if (!contentToApply.trim() || !onApplyContent) return;
+    if (!onApplyContent) return;
+
+    const contentToApply = normalizeAIContentToStructuredFormat(latestDraft);
+    if (!contentToApply.trim()) return;
 
     onApplyContent(contentToApply);
   };
@@ -334,7 +350,7 @@ ${userMsg}`
             size="sm"
             variant="outline"
             onClick={handleApply}
-            disabled={!normalizedLatestDraft.trim() && !latestDraft.trim()}
+            disabled={!latestDraft.trim()}
             className="w-full gap-2"
           >
             <Sparkles className="h-4 w-4" />
