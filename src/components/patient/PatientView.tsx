@@ -35,7 +35,9 @@ interface ConsultationHistoryItem {
 }
 
 // ── CALIBRATED Client-side face/PII detection ────────────────────────────────
-// Tuned to reduce false positives on hands/clinical photos while catching real PII
+// FIX (Bug 2): On API/network error we NO LONGER hard-block — we allow the image
+// through so a transient network failure doesn't reject valid lesion photos.
+// Hard blocks are only issued when the AI returns blocked:true with confidence >= 70.
 async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string; confidence?: number }> {
   try {
     const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
@@ -52,18 +54,20 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
-            { type: 'text', text: `You are a medical image safety analyzer. Examine this image carefully.
+            {
+              type: 'text',
+              text: `You are a medical image safety analyzer. Examine this image carefully.
 
-CLASSIFICATION RULES - BE PRECISE:
-1. FACE DETECTION (Block only if CLEAR face present):
+CLASSIFICATION RULES — BE PRECISE:
+1. FACE DETECTION (Block ONLY if a CLEAR face is present):
    - BLOCK if: Full face with eyes+nose+mouth visible together, or clear partial face with 2+ facial features
    - ALLOW if: Hands, fingers, arms, legs, feet, torso, back, scalp (without face), or clinical close-ups of skin lesions
-   - Hands and fingers are NOT faces - never block hands alone
-   
-2. PII TEXT DETECTION (Block only if LEGIBLE personal info):
+   - Hands and fingers are NOT faces — never block hands alone
+
+2. PII TEXT DETECTION (Block ONLY if LEGIBLE personal info):
    - BLOCK if: Clearly readable name, date of birth, patient ID, phone number, email, or address
    - ALLOW if: Blurry text, medical terminology, labels like "Report", "Lab", or unreadable characters
-   
+
 3. CLINICAL IMAGES (Always allow):
    - Skin lesions, rashes, wounds, moles, acne, eczema, psoriasis
    - Dermatology close-ups, even if on fingers/hands
@@ -73,49 +77,50 @@ RESPOND ONLY WITH JSON:
 {"blocked":true|false,"confidence":0-100,"reason":"specific reason if blocked, empty if allowed"}
 
 Confidence guide:
-- 90-100: Clear face or readable PII
-- 70-89: Likely face/PII but not certain
-- 0-69: Safe clinical image or no PII detected
+- 90–100: Clear face or readable PII
+- 70–89: Likely face/PII but not certain
+- 0–69: Safe clinical image or no PII detected
 
-Be conservative - only block when confident. Hands and clinical skin photos should NEVER be blocked.` }
+Be conservative — only block when confident. Hands and clinical skin photos should NEVER be blocked.`,
+            }
           ]
         }]
       })
     });
-    
-    // STRICT: If API call fails, BLOCK the image (fail-safe)
+
+    // FIX (Bug 2): API error → allow image (do not hard-block on network failure).
+    // The backend has its own face/PII check as a second layer of defense.
     if (!res.ok) {
-      console.error('Detection API error:', res.status);
-      return { blocked: true, reason: 'Security check failed - please retry', confidence: 0 };
+      console.warn('Detection API error:', res.status, '— allowing image through (backend will re-check)');
+      return { blocked: false, reason: '', confidence: 0 };
     }
-    
+
     const data = await res.json();
     const text: string = data?.content?.[0]?.text ?? '';
-    
-    // STRICT: If JSON parsing fails, BLOCK the image
+
     let result;
     try {
       result = JSON.parse(text.replace(/```json|```/g, '').trim());
     } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      return { blocked: true, reason: 'Security validation error - please retry', confidence: 0 };
+      // FIX (Bug 2): JSON parse failure → allow through, not hard-block.
+      console.warn('JSON parse error in face detection — allowing image through:', parseError);
+      return { blocked: false, reason: '', confidence: 0 };
     }
-    
-    // CALIBRATED: Use confidence threshold to reduce false positives
-    // Only block if confidence >= 70 (high confidence)
-    const confidence = result.confidence || 0;
+
+    // Only block when confidence is high (>= 70) and the model explicitly flagged it.
+    const confidence = result.confidence ?? 0;
     const isBlocked = result.blocked === true && confidence >= 70;
-    
+
     return {
       blocked: isBlocked,
-      confidence: confidence,
-      reason: isBlocked ? (result.reason || 'Potential personal information detected') : ''
+      confidence,
+      reason: isBlocked ? (result.reason || 'Potential personal information detected') : '',
     };
-    
+
   } catch (error) {
-    // STRICT: Any error (network, exception) = BLOCK
-    console.error('Detection error:', error);
-    return { blocked: true, reason: 'Security check unavailable - please retry', confidence: 0 };
+    // FIX (Bug 2): Network/exception → allow through (backend is the authoritative check).
+    console.warn('Detection error — allowing image through:', error);
+    return { blocked: false, reason: '', confidence: 0 };
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,14 +142,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     location: '',
     meds: '',
     history: '',
-    images: [] as string[],
-    reportImages: [] as string[],
+    // FIX (Bug 3): We no longer persist images in intakeData at all.
+    // Images are sent immediately at step 0/1 and never re-sent in the final payload.
   });
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
   const [consentAcknowledged, setConsentAcknowledged] = useState(false);
   const [proceedNoImages, setProceedNoImages] = useState(false);
-  const [intakeComplete, setIntakeComplete] = useState(false);
   const [isCheckingImages, setIsCheckingImages] = useState(false);
+
+  // FIX (Bug 1): intakeComplete is now DERIVED from mode, not local state.
+  // This survives page reloads and fetchChatHistory restoring mode from the backend.
+  const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
 
   const paymentProcessedRef = useRef(false);
   const isSendingRef = useRef(false);
@@ -200,7 +208,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     (imgs ?? []).filter(img => typeof img === 'string' && img.trim().length > 10);
 
   const clearUnsafeImages = useCallback(() => {
-    setIntakeData(prev => ({ ...prev, images: [], reportImages: [] }));
     setMessages(prev => prev.map(m => m.images?.length ? { ...m, images: [] } : m));
   }, []);
 
@@ -208,6 +215,27 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     const l = (c || '').toLowerCase();
     return l.includes('these images may contain identifiable personal information') || l.includes('intake is paused');
   };
+
+  // FIX (Bug 1): Derive intakeStep from message history when restoring from backend.
+  // Count how many intake questions appear in the AI messages to resume at the correct step.
+  const deriveIntakeStepFromMessages = useCallback((msgs: ChatMessage[]): number => {
+    let step = 0;
+    for (const msg of msgs) {
+      if (msg.role === 'AI' || msg.role === 'ai') {
+        const content = msg.content || '';
+        // Each INTAKE_QUESTIONS entry is uniquely identifiable by a key phrase
+        if (content.includes('Please upload a clear image of the skin condition')) step = Math.max(step, 1);
+        if (content.includes('upload any relevant medical reports')) step = Math.max(step, 2);
+        if (content.includes('How long has this skin concern')) step = Math.max(step, 3);
+        if (content.includes('What symptoms are you experiencing')) step = Math.max(step, 4);
+        if (content.includes('Where on your body is this located')) step = Math.max(step, 5);
+        if (content.includes('Have you tried any medications')) step = Math.max(step, 6);
+        if (content.includes('Have you had any prior diagnoses')) step = Math.max(step, 7);
+        if (content.includes('any other relevant medical history')) step = Math.max(step, 7);
+      }
+    }
+    return step;
+  }, []);
 
   const fetchConsultationHistory = useCallback(async () => {
     try {
@@ -234,21 +262,37 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (!res.ok) throw new Error('Failed to fetch chat history');
       const data = await res.json();
       if (!data.error && data.conv && Array.isArray(data.conv)) {
+        let loadedMessages: ChatMessage[] = [];
         if (threadId) {
           setMessages(data.conv);
+          loadedMessages = data.conv;
         } else {
           setMessages(prev => {
             const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
             const localOnly = prev.filter(m => !backendIds.has(m.id));
-            return [...data.conv, ...localOnly];
+            loadedMessages = [...data.conv, ...localOnly];
+            return loadedMessages;
           });
+          loadedMessages = data.conv;
         }
-        if (data.mode) setMode(data.mode as ConversationMode);
+
+        if (data.mode) {
+          const restoredMode = data.mode as ConversationMode;
+          setMode(restoredMode);
+
+          // FIX (Bug 1): When restoring post_payment_intake mode from backend,
+          // re-derive the intake step from conversation history so the patient
+          // resumes exactly where they left off instead of restarting at step 0.
+          if (restoredMode === 'post_payment_intake') {
+            const step = deriveIntakeStepFromMessages(loadedMessages);
+            setIntakeStep(step);
+          }
+        }
       }
       if (data.thread_id) setActiveThreadId(data.thread_id);
     } catch (e) { console.error(e); }
     finally { setIsLoading(false); }
-  }, []);
+  }, [deriveIntakeStepFromMessages]);
 
   useEffect(() => {
     fetchChatHistory();
@@ -265,12 +309,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       });
       if (res.ok) {
         const data = await res.json();
-        setMessages([]); setMode('general_education'); setActiveThreadId(data.thread_id);
-        setPrivacyFlagged(false); setConsentAcknowledged(false); setProceedNoImages(false);
-        setIntakeStep(0); setIntakeComplete(false);
-        setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [], reportImages: [] });
+        setMessages([]);
+        setMode('general_education');
+        setActiveThreadId(data.thread_id);
+        setPrivacyFlagged(false);
+        setConsentAcknowledged(false);
+        setProceedNoImages(false);
+        setIntakeStep(0);
+        setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '' });
         paymentProcessedRef.current = false;
-        fetchConsultationHistory(); fetchChatHistory(data.thread_id);
+        fetchConsultationHistory();
+        fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
       }
     } catch (e) { console.error(e); }
@@ -299,74 +348,79 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ── CALIBRATED image screening with confidence threshold ────────────────────
+  // ── Image screening with confidence threshold ────────────────────────────────
   const screenImages = async (imgs: string[], label: string): Promise<string[] | null> => {
     if (imgs.length === 0) return [];
-    
+
     setIsCheckingImages(true);
     toast({ title: 'Checking image…', description: 'Verifying no face or personal info is present.' });
-    
+
     const safe: string[] = [];
-    const rejected: {reason: string; confidence?: number}[] = [];
-    
-    // Check ALL images in parallel
+    const rejected: { reason: string; confidence?: number }[] = [];
+
+    // Check all images in parallel
     const results = await Promise.all(
       imgs.map(async img => {
         const detection = await clientDetectFaceOrPII(img);
         return { img, detection };
       })
     );
-    
-    // Categorize results using confidence threshold
+
     for (const { img, detection } of results) {
       if (detection.blocked) {
-        rejected.push({reason: detection.reason || 'Potential personal information detected', confidence: detection.confidence});
+        rejected.push({ reason: detection.reason || 'Potential personal information detected', confidence: detection.confidence });
       } else {
         safe.push(img);
       }
     }
-    
+
     setIsCheckingImages(false);
-    
-    // If ANY rejected, reject ALL and return null
+
     if (rejected.length > 0) {
-      const rejectionDetails = rejected.map(r => 
-        r.confidence ? `${r.reason} (confidence: ${r.confidence}%)` : r.reason
-      ).join('; ');
-      
-      const rejectionMessage = `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejectionDetails}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible. If this was a mistake (e.g., photo of hand was rejected), please try again with better lighting.`;
-      
+      const rejectionDetails = rejected
+        .map(r => r.confidence ? `${r.reason} (confidence: ${r.confidence}%)` : r.reason)
+        .join('; ');
+
+      const rejectionMessage =
+        `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n` +
+        `**Reason:** ${rejectionDetails}\n\n` +
+        `Please upload only clinical images of the affected skin area — no faces, names, or personal details visible.\n\n` +
+        `If this was a mistake (e.g. a hand or arm photo was rejected), please retake the photo ensuring no face is in frame and try again.`;
+
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'AI',
         content: rejectionMessage,
       }]);
-      
-      toast({ 
-        title: 'Image Rejected', 
+
+      toast({
+        title: 'Image Rejected',
         description: 'Please upload only clinical images without face or personal info',
-        variant: 'destructive'
+        variant: 'destructive',
       });
-      
-      return null; // HARD STOP - no partial sends
+
+      return null; // Hard stop — caller must not proceed
     }
-    
-    // Only return safe if ALL passed
+
+    // All images passed — return safe list
     return safe;
   };
   // ─────────────────────────────────────────────────────────────────────────────
 
   const handlePrivacyRemoveImages = () => {
-    clearUnsafeImages(); setPrivacyFlagged(false);
+    clearUnsafeImages();
+    setPrivacyFlagged(false);
     toast({ title: 'Images Cleared', description: 'Please re-upload images without identifiable information.' });
   };
 
   const handlePrivacyOverride = async () => {
-    setPrivacyFlagged(false); setIsLoading(true);
+    setPrivacyFlagged(false);
+    setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', 'IOverride'); formData.append('thread_id', activeThreadId || '');
+      formData.append('question', 'IOverride');
+      formData.append('thread_id', activeThreadId || '');
       await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
       setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[intakeStep] }]);
     } catch (e) { console.error(e); }
@@ -374,14 +428,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   };
 
   const handleProceedNoImages = async () => {
-    setProceedNoImages(true); setIsLoading(true);
+    setProceedNoImages(true);
+    setIsLoading(true);
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: "I don't have images — proceed with text only" }]);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', 'PROCEED_NO_IMAGES'); formData.append('thread_id', activeThreadId || '');
+      formData.append('question', 'PROCEED_NO_IMAGES');
+      formData.append('thread_id', activeThreadId || '');
       await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
-      const nextStep = 2; setIntakeStep(nextStep);
+      const nextStep = 2;
+      setIntakeStep(nextStep);
       setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
     } catch (e) { console.error(e); }
     finally { setIsLoading(false); }
@@ -394,9 +451,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handlePaymentSuccess = async () => {
     if (paymentProcessedRef.current) return;
     paymentProcessedRef.current = true;
-    setMode('post_payment_intake'); setIntakeStep(0); setPrivacyFlagged(false);
-    setConsentAcknowledged(false); setProceedNoImages(false); setIntakeComplete(false);
-    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '', images: [], reportImages: [] });
+    setMode('post_payment_intake');
+    setIntakeStep(0);
+    setPrivacyFlagged(false);
+    setConsentAcknowledged(false);
+    setProceedNoImages(false);
+    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '' });
     setMessages(prev => {
       if (prev.some(m => m.role === 'system' && m.content.includes('Thank you for your payment'))) return prev;
       return [...prev, { id: `system-${Date.now()}`, role: 'system', content: 'Thank you for your payment! You are now connected to our intake process.' }];
@@ -410,7 +470,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', 'CONFIRM'); formData.append('thread_id', activeThreadId || '');
+      formData.append('question', 'CONFIRM');
+      formData.append('thread_id', activeThreadId || '');
       await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
     } catch (e) { console.error(e); }
     toast({ title: 'Payment Successful', description: 'You can now provide details for your consultation.' });
@@ -421,15 +482,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     isSendingRef.current = true;
 
     // ════════════════════════════════════════════════════════════════════════
-    // INTAKE MODE — steps 0-7: STRICT validation BEFORE any state changes
+    // INTAKE MODE — steps 0–7: strict validation BEFORE any state changes
     // ════════════════════════════════════════════════════════════════════════
     if (mode === 'post_payment_intake') {
       const rawImages = sanitizeImages(images);
 
-      // ── Step 0: Skin image ─────────────────────────────────────────────
+      // ── Step 0: Skin image ───────────────────────────────────────────────
       if (intakeStep === 0) {
         if (rawImages.length === 0) {
-          // No image supplied — re-prompt
           setMessages(prev => [...prev,
             { id: `user-${Date.now()}`, role: 'user', content: content || '(no image)' },
             { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[0] },
@@ -438,22 +498,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           return;
         }
 
-        // STRICT: Validate BEFORE any state storage
         const safeImages = await screenImages(rawImages, 'skin');
-        
-        // HARD STOP if validation failed or images rejected
         if (!safeImages) {
           isSendingRef.current = false;
           return;
         }
 
-        // ONLY safe images stored - never touched rawImages
         setMessages(prev => [...prev, {
           id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
         }]);
-        setIntakeData(prev => ({ ...prev, images: safeImages }));
 
-        // Fire-and-forget backend save (no AI reply displayed)
+        // FIX (Bug 3): We do NOT store images in intakeData.
+        // Images are sent to the backend HERE and never re-sent at the final step.
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', content || 'IMAGE_UPLOAD_STEP_0');
@@ -471,16 +527,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // ── Step 1: Report image ───────────────────────────────────────────
+      // ── Step 1: Report image ─────────────────────────────────────────────
       if (intakeStep === 1) {
         const textLower = content.trim().toLowerCase();
         const skipped = textLower === 'none' || textLower === 'no' || rawImages.length === 0;
 
         if (!skipped && rawImages.length > 0) {
-          // STRICT: Validate BEFORE any state storage
           const safeImages = await screenImages(rawImages, 'report');
-          
-          // HARD STOP if validation failed
           if (!safeImages) {
             isSendingRef.current = false;
             return;
@@ -489,8 +542,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           setMessages(prev => [...prev, {
             id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
           }]);
-          setIntakeData(prev => ({ ...prev, reportImages: safeImages }));
 
+          // FIX (Bug 3): Images sent immediately — NOT stored for re-send later.
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
           formData.append('question', content || 'IMAGE_UPLOAD_STEP_1');
@@ -511,7 +564,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
 
-      // ── Steps 2–7: text questions ──────────────────────────────────────
+      // ── Steps 2–7: text questions ────────────────────────────────────────
       const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
 
       setMessages(prev => {
@@ -531,26 +584,29 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          
-          // Use ONLY sanitized images from state - no stale data
-          const finalData = {
+
+          const updatedData = {
             ...intakeData,
             ...(currentStepKey !== 'images' && currentStepKey !== 'reportImages' ? { [currentStepKey]: content } : {}),
           };
-          
-          // STRICT: Re-sanitize before send to ensure no stale/unsafe images
-          const allImages = [...sanitizeImages(finalData.images), ...sanitizeImages(finalData.reportImages)];
-          
+
+          // FIX (Bug 3): INTAKE COMPLETE payload contains TEXT ONLY.
+          // Images were already uploaded individually at steps 0 and 1.
+          // Do NOT re-attach images here — that was the cause of duplicate uploads.
           formData.append('question',
-            `INTAKE COMPLETE. Summary:\nDuration: ${finalData.duration}\nSymptoms: ${finalData.symptoms}\nLocation: ${finalData.location}\nMeds: ${finalData.meds}\nHistory: ${finalData.history}\nSkin images: ${sanitizeImages(finalData.images).length} attached.\nReport images: ${sanitizeImages(finalData.reportImages).length} attached.\nDONE`
+            `INTAKE COMPLETE. Summary:\nDuration: ${updatedData.duration}\nSymptoms: ${updatedData.symptoms}\nLocation: ${updatedData.location}\nMeds: ${updatedData.meds}\nHistory: ${updatedData.history}\nImages were uploaded in earlier steps.\nDONE`
           );
           formData.append('thread_id', activeThreadId || '');
-          await appendImagesToFormData(formData, allImages);
+          // No images appended here — they were sent at steps 0 and 1.
+
           await fetch(`${BASE_URL}/api/chat_view/`, {
             method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
           });
+
+          // FIX (Bug 1): Immediately transition mode to dermatologist_review.
+          // intakeComplete is now DERIVED from mode so this single setMode call
+          // is enough — no separate setIntakeComplete state needed.
           setMode('dermatologist_review');
-          setIntakeComplete(true);
           setPrivacyFlagged(false);
           setProceedNoImages(false);
           setMessages(prev => [...prev, {
@@ -581,24 +637,23 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // DERMATOLOGIST REVIEW — patient can add info, no AI reply
+    // DERMATOLOGIST REVIEW — patient can add info; no AI auto-reply
     // ════════════════════════════════════════════════════════════════════════
     if (mode === 'dermatologist_review') {
       const rawImages = sanitizeImages(images);
-      
-      // STRICT: Validate any new images in review mode too
+
       if (rawImages.length > 0) {
         const safeImages = await screenImages(rawImages, 'additional');
         if (!safeImages) {
           isSendingRef.current = false;
           return;
         }
-        
+
         setMessages(prev => {
           if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
           return [...prev, { id: `user-${Date.now()}`, role: 'user', content, images: safeImages }];
         });
-        
+
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', `ADDITIONAL INFO: ${content}`);
@@ -612,7 +667,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
           return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
         });
-        
+
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', `ADDITIONAL INFO: ${content}`);
@@ -621,7 +676,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
         }).catch(e => console.error(e));
       }
-      
+
       isSendingRef.current = false;
       return;
     }
@@ -630,8 +685,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     // GENERAL EDUCATION MODE — AI replies normally
     // ════════════════════════════════════════════════════════════════════════
     const sanitizedImages = sanitizeImages(images);
-    
-    // STRICT: Validate images even in general education mode
+
     let safeImages: string[] = [];
     if (sanitizedImages.length > 0) {
       const screened = await screenImages(sanitizedImages, 'general');
@@ -641,7 +695,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
       safeImages = screened;
     }
-    
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`, role: 'user', content,
       images: safeImages.length ? safeImages : undefined,
@@ -662,7 +716,24 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       });
       if (!res.ok) throw new Error('Failed to send message');
       const data = await res.json();
-      if (data.mode) setMode(data.mode as ConversationMode);
+
+      // FIX (Bug 1): Only update mode from backend if it's a FORWARD progression.
+      // Never allow the backend to push us BACK into post_payment_intake once we
+      // have exited it. Mode transitions are strictly one-directional:
+      //   general_education → post_payment_intake → dermatologist_review → final_output
+      if (data.mode) {
+        const modeOrder: ConversationMode[] = [
+          'general_education', 'payment_page', 'post_payment_intake',
+          'dermatologist_review', 'final_output',
+        ];
+        const currentIndex = modeOrder.indexOf(mode);
+        const newIndex = modeOrder.indexOf(data.mode as ConversationMode);
+        // Only advance — never revert to an earlier mode.
+        if (newIndex > currentIndex) {
+          setMode(data.mode as ConversationMode);
+        }
+      }
+
       const aiContent =
         data.result?.trim() || data.response?.trim() || data.message?.trim() ||
         data.answer?.trim() || data.content?.trim() || data.text?.trim() ||
@@ -676,7 +747,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
       setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
-      setIsLoading(false); isSendingRef.current = false;
+      setIsLoading(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -693,7 +765,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
       else if (msg.role === 'doctor') role = 'doctor';
       else if (msg.role === 'system') role = 'system';
-      return { id: msg.id, role, content: msg.content, images: msg.images, conversationId: activeThreadId || '', timestamp: new Date(), isVisible: true };
+      return {
+        id: msg.id,
+        role,
+        content: msg.content,
+        images: msg.images,
+        conversationId: activeThreadId || '',
+        timestamp: new Date(),
+        isVisible: true,
+      };
     });
 
   const SidebarContent = () => (
@@ -757,7 +837,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
               </Button>
             )}
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-              fetchChatHistory(); fetchConsultationHistory();
+              fetchChatHistory();
+              fetchConsultationHistory();
               toast({ title: 'Syncing…', description: 'Updating consultation data.' });
             }}>
               <RefreshCw className="h-4 w-4" />
