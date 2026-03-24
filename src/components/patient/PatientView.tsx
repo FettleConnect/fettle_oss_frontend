@@ -34,7 +34,8 @@ interface ConsultationHistoryItem {
   created_at: string;
 }
 
-// ── Client-side face/PII detection (runs before upload) ──────────────────────
+// ── STRICT Client-side face/PII detection ───────────────────────────────────
+// CRITICAL: Any failure (API error, network, parse error) = BLOCK the image
 async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string }> {
   try {
     const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
@@ -56,12 +57,35 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
         }]
       })
     });
-    if (!res.ok) return { blocked: false, reason: '' };
+    
+    // STRICT: If API call fails, BLOCK the image (fail-safe)
+    if (!res.ok) {
+      console.error('Detection API error:', res.status);
+      return { blocked: true, reason: 'Security check failed - please retry' };
+    }
+    
     const data = await res.json();
-    const text: string = data?.content?.[0]?.text ?? '{}';
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
-  } catch {
-    return { blocked: false, reason: '' };
+    const text: string = data?.content?.[0]?.text ?? '';
+    
+    // STRICT: If JSON parsing fails, BLOCK the image
+    let result;
+    try {
+      result = JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return { blocked: true, reason: 'Security validation error - please retry' };
+    }
+    
+    // Ensure boolean response, default to blocked if malformed
+    return {
+      blocked: result.blocked === true,
+      reason: result.reason || ''
+    };
+    
+  } catch (error) {
+    // STRICT: Any error (network, exception) = BLOCK
+    console.error('Detection error:', error);
+    return { blocked: true, reason: 'Security check unavailable - please retry' };
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,25 +269,57 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // ── Screen images client-side, return safe list or null on rejection ────────
+  // ── STRICT image screening ─────────────────────────────────────────────────
+  // CRITICAL: Returns null if ANY image is rejected or if detection fails
+  // SAFE images only returned if ALL pass validation
   const screenImages = async (imgs: string[], label: string): Promise<string[] | null> => {
+    if (imgs.length === 0) return [];
+    
     setIsCheckingImages(true);
+    toast({ title: 'Checking image…', description: 'Verifying no face or personal info is present.' });
+    
     const safe: string[] = [];
     const rejected: string[] = [];
-    await Promise.all(imgs.map(async img => {
-      const { blocked, reason } = await clientDetectFaceOrPII(img);
-      if (blocked) rejected.push(reason || 'contains a face or personal information');
-      else safe.push(img);
-    }));
+    
+    // Check ALL images in parallel
+    const results = await Promise.all(
+      imgs.map(async img => {
+        const detection = await clientDetectFaceOrPII(img);
+        return { img, detection };
+      })
+    );
+    
+    // STRICT: Categorize results
+    for (const { img, detection } of results) {
+      if (detection.blocked) {
+        rejected.push(detection.reason || 'contains a face or personal information');
+      } else {
+        safe.push(img);
+      }
+    }
+    
     setIsCheckingImages(false);
+    
+    // STRICT: If ANY rejected, reject ALL and return null
     if (rejected.length > 0) {
+      const rejectionMessage = `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejected.join('; ')}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible.`;
+      
       setMessages(prev => [...prev, {
         id: `ai-${Date.now()}`,
         role: 'AI',
-        content: `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.\n\n**Reason:** ${rejected.join('; ')}\n\nPlease upload only clinical skin images — no faces, names, or personal details visible.`,
+        content: rejectionMessage,
       }]);
-      return null;
+      
+      toast({ 
+        title: 'Image Rejected', 
+        description: 'Please upload only clinical images without face or personal info',
+        variant: 'destructive'
+      });
+      
+      return null; // HARD STOP - no partial sends
     }
+    
+    // Only return safe if ALL passed
     return safe;
   };
   // ─────────────────────────────────────────────────────────────────────────────
@@ -333,8 +389,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     isSendingRef.current = true;
 
     // ════════════════════════════════════════════════════════════════════════
-    // INTAKE MODE — steps 0-7: only guided questions, NO AI reply shown
-    // The backend call is fire-and-forget (saves data). UI drives the flow.
+    // INTAKE MODE — steps 0-7: STRICT validation BEFORE any state changes
     // ════════════════════════════════════════════════════════════════════════
     if (mode === 'post_payment_intake') {
       const rawImages = sanitizeImages(images);
@@ -351,17 +406,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           return;
         }
 
-        // Screen client-side FIRST — before adding image to messages
-        setIsCheckingImages(true);
-        toast({ title: 'Checking image…', description: 'Verifying no face or personal info is present.' });
+        // STRICT: Validate BEFORE any state storage
         const safeImages = await screenImages(rawImages, 'skin');
+        
+        // HARD STOP if validation failed or images rejected
         if (!safeImages) {
-          // screenImages already added a rejection message
           isSendingRef.current = false;
           return;
         }
 
-        // Add user message with ONLY safe images
+        // ONLY safe images stored - never touched rawImages
         setMessages(prev => [...prev, {
           id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
         }]);
@@ -391,13 +445,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const skipped = textLower === 'none' || textLower === 'no' || rawImages.length === 0;
 
         if (!skipped && rawImages.length > 0) {
-          setIsCheckingImages(true);
-          toast({ title: 'Checking report…', description: 'Verifying no personal information is visible.' });
+          // STRICT: Validate BEFORE any state storage
           const safeImages = await screenImages(rawImages, 'report');
+          
+          // HARD STOP if validation failed
           if (!safeImages) {
             isSendingRef.current = false;
             return;
           }
+
           setMessages(prev => [...prev, {
             id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
           }]);
@@ -443,11 +499,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
+          
+          // Use ONLY sanitized images from state - no stale data
           const finalData = {
             ...intakeData,
             ...(currentStepKey !== 'images' && currentStepKey !== 'reportImages' ? { [currentStepKey]: content } : {}),
           };
+          
+          // STRICT: Re-sanitize before send to ensure no stale/unsafe images
           const allImages = [...sanitizeImages(finalData.images), ...sanitizeImages(finalData.reportImages)];
+          
           formData.append('question',
             `INTAKE COMPLETE. Summary:\nDuration: ${finalData.duration}\nSymptoms: ${finalData.symptoms}\nLocation: ${finalData.location}\nMeds: ${finalData.meds}\nHistory: ${finalData.history}\nSkin images: ${sanitizeImages(finalData.images).length} attached.\nReport images: ${sanitizeImages(finalData.reportImages).length} attached.\nDONE`
           );
@@ -460,7 +521,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           setIntakeComplete(true);
           setPrivacyFlagged(false);
           setProceedNoImages(false);
-          // No AI reply here — doctor will reply
           setMessages(prev => [...prev, {
             id: `ai-${Date.now()}`, role: 'AI',
             content: '✅ Your intake is complete. Dr. Attili will personally review your case and respond shortly. You will be notified when your consultation is ready.\n\nYou can add any extra information or images below while you wait.',
@@ -493,18 +553,43 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     // ════════════════════════════════════════════════════════════════════════
     if (mode === 'dermatologist_review') {
       const rawImages = sanitizeImages(images);
-      setMessages(prev => {
-        if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
-        return [...prev, { id: `user-${Date.now()}`, role: 'user', content, images: rawImages.length ? rawImages : undefined }];
-      });
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', `ADDITIONAL INFO: ${content}`);
-      formData.append('thread_id', activeThreadId || '');
-      if (rawImages.length) await appendImagesToFormData(formData, rawImages);
-      fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
-      }).catch(e => console.error(e));
+      
+      // STRICT: Validate any new images in review mode too
+      if (rawImages.length > 0) {
+        const safeImages = await screenImages(rawImages, 'additional');
+        if (!safeImages) {
+          isSendingRef.current = false;
+          return;
+        }
+        
+        setMessages(prev => {
+          if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+          return [...prev, { id: `user-${Date.now()}`, role: 'user', content, images: safeImages }];
+        });
+        
+        const authToken = localStorage.getItem('authToken');
+        const formData = new FormData();
+        formData.append('question', `ADDITIONAL INFO: ${content}`);
+        formData.append('thread_id', activeThreadId || '');
+        await appendImagesToFormData(formData, safeImages);
+        fetch(`${BASE_URL}/api/chat_view/`, {
+          method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+        }).catch(e => console.error(e));
+      } else {
+        setMessages(prev => {
+          if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+          return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
+        });
+        
+        const authToken = localStorage.getItem('authToken');
+        const formData = new FormData();
+        formData.append('question', `ADDITIONAL INFO: ${content}`);
+        formData.append('thread_id', activeThreadId || '');
+        fetch(`${BASE_URL}/api/chat_view/`, {
+          method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+        }).catch(e => console.error(e));
+      }
+      
       isSendingRef.current = false;
       return;
     }
@@ -513,9 +598,21 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     // GENERAL EDUCATION MODE — AI replies normally
     // ════════════════════════════════════════════════════════════════════════
     const sanitizedImages = sanitizeImages(images);
+    
+    // STRICT: Validate images even in general education mode
+    let safeImages: string[] = [];
+    if (sanitizedImages.length > 0) {
+      const screened = await screenImages(sanitizedImages, 'general');
+      if (!screened) {
+        isSendingRef.current = false;
+        return;
+      }
+      safeImages = screened;
+    }
+    
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`, role: 'user', content,
-      images: sanitizedImages.length ? sanitizedImages : undefined,
+      images: safeImages.length ? safeImages : undefined,
     };
     setMessages(prev => {
       if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
@@ -527,7 +624,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const formData = new FormData();
       formData.append('question', content);
       formData.append('thread_id', activeThreadId || '');
-      if (sanitizedImages.length) await appendImagesToFormData(formData, sanitizedImages);
+      if (safeImages.length) await appendImagesToFormData(formData, safeImages);
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
       });
