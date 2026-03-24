@@ -74,6 +74,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [sending, setSending] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imagesRef = useRef<PendingImage[]>([]);
 
   const isTextOnlyMode = mode === 'general_education';
   const canAttachImages = !isTextOnlyMode;
@@ -90,6 +91,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const setImagesState = (updater: (prev: PendingImage[]) => PendingImage[]) => {
+    setImages((prev) => {
+      const next = updater(prev);
+      imagesRef.current = next;
+      return next;
+    });
   };
 
   const handlePickImages = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -123,12 +132,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         })
       );
 
-      setImages((prev) => {
-        const existing = new Set(prev.map((img) => img.fingerprint));
+      setImagesState((prev) => {
+        const seen = new Set(prev.map((img) => img.fingerprint));
+        const valid: PendingImage[] = [];
 
-        const valid = newItems
-          .filter((i): i is PendingImage => i !== null)
-          .filter((i) => !existing.has(i.fingerprint));
+        for (const item of newItems) {
+          if (!item) continue;
+          if (seen.has(item.fingerprint)) continue;
+
+          seen.add(item.fingerprint);
+          valid.push(item);
+        }
 
         return [...prev, ...valid];
       });
@@ -140,28 +154,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleRemoveImage = (id: string) => {
-    setImages((prev) => prev.filter((img) => img.id !== id));
+    setImagesState((prev) => prev.filter((img) => img.id !== id));
     resetInput();
   };
 
   const clearAll = () => {
     setText('');
-    setImages([]);
+    setImagesState(() => []);
     resetInput();
   };
 
   const handleSubmit = async () => {
-    if (!canSend) return;
+    const currentTrimmedText = text.trim();
+    const currentImages = imagesRef.current;
+
+    if (disabled || isLoading || sending) return;
+    if (currentTrimmedText.length === 0 && currentImages.length === 0) return;
 
     setSending(true);
 
     try {
-      const payloadImages = images.map((img) => img.dataUrl);
+      const payloadImages = currentImages.map((img) => img.dataUrl);
 
-      await onSend(
-        trimmedText,
-        payloadImages.length ? payloadImages : undefined
-      );
+      await onSend(currentTrimmedText, payloadImages.length ? payloadImages : undefined);
 
       // ✅ CRITICAL: clear AFTER SUCCESS ONLY
       clearAll();
@@ -236,12 +251,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           className="min-h-[52px] max-h-40 resize-none"
         />
 
-        <Button
-          type="button"
-          size="icon"
-          onClick={handleSubmit}
-          disabled={!canSend}
-        >
+        <Button type="button" size="icon" onClick={handleSubmit} disabled={!canSend}>
           <Send className="h-4 w-4" />
         </Button>
       </div>
