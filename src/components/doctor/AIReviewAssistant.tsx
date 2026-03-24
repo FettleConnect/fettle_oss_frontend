@@ -71,7 +71,7 @@ function extractStructuredSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(`(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`, 'gi');
+  const regex = new RegExp(`(?:^|\\n)\\s*(?:\*\*)?(${escaped})(?:\*\*)?\\s*:?\\s*(?=\\n|$)`, 'gi');
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
