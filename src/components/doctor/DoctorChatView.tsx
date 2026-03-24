@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Conversation, Message, IntakeData } from '@/types/dermatology';
 import { ChatMessage } from '@/components/chat/ChatMessage';
 import { IntakeSummaryCard } from './IntakeSummaryCard';
@@ -7,7 +7,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Send, User, RefreshCw, ImagePlus, X, Bot, Sparkles, Plus, CheckCircle, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
+import {
+  Send, User, RefreshCw, ImagePlus, X, Bot,
+  Sparkles, Plus, CheckCircle, Maximize2, Minimize2, RotateCcw, AlertTriangle
+} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -20,6 +23,83 @@ interface DoctorChatViewProps {
   onRefresh: () => void;
 }
 
+// FIX #2: stable ID per image — deletion is by ID, not array index
+interface SafeImage {
+  dataUrl: string;
+  id: string;
+}
+
+// ─────────────────────────────────────────────────────────
+// FIX #1: Face + PII detection using Claude Vision API
+// Runs client-side before any image is accepted into state
+// ─────────────────────────────────────────────────────────
+async function detectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string }> {
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 100,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: extractMime(dataUrl),
+                  data: extractBase64(dataUrl),
+                },
+              },
+              {
+                type: 'text',
+                text: `You are a strict image safety checker for a medical platform.
+Analyse this image and answer ONLY with valid JSON in this exact shape:
+{"blocked":true|false,"reason":"short reason or empty string"}
+
+Block (blocked:true) if the image contains ANY of:
+- A human face (full or partial — eyes, nose, mouth visible together)
+- Personal identifying text: full name, date of birth, national ID, passport, address, phone number, email
+- Medical report header with patient name or ID printed on it
+
+If the image is a safe clinical photo (skin lesion, wound, rash without an identifiable face or PII text), respond {"blocked":false,"reason":""}.
+Reply with JSON only. No explanation outside the JSON.`,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn('PII detection API error, allowing image:', response.status);
+      return { blocked: false, reason: '' };
+    }
+
+    const data = await response.json();
+    const text: string = data?.content?.[0]?.text ?? '{}';
+    const cleaned = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleaned) as { blocked: boolean; reason: string };
+  } catch (err) {
+    console.warn('PII detection failed, allowing image:', err);
+    return { blocked: false, reason: '' };
+  }
+}
+
+function extractMime(dataUrl: string): string {
+  const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
+  return (match?.[1] ?? 'image/jpeg') as string;
+}
+
+function extractBase64(dataUrl: string): string {
+  return dataUrl.split(',')[1] ?? '';
+}
+
+// ─────────────────────────────────────────────────────────
+// Intake parser (unchanged)
+// ─────────────────────────────────────────────────────────
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
     m => m.content && m.content.includes('INTAKE COMPLETE') && m.content.includes('Summary:')
@@ -45,6 +125,9 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   };
 }
 
+// ─────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
@@ -53,13 +136,19 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 }) => {
   const { toast } = useToast();
   const isMobile = useIsMobile();
+
   const [patientMessage, setPatientMessage] = useState(conversation.draftResponse || '');
   const [isSending, setIsSending] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
-  const [images, setImages] = useState<string[]>([]);
+
+  // FIX #2: SafeImage[] with stable IDs
+  const [images, setImages] = useState<SafeImage[]>([]);
+  const [checkingImages, setCheckingImages] = useState(false);
+
   const [showAI, setShowAI] = useState(false);
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setShowAI(!isMobile); }, [isMobile]);
@@ -98,7 +187,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // ── Regenerate draft in updated format ──
   const handleRegenerateDraft = async () => {
     setIsRegenerating(true);
     try {
@@ -115,10 +203,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         title: 'Regenerating Draft',
         description: 'New draft is being generated. Click Sync in ~10 seconds to load it.',
       });
-      // Auto-refresh after 12 seconds to give backend time to regenerate
-      setTimeout(() => {
-        onRefresh();
-      }, 12000);
+      setTimeout(() => { onRefresh(); }, 12000);
     } catch (error) {
       console.error('Regenerate draft error:', error);
       toast({ title: 'Error', description: 'Failed to regenerate draft.', variant: 'destructive' });
@@ -127,20 +212,79 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ─────────────────────────────────────────────────────────
+  // FIX #1 + #2: Image select → read → detect → accept/reject
+  // ─────────────────────────────────────────────────────────
+  const handleImageSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) setImages(prev => [...prev, event.target!.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+    if (!files || files.length === 0) return;
 
-  const removeImage = (index: number) => setImages(prev => prev.filter((_, i) => i !== index));
+    // Reset input FIRST (before any await) so re-selecting same file works
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    setCheckingImages(true);
+
+    const fileArray = Array.from(files);
+    const accepted: SafeImage[] = [];
+    const rejected: string[] = [];
+
+    await Promise.all(
+      fileArray.map(
+        (file) =>
+          new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+              const dataUrl = ev.target?.result as string;
+              if (!dataUrl) { resolve(); return; }
+
+              const { blocked, reason } = await detectFaceOrPII(dataUrl);
+
+              if (blocked) {
+                rejected.push(
+                  `"${file.name}" — ${reason || 'contains a face or personal information'}`
+                );
+              } else {
+                accepted.push({ dataUrl, id: `${Date.now()}-${Math.random()}` });
+              }
+              resolve();
+            };
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+
+    setCheckingImages(false);
+
+    if (accepted.length > 0) {
+      setImages(prev => [...prev, ...accepted]);
+    }
+
+    if (rejected.length > 0) {
+      toast({
+        title: `${rejected.length} image${rejected.length > 1 ? 's' : ''} not accepted`,
+        description: (
+          <div className="space-y-1.5 pt-1">
+            {rejected.map((r, i) => (
+              <p key={i} className="text-xs flex gap-1.5 items-start">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                {r}
+              </p>
+            ))}
+            <p className="text-xs text-muted-foreground mt-2 border-t pt-2">
+              Please upload clinical photos only — no faces, names, or identifying information.
+            </p>
+          </div>
+        ),
+        variant: 'destructive',
+        duration: 7000,
+      });
+    }
+  }, [toast]);
+
+  // FIX #2: remove by stable ID — no index-shifting bugs
+  const removeImage = useCallback((id: string) => {
+    setImages(prev => prev.filter(img => img.id !== id));
+  }, []);
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
     if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http')) {
@@ -157,7 +301,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleSendToPatient = async () => {
     if (!patientMessage.trim()) {
-      toast({ title: 'Error', description: 'Please enter a message to send to the patient.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Please enter a message.', variant: 'destructive' });
       return;
     }
     setIsSending(true);
@@ -166,27 +310,29 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const formData = new FormData();
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
-      if (images.length > 0) {
-        for (let i = 0; i < images.length; i++) {
-          const blob = await dataURLtoBlob(images[i]);
-          const ext = blob.type.split('/')[1] ?? 'jpg';
-          formData.append('image', blob, `image_${i + 1}.${ext}`);
-        }
+
+      // FIX #2: only images currently in safe state are sent
+      for (let i = 0; i < images.length; i++) {
+        const blob = await dataURLtoBlob(images[i].dataUrl);
+        const ext = blob.type.split('/')[1] ?? 'jpg';
+        formData.append('image', blob, `image_${i + 1}.${ext}`);
       }
+
       const response = await fetch(`${BASE_URL}/api/doctor_send_response/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
       });
       if (!response.ok) throw new Error('Failed to send message');
+
       setPatientMessage('');
-      setImages([]);
+      setImages([]);  // FIX #2: full clear after send
       setAssessmentExpanded(false);
       onUpdate();
       toast({ title: 'Response Sent', description: 'Your response has been sent to the patient.' });
     } catch (error) {
       console.error('Error sending message:', error);
-      toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to send message.', variant: 'destructive' });
     } finally {
       setIsSending(false);
     }
@@ -211,6 +357,21 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
+  // ─────────────────────────────────────────────────────────
+  // FIX #3: AI content goes DIRECTLY into the editor.
+  // Called automatically by AIReviewAssistant after every
+  // generate — no Regenerate / Sync / Apply button needed.
+  // ─────────────────────────────────────────────────────────
+  const handleApplyAIContent = useCallback((content: string) => {
+    const cleaned = content.replace(/\n{3,}/g, '\n\n').trim();
+    setPatientMessage(cleaned);
+    toast({
+      title: 'Assessment Updated',
+      description: 'AI response applied directly to the editor.',
+    });
+    if (isMobile) setShowAI(false);
+  }, [isMobile, toast]);
+
   const canRespond = conversation.paymentStatus === 'paid' || !!conversation.draftResponse;
   const isCompleted = conversation.status === 'completed';
   const isCaseDone = caseCompleted || conversation.mode === 'general_education';
@@ -221,17 +382,15 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         onClose={() => setShowAI(false)}
         conversationId={String(conversation.id)}
         contextData={JSON.stringify(conversation.intakeData || {})}
-        onApplyContent={(content) => {
-          setPatientMessage(content);
-          toast({ title: 'Applied to Editor', description: 'Assessment replaced with AI suggestion.' });
-          if (isMobile) setShowAI(false);
-        }}
+        onApplyContent={handleApplyAIContent}
       />
     </div>
   );
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
+
+      {/* Header */}
       <div className="border-b border-border bg-card px-4 md:px-6 py-3 md:py-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 md:gap-4">
@@ -250,26 +409,29 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               disabled={isCaseDone}
               className={`h-8 md:h-9 ${isCaseDone ? 'border-gray-200 text-gray-400 cursor-not-allowed opacity-60' : 'border-green-200 text-green-700 hover:bg-green-50'}`}
             >
-              {isCaseDone ? (
-                <CheckCircle className="h-3.5 w-3.5 md:mr-2" />
-              ) : (
-                <Plus className="h-3.5 w-3.5 md:mr-2" />
-              )}
+              {isCaseDone
+                ? <CheckCircle className="h-3.5 w-3.5 md:mr-2" />
+                : <Plus className="h-3.5 w-3.5 md:mr-2" />}
               <span className="hidden sm:inline">{isCaseDone ? 'Case Completed' : 'Complete Case'}</span>
             </Button>
             <Button variant="ghost" size="sm" onClick={onRefresh} className="h-8 md:h-9 text-muted-foreground hover:text-foreground">
               <RefreshCw className="h-3.5 w-3.5 md:mr-2" />
               <span className="hidden sm:inline">Sync</span>
             </Button>
-            <Badge variant={conversation.paymentStatus === 'paid' ? 'default' : 'secondary'} className="px-2 md:px-3 py-0.5 md:py-1 text-[10px] md:text-xs">
+            <Badge
+              variant={conversation.paymentStatus === 'paid' ? 'default' : 'secondary'}
+              className="px-2 md:px-3 py-0.5 md:py-1 text-[10px] md:text-xs"
+            >
               {conversation.paymentStatus === 'paid' ? 'Paid Consultation' : 'Unpaid'}
             </Badge>
           </div>
         </div>
       </div>
 
+      {/* Body */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0 w-full relative">
+
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
               {resolvedIntakeData && (
@@ -300,32 +462,36 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </ScrollArea>
 
+          {/* Assessment & Response */}
           {canRespond && !isCompleted && (
             <div className={
               assessmentExpanded
-                ? "fixed inset-0 z-50 bg-background flex flex-col p-4 md:p-8 shadow-2xl"
-                : "border-t border-border bg-card p-4 md:p-6 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-20"
+                ? 'fixed inset-0 z-50 bg-background flex flex-col p-4 md:p-8 shadow-2xl'
+                : 'border-t border-border bg-card p-4 md:p-6 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-20'
             }>
               <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col space-y-3 md:space-y-4">
+
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs md:text-sm font-semibold flex items-center gap-2">
                     <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary" />
                     Assessment & Response
                   </label>
                   <div className="flex gap-1.5 md:gap-2">
-                    {/* Regenerate Draft button */}
                     <Button
                       variant="outline" size="sm"
                       onClick={handleRegenerateDraft}
                       disabled={isRegenerating}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-amber-700 border-amber-200 hover:bg-amber-50"
-                      title="Regenerate AI draft in updated format"
                     >
                       <RotateCcw className={`h-3.5 w-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
                       <span className="hidden sm:inline">{isRegenerating ? 'Generating...' : 'Regenerate Draft'}</span>
                     </Button>
                     {conversation.draftResponse && patientMessage !== conversation.draftResponse && (
-                      <Button variant="outline" size="sm" onClick={handleApplyDraft} className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-primary border-primary/20">
+                      <Button
+                        variant="outline" size="sm"
+                        onClick={handleApplyDraft}
+                        className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-primary border-primary/20"
+                      >
                         <Bot className="h-3.5 w-3.5" />
                         AI Draft
                       </Button>
@@ -334,15 +500,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       variant="outline" size="sm"
                       onClick={() => setAssessmentExpanded(e => !e)}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
-                      title={assessmentExpanded ? 'Collapse editor' : 'Expand editor'}
                     >
                       {assessmentExpanded
                         ? <><Minimize2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Collapse</span></>
-                        : <><Maximize2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Expand</span></>
-                      }
+                        : <><Maximize2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Expand</span></>}
                     </Button>
                     <Button
-                      variant={showAI ? "default" : "secondary"} size="sm"
+                      variant={showAI ? 'default' : 'secondary'} size="sm"
                       onClick={() => setShowAI(!showAI)}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
                     >
@@ -352,12 +516,21 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </div>
                 </div>
 
+                {/* FIX #2: keyed by stable id, X button removes by id */}
                 {images.length > 0 && (
                   <div className="flex gap-2 mb-2 flex-wrap bg-muted/30 p-2 rounded-lg border border-dashed">
-                    {images.map((img, index) => (
-                      <div key={index} className="relative group">
-                        <img src={img} alt={`Upload ${index + 1}`} className="h-14 w-14 md:h-20 md:w-20 object-cover rounded-md border border-border shadow-sm" />
-                        <button type="button" onClick={() => removeImage(index)} className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 shadow-md">
+                    {images.map((img) => (
+                      <div key={img.id} className="relative group">
+                        <img
+                          src={img.dataUrl}
+                          alt="Attachment"
+                          className="h-14 w-14 md:h-20 md:w-20 object-cover rounded-md border border-border shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(img.id)}
+                          className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 shadow-md"
+                        >
                           <X className="h-3 w-3" />
                         </button>
                       </div>
@@ -371,19 +544,38 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   placeholder="Write your professional assessment here..."
                   className={
                     assessmentExpanded
-                      ? "flex-1 text-xs md:text-base leading-relaxed p-3 md:p-4 resize-none shadow-sm"
-                      : "min-h-[100px] md:min-h-[150px] text-xs md:text-base leading-relaxed p-3 md:p-4 resize-y shadow-sm"
+                      ? 'flex-1 text-xs md:text-base leading-relaxed p-3 md:p-4 resize-none shadow-sm'
+                      : 'min-h-[100px] md:min-h-[150px] text-xs md:text-base leading-relaxed p-3 md:p-4 resize-y shadow-sm'
                   }
                   style={assessmentExpanded ? { minHeight: 0 } : undefined}
                 />
 
                 <div className="flex justify-between items-center gap-2">
-                  <div className="flex gap-2">
-                    <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageSelect} className="hidden" />
-                    <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="h-8 md:h-10 text-[10px] md:text-sm px-2 md:px-4">
+                  <div className="flex gap-2 items-center">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={checkingImages}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-8 md:h-10 text-[10px] md:text-sm px-2 md:px-4"
+                    >
                       <ImagePlus className="h-3.5 w-3.5 md:h-4 md:w-4 md:mr-2" />
-                      <span className="hidden sm:inline">Attach Images</span>
+                      <span className="hidden sm:inline">
+                        {checkingImages ? 'Checking images…' : 'Attach Images'}
+                      </span>
                     </Button>
+                    <p className="hidden md:block text-[10px] text-muted-foreground">
+                      Clinical photos only — no faces or personal information
+                    </p>
                   </div>
                   <Button
                     onClick={handleSendToPatient}
@@ -395,6 +587,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     Send Response
                   </Button>
                 </div>
+
               </div>
             </div>
           )}
@@ -405,6 +598,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             <ConsultationSidebar />
           </div>
         )}
+
         {isMobile && (
           <Sheet open={showAI} onOpenChange={setShowAI}>
             <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
