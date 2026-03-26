@@ -231,20 +231,27 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleSendMessage = async (content: string, images?: string[]) => {
     if (isSendingRef.current || isLoading) { console.warn('Send blocked - already sending'); return; }
     isSendingRef.current = true;
+    
+    // Check if message already exists to prevent duplication
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content, images: images?.length ? images : undefined };
     setMessages(prev => {
-      if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
+      // Deduplication check: if last message is identical, don't append
+      if (prev.length > 0) {
+        const last = prev[prev.length - 1];
+        if (last.role === 'user' && last.content === content && JSON.stringify(last.images) === JSON.stringify(images)) {
+          return prev;
+        }
+      }
       return [...prev, userMessage];
     });
 
     if (mode === 'post_payment_intake') {
       if (intakeStep === 0) {
-        if (images?.length) setIntakeData(prev => ({ ...prev, images }));
         setIsLoading(true);
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          formData.append('question', content || 'IMAGE_UPLOAD_STEP_0');
+          formData.append('question', content || 'IMAGE_UPLOAD_SKIN');
           formData.append('thread_id', activeThreadId || ''); formData.append('step', 'skin_image');
           if (images?.length) await appendImagesToFormData(formData, images);
           const response = await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` }, body: formData });
@@ -267,12 +274,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
 
       if (intakeStep === 1) {
-        if (images?.length) setIntakeData(prev => ({ ...prev, reportImages: images }));
         setIsLoading(true);
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          formData.append('question', content || 'IMAGE_UPLOAD_STEP_1');
+          formData.append('question', content || 'IMAGE_UPLOAD_REPORT');
           formData.append('thread_id', activeThreadId || ''); formData.append('step', 'report_image');
           if (images?.length) await appendImagesToFormData(formData, images);
           const response = await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` }, body: formData });
@@ -295,7 +301,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
 
       const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
-      if (currentStepKey !== 'images' && currentStepKey !== 'reportImages') setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
+      if (currentStepKey !== 'images' && currentStepKey !== 'reportImages') {
+        setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
+      }
+      
       const isLastStep = content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1;
 
       if (isLastStep) {
@@ -303,10 +312,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         try {
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
-          const allImages = [...intakeData.images, ...intakeData.reportImages];
-          formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nSkin images: ${intakeData.images.length} attached.\nReport images: ${intakeData.reportImages.length} attached.\nDONE`);
+          // DO NOT re-attach all images here. The backend already has them in the thread history.
+          // Attaching them again causes duplication in the doctor summary and message history.
+          formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${intakeData.duration}\nSymptoms: ${intakeData.symptoms}\nLocation: ${intakeData.location}\nMeds: ${intakeData.meds}\nHistory: ${intakeData.history}\nDONE`);
           formData.append('thread_id', activeThreadId || '');
-          await appendImagesToFormData(formData, allImages);
+          // If the user happens to have new images selected in the final turn, attach ONLY those.
+          if (images?.length) await appendImagesToFormData(formData, images);
+          
           await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` }, body: formData });
           setMode('dermatologist_review'); setIntakeComplete(true); setPrivacyFlagged(false); setProceedNoImages(false);
           setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: "✅ Intake complete. Dr. Attili will now review your case and you will be notified once the clinical review is ready.\n\nIn the meantime, feel free to add any additional information, context, or images that may be relevant — just send them below." }]);
@@ -320,6 +332,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
         formData.append('question', content); formData.append('thread_id', activeThreadId || '');
+        // If there are images in intermediate steps (unlikely given flow but for safety)
+        if (images?.length) await appendImagesToFormData(formData, images);
         const response = await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` }, body: formData });
         const data = await response.json();
         if (data.result && isPrivacyFlagMessage(data.result)) {
