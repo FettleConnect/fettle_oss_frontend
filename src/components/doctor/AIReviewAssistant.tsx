@@ -346,7 +346,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                     >
                       <ReactMarkdown
                         components={{
-                          a: ({ node, ...props }) => (
+                          a: (props ) => (
                             
                               {...props}
                               target="_blank"
