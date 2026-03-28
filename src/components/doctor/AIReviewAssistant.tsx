@@ -344,20 +344,9 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                         [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
                         [&_a]:text-blue-600 [&_a]:underline break-words"
                     >
-                      <ReactMarkdown
-                        components={{
-                          a: (props ) => (
-                            
-                              {...props}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 underline break-words"
-                            />
-                          ),
-                        }}
-                      >
-                        {m.content}
-                      </ReactMarkdown>
+         <ReactMarkdown>
+                         {m.content}
+         </ReactMarkdown>
                     </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
