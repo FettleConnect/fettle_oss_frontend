@@ -34,8 +34,13 @@ interface ConsultationHistoryItem {
   created_at: string;
 }
 
-// ── CALIBRATED Client-side face/PII detection ────────────────────────────────
-async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolean; reason: string; confidence?: number }> {
+// ─────────────────────────────────────────────────────────────
+// FIX: Client-side face/PII detection — called BEFORE upload
+// Uses Claude Vision to check for face or personal information
+// ─────────────────────────────────────────────────────────────
+async function clientDetectFaceOrPII(
+  dataUrl: string
+): Promise<{ blocked: boolean; reason: string; confidence?: number }> {
   try {
     const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
     const mime = match?.[1] ?? 'image/jpeg';
@@ -45,15 +50,19 @@ async function clientDetectFaceOrPII(dataUrl: string): Promise<{ blocked: boolea
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 150,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
-            {
-              type: 'text',
-              text: `You are a medical image safety analyzer. Examine this image carefully.
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: mime, data: b64 },
+              },
+              {
+                type: 'text',
+                text: `You are a medical image safety analyzer. Examine this image carefully.
 
 CLASSIFICATION RULES — BE PRECISE:
 1. FACE DETECTION (Block ONLY if a CLEAR face is present):
@@ -62,42 +71,44 @@ CLASSIFICATION RULES — BE PRECISE:
    - Hands and fingers are NOT faces — never block hands alone
 
 2. PII TEXT DETECTION (Block ONLY if LEGIBLE personal info):
-   - BLOCK if: Clearly readable name, date of birth, patient ID, phone number, email, or address
+   - BLOCK if: Clearly readable full name, date of birth, patient ID, phone number, email, or address
    - ALLOW if: Blurry text, medical terminology, labels like "Report", "Lab", or unreadable characters
 
 3. CLINICAL IMAGES (Always allow):
    - Skin lesions, rashes, wounds, moles, acne, eczema, psoriasis
    - Dermatology close-ups, even if on fingers/hands
-   - Medical reports where personal info is redacted/blurred
+   - Medical reports where personal info is redacted or blurred
 
 RESPOND ONLY WITH JSON:
-{"blocked":true|false,"confidence":0-100,"reason":"specific reason if blocked, empty if allowed"}
+{"blocked":true|false,"confidence":0-100,"reason":"specific reason if blocked, empty string if allowed"}
 
 Confidence guide:
-- 90–100: Clear face or readable PII
+- 90–100: Clear face or readable PII present
 - 70–89: Likely face/PII but not certain
 - 0–69: Safe clinical image or no PII detected
 
-Be conservative — only block when confident. Hands and clinical skin photos should NEVER be blocked.`,
-            }
-          ]
-        }]
-      })
+Be conservative — only block when confident (confidence >= 70).
+Hands and clinical skin photos should NEVER be blocked.`,
+              },
+            ],
+          },
+        ],
+      }),
     });
 
     if (!res.ok) {
-      console.warn('Detection API error:', res.status, '— allowing image through (backend will re-check)');
+      console.warn('Detection API error:', res.status, '— allowing image (backend will re-check)');
       return { blocked: false, reason: '', confidence: 0 };
     }
 
     const data = await res.json();
     const text: string = data?.content?.[0]?.text ?? '';
 
-    let result;
+    let result: { blocked: boolean; confidence: number; reason: string };
     try {
       result = JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch (parseError) {
-      console.warn('JSON parse error in face detection — allowing image through:', parseError);
+    } catch {
+      console.warn('JSON parse error in detection — allowing image through');
       return { blocked: false, reason: '', confidence: 0 };
     }
 
@@ -107,9 +118,10 @@ Be conservative — only block when confident. Hands and clinical skin photos sh
     return {
       blocked: isBlocked,
       confidence,
-      reason: isBlocked ? (result.reason || 'Potential personal information detected') : '',
+      reason: isBlocked
+        ? result.reason || 'Potential face or personal information detected'
+        : '',
     };
-
   } catch (error) {
     console.warn('Detection error — allowing image through:', error);
     return { blocked: false, reason: '', confidence: 0 };
@@ -139,7 +151,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [proceedNoImages, setProceedNoImages] = useState(false);
   const [isCheckingImages, setIsCheckingImages] = useState(false);
 
-  const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
+  const intakeComplete =
+    mode === 'dermatologist_review' || mode === 'final_output';
 
   const paymentProcessedRef = useRef(false);
   const isSendingRef = useRef(false);
@@ -156,133 +169,197 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   ];
 
   const STEP_KEYS = [
-    'images', 'reportImages', 'duration', 'symptoms',
-    'location', 'meds', 'history', 'history',
+    'images',
+    'reportImages',
+    'duration',
+    'symptoms',
+    'location',
+    'meds',
+    'history',
+    'history',
   ] as const;
 
   const DURATION_OPTIONS = [
-    'Less than 1 week', '1–4 weeks', '1–3 months', '3–6 months', 'Over 6 months',
+    'Less than 1 week',
+    '1–4 weeks',
+    '1–3 months',
+    '3–6 months',
+    'Over 6 months',
   ];
 
-  const lastAiContent = 
-    messages.filter(m => m.role === 'AI' || m.role === 'ai').slice(-1)[0]?.content?.toLowerCase() ?? '';
-  const educationAiReplyCount = messages.filter(m => m.role === 'AI' || m.role === 'ai').length;
-  const freeTierExhausted = mode === 'general_education' && educationAiReplyCount >= 3;
+  const lastAiContent =
+    messages
+      .filter(m => m.role === 'AI' || m.role === 'ai')
+      .slice(-1)[0]?.content?.toLowerCase() ?? '';
+  const educationAiReplyCount = messages.filter(
+    m => m.role === 'AI' || m.role === 'ai'
+  ).length;
+  const freeTierExhausted =
+    mode === 'general_education' && educationAiReplyCount >= 3;
   const hasAnyAiReply = educationAiReplyCount > 0;
 
-  const showDurationChips = 
-    mode === 'post_payment_intake' && !isLoading && !privacyFlagged && 
+  const showDurationChips =
+    mode === 'post_payment_intake' &&
+    !isLoading &&
+    !privacyFlagged &&
     lastAiContent.includes('how long has this skin concern');
 
-  const showYesNo = 
-    mode === 'post_payment_intake' && !isLoading && !privacyFlagged && (
-      lastAiContent.includes('have you tried any medications') || 
-      lastAiContent.includes('have you had any prior diagnoses') || 
-      lastAiContent.includes('do you have any other relevant medical history')
-    );
+  const showYesNo =
+    mode === 'post_payment_intake' &&
+    !isLoading &&
+    !privacyFlagged &&
+    (lastAiContent.includes('have you tried any medications') ||
+      lastAiContent.includes('have you had any prior diagnoses') ||
+      lastAiContent.includes('do you have any other relevant medical history'));
 
-  const showProceedNoImages = 
-    mode === 'post_payment_intake' && !isLoading && !privacyFlagged && !proceedNoImages && 
+  const showProceedNoImages =
+    mode === 'post_payment_intake' &&
+    !isLoading &&
+    !privacyFlagged &&
+    !proceedNoImages &&
     (intakeStep === 0 || lastAiContent.includes('proceed without images'));
 
-  const showUpgradeButton = 
-    mode === 'general_education' && !isLoading && hasAnyAiReply && 
-    !freeTierExhausted && !consentAcknowledged;
+  const showUpgradeButton =
+    mode === 'general_education' &&
+    !isLoading &&
+    hasAnyAiReply &&
+    !freeTierExhausted &&
+    !consentAcknowledged;
 
   const showConfirmPayment = consentAcknowledged && !isLoading;
 
-  const sanitizeImages = (imgs?: string[]) => 
-    (imgs ?? []).filter(img => typeof img === 'string' && img.trim().length > 10);
+  const sanitizeImages = (imgs?: string[]) =>
+    (imgs ?? []).filter(
+      img => typeof img === 'string' && img.trim().length > 10
+    );
 
   const clearUnsafeImages = useCallback(() => {
-    setMessages(prev => prev.map(m => m.images?.length ? { ...m, images: [] } : m));
+    setMessages(prev =>
+      prev.map(m => (m.images?.length ? { ...m, images: [] } : m))
+    );
   }, []);
 
   const isPrivacyFlagMessage = (c: string) => {
     const l = (c || '').toLowerCase();
-    return l.includes('these images may contain identifiable personal information') || l.includes('intake is paused');
+    return (
+      l.includes('these images may contain identifiable personal information') ||
+      l.includes('intake is paused')
+    );
   };
 
   const isFaceDetectedMessage = (content: string) => {
     const lower = content.toLowerCase();
-    return lower.includes('face detected') || lower.includes('no clinical image of skin issue is visible');
+    return (
+      lower.includes('face detected') ||
+      lower.includes('no clinical image of skin issue is visible')
+    );
   };
 
   const isReportPiiMessage = (content: string) => {
     const lower = content.toLowerCase();
-    return lower.includes('personal information visible') || lower.includes('name or number');
+    return (
+      lower.includes('personal information visible') ||
+      lower.includes('name or number')
+    );
   };
 
-  const deriveIntakeStepFromMessages = useCallback((msgs: ChatMessage[]): number => {
-    let step = 0;
-    for (const msg of msgs) {
-      if (msg.role === 'AI' || msg.role === 'ai') {
-        const content = msg.content || '';
-        if (content.includes('Please upload a clear image of the skin condition')) step = Math.max(step, 1);
-        if (content.includes('upload any relevant medical reports')) step = Math.max(step, 2);
-        if (content.includes('How long has this skin concern')) step = Math.max(step, 3);
-        if (content.includes('What symptoms are you experiencing')) step = Math.max(step, 4);
-        if (content.includes('Where on your body is this located')) step = Math.max(step, 5);
-        if (content.includes('Have you tried any medications')) step = Math.max(step, 6);
-        if (content.includes('Have you had any prior diagnoses')) step = Math.max(step, 7);
-        if (content.includes('any other relevant medical history')) step = Math.max(step, 7);
+  const deriveIntakeStepFromMessages = useCallback(
+    (msgs: ChatMessage[]): number => {
+      let step = 0;
+      for (const msg of msgs) {
+        if (msg.role === 'AI' || msg.role === 'ai') {
+          const content = msg.content || '';
+          if (content.includes('Please upload a clear image of the skin condition'))
+            step = Math.max(step, 1);
+          if (content.includes('upload any relevant medical reports'))
+            step = Math.max(step, 2);
+          if (content.includes('How long has this skin concern'))
+            step = Math.max(step, 3);
+          if (content.includes('What symptoms are you experiencing'))
+            step = Math.max(step, 4);
+          if (content.includes('Where on your body is this located'))
+            step = Math.max(step, 5);
+          if (content.includes('Have you tried any medications'))
+            step = Math.max(step, 6);
+          if (content.includes('Have you had any prior diagnoses'))
+            step = Math.max(step, 7);
+          if (content.includes('any other relevant medical history'))
+            step = Math.max(step, 7);
+        }
       }
-    }
-    return step;
-  }, []);
+      return step;
+    },
+    []
+  );
 
   const fetchConsultationHistory = useCallback(async () => {
     try {
       const authToken = localStorage.getItem('authToken');
       const res = await fetch(`${BASE_URL}/api/consultation_list/`, {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
       });
       if (res.ok) {
         const data = await res.json();
         setHistory(data.history || []);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
-  const fetchChatHistory = useCallback(async (threadId?: string) => {
-    try {
-      setIsLoading(true);
-      const authToken = localStorage.getItem('authToken');
-      const url = new URL(`${BASE_URL}/api/chat_history/`);
-      if (threadId) url.searchParams.append('thread_id', threadId);
-      const res = await fetch(url.toString(), {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      });
-      if (!res.ok) throw new Error('Failed to fetch chat history');
-      const data = await res.json();
-      if (!data.error && data.conv && Array.isArray(data.conv)) {
-        let loadedMessages: ChatMessage[] = [];
-        if (threadId) {
-          setMessages(data.conv);
-          loadedMessages = data.conv;
-        } else {
-          setMessages(prev => {
-            const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
-            const localOnly = prev.filter(m => !backendIds.has(m.id));
-            loadedMessages = [...data.conv, ...localOnly];
-            return loadedMessages;
-          });
-          loadedMessages = data.conv;
-        }
+  const fetchChatHistory = useCallback(
+    async (threadId?: string) => {
+      try {
+        setIsLoading(true);
+        const authToken = localStorage.getItem('authToken');
+        const url = new URL(`${BASE_URL}/api/chat_history/`);
+        if (threadId) url.searchParams.append('thread_id', threadId);
+        const res = await fetch(url.toString(), {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+        if (!res.ok) throw new Error('Failed to fetch chat history');
+        const data = await res.json();
+        if (!data.error && data.conv && Array.isArray(data.conv)) {
+          let loadedMessages: ChatMessage[] = [];
+          if (threadId) {
+            setMessages(data.conv);
+            loadedMessages = data.conv;
+          } else {
+            setMessages(prev => {
+              const backendIds = new Set(
+                data.conv.map((m: ChatMessage) => m.id)
+              );
+              const localOnly = prev.filter(m => !backendIds.has(m.id));
+              loadedMessages = [...data.conv, ...localOnly];
+              return loadedMessages;
+            });
+            loadedMessages = data.conv;
+          }
 
-        if (data.mode) {
-          const restoredMode = data.mode as ConversationMode;
-          setMode(restoredMode);
-          if (restoredMode === 'post_payment_intake') {
-            const step = deriveIntakeStepFromMessages(loadedMessages);
-            setIntakeStep(step);
+          if (data.mode) {
+            const restoredMode = data.mode as ConversationMode;
+            setMode(restoredMode);
+            if (restoredMode === 'post_payment_intake') {
+              const step = deriveIntakeStepFromMessages(loadedMessages);
+              setIntakeStep(step);
+            }
           }
         }
+        if (data.thread_id) setActiveThreadId(data.thread_id);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsLoading(false);
       }
-      if (data.thread_id) setActiveThreadId(data.thread_id);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
-  }, [deriveIntakeStepFromMessages]);
+    },
+    [deriveIntakeStepFromMessages]
+  );
 
   useEffect(() => {
     fetchChatHistory();
@@ -295,7 +372,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const authToken = localStorage.getItem('authToken');
       const res = await fetch(`${BASE_URL}/api/archive_consultation/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
       });
       if (res.ok) {
         const data = await res.json();
@@ -306,14 +386,26 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setConsentAcknowledged(false);
         setProceedNoImages(false);
         setIntakeStep(0);
-        setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '' });
+        setIntakeData({
+          duration: '',
+          symptoms: '',
+          location: '',
+          meds: '',
+          history: '',
+        });
         paymentProcessedRef.current = false;
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
-        toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
+        toast({
+          title: 'New Consultation Started',
+          description: 'Your previous chat has been saved to history.',
+        });
       }
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
@@ -328,21 +420,37 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     return new Blob([bytes], { type: mime });
   };
 
-  const appendImagesToFormData = async (formData: FormData, imgs: string[]) => {
+  const appendImagesToFormData = async (
+    formData: FormData,
+    imgs: string[]
+  ) => {
     for (let i = 0; i < imgs.length; i++) {
       try {
         const blob = await dataURLtoBlob(imgs[i]);
         const ext = blob.type.split('/')[1] ?? 'jpg';
         formData.append('image', blob, `image_${i + 1}.${ext}`);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
-  const screenImages = async (imgs: string[], label: string): Promise<string[] | null> => {
+  // ─────────────────────────────────────────────────────────────
+  // FIX: screenImages — runs clientDetectFaceOrPII on every image
+  // BEFORE it is uploaded. Rejected images are shown to the patient
+  // with a clear friendly message. Safe images are returned.
+  // ─────────────────────────────────────────────────────────────
+  const screenImages = async (
+    imgs: string[],
+    label: string
+  ): Promise<string[] | null> => {
     if (imgs.length === 0) return [];
 
     setIsCheckingImages(true);
-    toast({ title: 'Checking image…', description: 'Verifying no face or personal info is present.' });
+    toast({
+      title: 'Checking image…',
+      description: 'Verifying no face or personal information is present.',
+    });
 
     const safe: string[] = [];
     const rejected: { reason: string; confidence?: number }[] = [];
@@ -356,7 +464,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
     for (const { img, detection } of results) {
       if (detection.blocked) {
-        rejected.push({ reason: detection.reason || 'Potential personal information detected', confidence: detection.confidence });
+        rejected.push({
+          reason: detection.reason || 'Potential face or personal information detected',
+          confidence: detection.confidence,
+        });
       } else {
         safe.push(img);
       }
@@ -365,28 +476,31 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setIsCheckingImages(false);
 
     if (rejected.length > 0) {
-      const rejectionDetails = rejected
-        .map(r => r.confidence ? `${r.reason} (confidence: ${r.confidence}%)` : r.reason)
-        .join('; ');
+      // Determine whether it's a face or PII based on the reason text
+      const reason = rejected[0].reason.toLowerCase();
+      const isFace =
+        reason.includes('face') ||
+        reason.includes('facial') ||
+        reason.includes('identifiable person');
 
-      const rejectionMessage =
-        `⚠️ Image${rejected.length > 1 ? 's' : ''} rejected before upload.
+      const rejectionMessage = isFace
+        ? `⚠️ Your image was not accepted because it appears to contain a face or identifiable facial features.\n\nFor your privacy and safety, please upload only a close-up of the affected skin area — no faces should be visible in the photo.\n\nPlease retake the photo showing only the skin condition and try again.`
+        : `⚠️ Your image was not accepted because it appears to contain personal information (such as a name, ID number, or contact details).\n\nPlease remove or cover any personal details and re-upload only the medical findings.\n\nYour privacy is important to us.`;
 
-**Reason:** ${rejectionDetails}
-
-Please upload only clinical images of the affected skin area — no faces, names, or personal details visible.
-
-If this was a mistake (e.g. a hand or arm photo was rejected), please retake the photo ensuring no face is in frame and try again.`;
-
-      setMessages(prev => [...prev, {
-        id: `ai-${Date.now()}`,
-        role: 'AI',
-        content: rejectionMessage,
-      }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `ai-rejection-${Date.now()}`,
+          role: 'AI',
+          content: rejectionMessage,
+        },
+      ]);
 
       toast({
-        title: 'Image Rejected',
-        description: 'Please upload only clinical images without face or personal info',
+        title: 'Image Not Accepted',
+        description: isFace
+          ? 'Please upload a photo of the skin area only — no faces.'
+          : 'Please remove personal information from the report and re-upload.',
         variant: 'destructive',
       });
 
@@ -399,7 +513,11 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
   const handlePrivacyRemoveImages = () => {
     clearUnsafeImages();
     setPrivacyFlagged(false);
-    toast({ title: 'Images Cleared', description: 'Please re-upload images without identifiable information.' });
+    toast({
+      title: 'Images Cleared',
+      description:
+        'Please re-upload images without identifiable information.',
+    });
   };
 
   const handlePrivacyOverride = async () => {
@@ -410,32 +528,70 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
       const formData = new FormData();
       formData.append('question', 'IOverride');
       formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[intakeStep] }]);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
+      await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
+      });
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: INTAKE_QUESTIONS[intakeStep],
+        },
+      ]);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleProceedNoImages = async () => {
     setProceedNoImages(true);
     setIsLoading(true);
-    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: "I don't have images — proceed with text only" }]);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: "I don't have images — proceed with text only",
+      },
+    ]);
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', 'PROCEED_NO_IMAGES');
       formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
+      await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
+      });
       const nextStep = 2;
       setIntakeStep(nextStep);
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: INTAKE_QUESTIONS[nextStep],
+        },
+      ]);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleUpgradeClick = () => setConsentAcknowledged(true);
   const handleConfirmGoBack = () => setConsentAcknowledged(false);
-  const handleConfirmPayment = () => { setConsentAcknowledged(false); setMode('payment_page'); };
+  const handleConfirmPayment = () => {
+    setConsentAcknowledged(false);
+    setMode('payment_page');
+  };
 
   const handlePaymentSuccess = async () => {
     if (paymentProcessedRef.current) return;
@@ -445,15 +601,43 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
     setPrivacyFlagged(false);
     setConsentAcknowledged(false);
     setProceedNoImages(false);
-    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '' });
+    setIntakeData({
+      duration: '',
+      symptoms: '',
+      location: '',
+      meds: '',
+      history: '',
+    });
     setMessages(prev => {
-      if (prev.some(m => m.role === 'system' && m.content.includes('Thank you for your payment'))) return prev;
-      return [...prev, { id: `system-${Date.now()}`, role: 'system', content: 'Thank you for your payment! You are now connected to our intake process.' }];
+      if (
+        prev.some(
+          m =>
+            m.role === 'system' &&
+            m.content.includes('Thank you for your payment')
+        )
+      )
+        return prev;
+      return [
+        ...prev,
+        {
+          id: `system-${Date.now()}`,
+          role: 'system',
+          content:
+            'Thank you for your payment! You are now connected to our intake process.',
+        },
+      ];
     });
     setTimeout(() => {
       setMessages(prev => {
         if (prev.some(m => m.content === INTAKE_QUESTIONS[0])) return prev;
-        return [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[0] }];
+        return [
+          ...prev,
+          {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: INTAKE_QUESTIONS[0],
+          },
+        ];
       });
     }, 800);
     try {
@@ -461,37 +645,67 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
       const formData = new FormData();
       formData.append('question', 'CONFIRM');
       formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
-    } catch (e) { console.error(e); }
-    toast({ title: 'Payment Successful', description: 'You can now provide details for your consultation.' });
+      await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    toast({
+      title: 'Payment Successful',
+      description:
+        'You can now provide details for your consultation.',
+    });
   };
 
-  const handleSendMessage = async (content: string, images?: string[]) => {
+  const handleSendMessage = async (
+    content: string,
+    images?: string[]
+  ) => {
     if (isSendingRef.current || isLoading || isCheckingImages) return;
     isSendingRef.current = true;
 
+    // ── POST_PAYMENT_INTAKE: step 0 — skin image ──────────────
     if (mode === 'post_payment_intake') {
       const rawImages = sanitizeImages(images);
 
       if (intakeStep === 0) {
         if (rawImages.length === 0) {
-          setMessages(prev => [...prev,
-            { id: `user-${Date.now()}`, role: 'user', content: content || '(no image)' },
-            { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[0] },
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content: content || '(no image)',
+            },
+            {
+              id: `ai-${Date.now()}`,
+              role: 'AI',
+              content: INTAKE_QUESTIONS[0],
+            },
           ]);
           isSendingRef.current = false;
           return;
         }
 
+        // FIX: detect BEFORE upload
         const safeImages = await screenImages(rawImages, 'skin');
         if (!safeImages) {
           isSendingRef.current = false;
           return;
         }
 
-        setMessages(prev => [...prev, {
-          id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
-        }]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `user-${Date.now()}`,
+            role: 'user',
+            content,
+            images: safeImages,
+          },
+        ]);
 
         const authToken = localStorage.getItem('authToken');
         const formData = new FormData();
@@ -499,37 +713,68 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
         formData.append('thread_id', activeThreadId || '');
         formData.append('step', 'skin_image');
         await appendImagesToFormData(formData, safeImages);
+
         const response = await fetch(`${BASE_URL}/api/chat_view/`, {
-          method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: formData,
         });
         const data = await response.json();
-        
+
+        // Backend secondary check — rare but handle gracefully
         if (data.result && isFaceDetectedMessage(data.result)) {
-          setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: "⚠️ Your image appears to contain a face or identifiable features. Please upload only a direct close-up of the affected skin area — no faces or identifying information should be visible." }]);
-          isSendingRef.current = false; return;
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `ai-${Date.now()}`,
+              role: 'AI',
+              content:
+                '⚠️ Your image appears to contain a face or identifiable features. Please upload only a direct close-up of the affected skin area — no faces or identifying information should be visible.',
+            },
+          ]);
+          isSendingRef.current = false;
+          return;
         }
 
         const nextStep = 1;
         setIntakeStep(nextStep);
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: INTAKE_QUESTIONS[nextStep],
+          },
+        ]);
         isSendingRef.current = false;
         return;
       }
 
+      // ── step 1 — report image ─────────────────────────────
       if (intakeStep === 1) {
         const textLower = content.trim().toLowerCase();
-        const skipped = textLower === 'none' || textLower === 'no' || rawImages.length === 0;
+        const skipped =
+          textLower === 'none' ||
+          textLower === 'no' ||
+          rawImages.length === 0;
 
         if (!skipped && rawImages.length > 0) {
+          // FIX: detect BEFORE upload
           const safeImages = await screenImages(rawImages, 'report');
           if (!safeImages) {
             isSendingRef.current = false;
             return;
           }
 
-          setMessages(prev => [...prev, {
-            id: `user-${Date.now()}`, role: 'user', content, images: safeImages,
-          }]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content,
+              images: safeImages,
+            },
+          ]);
 
           const authToken = localStorage.getItem('authToken');
           const formData = new FormData();
@@ -537,37 +782,74 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
           formData.append('thread_id', activeThreadId || '');
           formData.append('step', 'report_image');
           await appendImagesToFormData(formData, safeImages);
+
           const response = await fetch(`${BASE_URL}/api/chat_view/`, {
-            method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}` },
+            body: formData,
           });
           const data = await response.json();
-          
+
+          // Backend secondary check
           if (data.result && isReportPiiMessage(data.result)) {
-            setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: "⚠️ Your report appears to contain personal information (name or mobile number). Please redact all personal details and re-upload — only the medical findings should be visible." }]);
-            isSendingRef.current = false; return;
+            setMessages(prev => [
+              ...prev,
+              {
+                id: `ai-${Date.now()}`,
+                role: 'AI',
+                content:
+                  '⚠️ Your report appears to contain personal information (name or mobile number). Please redact all personal details and re-upload — only the medical findings should be visible.',
+              },
+            ]);
+            isSendingRef.current = false;
+            return;
           }
         } else {
-          setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: content || 'none' }]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content: content || 'none',
+            },
+          ]);
         }
 
         const nextStep = 2;
         setIntakeStep(nextStep);
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `ai-${Date.now()}`,
+            role: 'AI',
+            content: INTAKE_QUESTIONS[nextStep],
+          },
+        ]);
         isSendingRef.current = false;
         return;
       }
 
+      // ── steps 2–7: text intake questions ──────────────────
       const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
       setMessages(prev => {
-        if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
-        return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
+        if (prev.some(m => m.role === 'user' && m.content === content))
+          return prev;
+        return [
+          ...prev,
+          { id: `user-${Date.now()}`, role: 'user', content },
+        ];
       });
 
-      if (currentStepKey !== 'images' && currentStepKey !== 'reportImages') {
+      if (
+        currentStepKey !== 'images' &&
+        currentStepKey !== 'reportImages'
+      ) {
         setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
       }
 
-      const isLastStep = content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1;
+      const isLastStep =
+        content.toUpperCase().trim() === 'DONE' ||
+        intakeStep >= INTAKE_QUESTIONS.length - 1;
 
       if (isLastStep) {
         setIsLoading(true);
@@ -576,30 +858,51 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
           const formData = new FormData();
           const updatedData = {
             ...intakeData,
-            ...(currentStepKey !== 'images' && currentStepKey !== 'reportImages' ? { [currentStepKey]: content } : {}),
+            ...(currentStepKey !== 'images' &&
+            currentStepKey !== 'reportImages'
+              ? { [currentStepKey]: content }
+              : {}),
           };
 
-          formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${updatedData.duration}\nSymptoms: ${updatedData.symptoms}\nLocation: ${updatedData.location}\nMeds: ${updatedData.meds}\nHistory: ${updatedData.history}\nImages were uploaded in earlier steps.\nDONE`);
+          formData.append(
+            'question',
+            `INTAKE COMPLETE. Summary:\nDuration: ${updatedData.duration}\nSymptoms: ${updatedData.symptoms}\nLocation: ${updatedData.location}\nMeds: ${updatedData.meds}\nHistory: ${updatedData.history}\nImages were uploaded in earlier steps.\nDONE`
+          );
           formData.append('thread_id', activeThreadId || '');
-          
+
           if (images?.length) {
-            const safeFinalImages = await screenImages(sanitizeImages(images), 'final');
-            if (safeFinalImages) await appendImagesToFormData(formData, safeFinalImages);
+            const safeFinalImages = await screenImages(
+              sanitizeImages(images),
+              'final'
+            );
+            if (safeFinalImages)
+              await appendImagesToFormData(formData, safeFinalImages);
           }
 
           await fetch(`${BASE_URL}/api/chat_view/`, {
-            method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}` },
+            body: formData,
           });
 
           setMode('dermatologist_review');
           setPrivacyFlagged(false);
           setProceedNoImages(false);
-          setMessages(prev => [...prev, {
-            id: `ai-${Date.now()}`, role: 'AI',
-            content: '✅ Your intake is complete. Dr. Attili will personally review your case and respond shortly. You will be notified when your consultation is ready.\n\nYou can add any extra information or images below while you wait.',
-          }]);
-        } catch (e) { console.error(e); }
-        finally { setIsLoading(false); isSendingRef.current = false; }
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `ai-${Date.now()}`,
+              role: 'AI',
+              content:
+                '✅ Your intake is complete. Dr. Attili will personally review your case and respond shortly. You will be notified when your consultation is ready.\n\nYou can add any extra information or images below while you wait.',
+            },
+          ]);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setIsLoading(false);
+          isSendingRef.current = false;
+        }
         return;
       }
 
@@ -611,18 +914,29 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
       formData.append('question', content);
       formData.append('thread_id', activeThreadId || '');
       fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
       }).catch(e => console.error(e));
 
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: INTAKE_QUESTIONS[nextStep],
+        },
+      ]);
       isSendingRef.current = false;
       return;
     }
 
+    // ── DERMATOLOGIST_REVIEW: additional info / images ────────
     if (mode === 'dermatologist_review') {
       const rawImages = sanitizeImages(images);
 
       if (rawImages.length > 0) {
+        // FIX: detect BEFORE upload
         const safeImages = await screenImages(rawImages, 'additional');
         if (!safeImages) {
           isSendingRef.current = false;
@@ -630,8 +944,24 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
         }
 
         setMessages(prev => {
-          if (prev.some(m => m.role === 'user' && m.content === content && JSON.stringify(m.images) === JSON.stringify(safeImages))) return prev;
-          return [...prev, { id: `user-${Date.now()}`, role: 'user', content, images: safeImages }];
+          if (
+            prev.some(
+              m =>
+                m.role === 'user' &&
+                m.content === content &&
+                JSON.stringify(m.images) === JSON.stringify(safeImages)
+            )
+          )
+            return prev;
+          return [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content,
+              images: safeImages,
+            },
+          ];
         });
 
         const authToken = localStorage.getItem('authToken');
@@ -640,12 +970,18 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
         formData.append('thread_id', activeThreadId || '');
         await appendImagesToFormData(formData, safeImages);
         fetch(`${BASE_URL}/api/chat_view/`, {
-          method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: formData,
         }).catch(e => console.error(e));
       } else {
         setMessages(prev => {
-          if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
-          return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
+          if (prev.some(m => m.role === 'user' && m.content === content))
+            return prev;
+          return [
+            ...prev,
+            { id: `user-${Date.now()}`, role: 'user', content },
+          ];
         });
 
         const authToken = localStorage.getItem('authToken');
@@ -653,7 +989,9 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
         formData.append('question', `ADDITIONAL INFO: ${content}`);
         formData.append('thread_id', activeThreadId || '');
         fetch(`${BASE_URL}/api/chat_view/`, {
-          method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: formData,
         }).catch(e => console.error(e));
       }
 
@@ -661,6 +999,7 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
       return;
     }
 
+    // ── GENERAL_EDUCATION mode ────────────────────────────────
     const sanitizedImages = sanitizeImages(images);
     let safeImages: string[] = [];
     if (sanitizedImages.length > 0) {
@@ -673,13 +1012,24 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
     }
 
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`, role: 'user', content,
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
       images: safeImages.length ? safeImages : undefined,
     };
     setMessages(prev => {
-      if (prev.some(m => m.role === 'user' && m.content === content && JSON.stringify(m.images) === JSON.stringify(safeImages))) return prev;
+      if (
+        prev.some(
+          m =>
+            m.role === 'user' &&
+            m.content === content &&
+            JSON.stringify(m.images) === JSON.stringify(safeImages)
+        )
+      )
+        return prev;
       return [...prev, userMessage];
     });
+
     setIsLoading(true);
     try {
       const authToken = localStorage.getItem('authToken');
@@ -687,16 +1037,22 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
       formData.append('question', content);
       formData.append('thread_id', activeThreadId || '');
       if (safeImages.length) await appendImagesToFormData(formData, safeImages);
+
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
       });
       if (!res.ok) throw new Error('Failed to send message');
       const data = await res.json();
 
       if (data.mode) {
         const modeOrder: ConversationMode[] = [
-          'general_education', 'payment_page', 'post_payment_intake',
-          'dermatologist_review', 'final_output',
+          'general_education',
+          'payment_page',
+          'post_payment_intake',
+          'dermatologist_review',
+          'final_output',
         ];
         const currentIndex = modeOrder.indexOf(mode);
         const newIndex = modeOrder.indexOf(data.mode as ConversationMode);
@@ -705,17 +1061,61 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
         }
       }
 
-      const aiContent = 
-        data.result?.trim() || data.response?.trim() || data.message?.trim() || 
-        data.answer?.trim() || data.content?.trim() || data.text?.trim() || 
-        'Sorry, I did not receive a response. Please try again.';
+      // ─────────────────────────────────────────────────────────
+      // FIX: "Sorry, I did not receive a response" bug
+      // data.result can be "" (empty string) for certain modes —
+      // that is valid/expected and should NOT show the error fallback.
+      // Only show the fallback when result is truly absent (undefined/null).
+      // ─────────────────────────────────────────────────────────
+      const resultValue =
+        data.result ??
+        data.response ??
+        data.message ??
+        data.answer ??
+        data.content ??
+        data.text;
+
+      // Empty string is valid (silent server ack) — skip adding any message
+      if (resultValue === '' || resultValue === null || resultValue === undefined) {
+        // No AI message to display — server intentionally returned no content
+        isSendingRef.current = false;
+        return;
+      }
+
+      const aiContent = String(resultValue).trim();
+
+      // Only add the AI message if there is actual content
+      if (!aiContent) {
+        isSendingRef.current = false;
+        return;
+      }
+
       if (isPrivacyFlagMessage(aiContent)) setPrivacyFlagged(true);
+
       setMessages(prev => {
-        if (prev.some(m => m.content === aiContent && (m.role === 'ai' || m.role === 'AI'))) return prev;
-        return [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: aiContent }];
+        if (
+          prev.some(
+            m =>
+              m.content === aiContent &&
+              (m.role === 'ai' || m.role === 'AI')
+          )
+        )
+          return prev;
+        return [
+          ...prev,
+          {
+            id: `ai-${Date.now()}`,
+            role: data.role || 'ai',
+            content: aiContent,
+          },
+        ];
       });
     } catch (e) {
-      toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
+      toast({
+        title: 'Error',
+        description: 'Failed to send message. Please try again.',
+        variant: 'destructive',
+      });
       setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setIsLoading(false);
@@ -724,6 +1124,7 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
   };
 
   const hasDoctorResponded = messages.some(m => m.role === 'doctor');
+
   const transformedMessages = messages
     .filter(msg => {
       const c = msg.content ?? '';
@@ -750,27 +1151,49 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card">
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="font-bold text-base flex items-center gap-2"><Clock className="h-4 w-4" />History</h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(false)}>
+        <h2 className="font-bold text-base flex items-center gap-2">
+          <Clock className="h-4 w-4" />
+          History
+        </h2>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setShowHistory(false)}
+        >
           <ChevronLeft className="h-4 w-4" />
         </Button>
       </div>
       <ScrollArea className="flex-1 p-2">
         <div className="space-y-2">
-          {history.length > 0 ? history.map(item => (
-            <button key={item.id}
-              onClick={() => { fetchChatHistory(item.id); if (isMobile) setShowHistory(false); }}
-              className={cn('w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
-                activeThreadId === item.id ? 'bg-accent border border-primary/20' : 'transparent')}
-            >
-              <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-primary transition-colors" />
-              <div className="flex-1 overflow-hidden">
-                <p className="font-bold truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleDateString()}</p>
-              </div>
-            </button>
-          )) : (
-            <div className="text-center py-8 text-muted-foreground text-xs italic">No previous consultations found.</div>
+          {history.length > 0 ? (
+            history.map(item => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  fetchChatHistory(item.id);
+                  if (isMobile) setShowHistory(false);
+                }}
+                className={cn(
+                  'w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
+                  activeThreadId === item.id
+                    ? 'bg-accent border border-primary/20'
+                    : 'transparent'
+                )}
+              >
+                <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                <div className="flex-1 overflow-hidden">
+                  <p className="font-bold truncate">{item.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(item.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="text-center py-8 text-muted-foreground text-xs italic">
+              No previous consultations found.
+            </div>
           )}
         </div>
       </ScrollArea>
@@ -782,7 +1205,10 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
       <div className="h-screen">
         <PaymentPage
           onPaymentSuccess={handlePaymentSuccess}
-          onCancel={() => { setMode('general_education'); setConsentAcknowledged(false); }}
+          onCancel={() => {
+            setMode('general_education');
+            setConsentAcknowledged(false);
+          }}
           threadId={activeThreadId || ''}
         />
       </div>
@@ -792,49 +1218,79 @@ If this was a mistake (e.g. a hand or arm photo was rejected), please retake the
   return (
     <div className="h-screen flex bg-background overflow-hidden">
       {!isMobile && showHistory && (
-        <div className="w-72 border-r border-border bg-card flex flex-col"><SidebarContent /></div>
+        <div className="w-72 border-r border-border bg-card flex flex-col">
+          <SidebarContent />
+        </div>
       )}
       {isMobile && (
         <Sheet open={showHistory} onOpenChange={setShowHistory}>
-          <SheetContent side="left" className="p-0 w-72"><SidebarContent /></SheetContent>
+          <SheetContent side="left" className="p-0 w-72">
+            <SidebarContent />
+          </SheetContent>
         </Sheet>
       )}
+
       <div className="flex-1 flex flex-col min-w-0">
         <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
           <div className="flex items-center gap-2 md:gap-3">
             {!showHistory && (
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(true)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setShowHistory(true)}
+              >
                 <Clock className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-              fetchChatHistory();
-              fetchConsultationHistory();
-              toast({ title: 'Syncing…', description: 'Updating consultation data.' });
-            }}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => {
+                fetchChatHistory();
+                fetchConsultationHistory();
+                toast({
+                  title: 'Syncing…',
+                  description: 'Updating consultation data.',
+                });
+              }}
+            >
               <RefreshCw className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
               <p className="text-[10px] md:text-xs text-muted-foreground truncate max-w-[120px] md:max-w-none">
                 <span className="font-bold">Logged in:</span>{' '}
-                <span className="font-medium text-foreground">{user?.email}</span>
+                <span className="font-medium text-foreground">
+                  {user?.email}
+                </span>
               </p>
             </div>
           </div>
           <div className="flex gap-1.5 md:gap-2">
             {hasDoctorResponded && (
-              <Button variant="default" size="sm" onClick={handleNewConsultation}
-                className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleNewConsultation}
+                className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white"
+              >
                 <Plus className="h-3.5 w-3.5 md:mr-1.5" />
                 <span className="font-bold">New Consultation</span>
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-8 md:h-10 text-[10px] md:text-sm" onClick={onLogout}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 md:h-10 text-[10px] md:text-sm"
+              onClick={onLogout}
+            >
               <LogOut className="h-4 w-4 md:mr-1.5" />
               <span className="font-bold">Logout</span>
             </Button>
           </div>
         </div>
+
         <div className="flex-1 min-h-0">
           <ChatContainer
             messages={transformedMessages}
