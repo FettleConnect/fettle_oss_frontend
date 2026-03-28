@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Send, X, Sparkles } from 'lucide-react';
+import { Bot, Send, X } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
 
@@ -55,10 +55,7 @@ Rules:
 You're welcome to ask follow-up questions.`;
 
 function cleanBody(text: string): string {
-  return (text || '')
-    .replace(/\r/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function escapeRegex(value: string): string {
@@ -98,7 +95,8 @@ function extractStructuredSections(text: string): Record<string, string> {
     'gi'
   );
 
-  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  const matches: Array<{ title: string; index: number; fullLength: number }> =
+    [];
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(cleaned)) !== null) {
@@ -112,19 +110,22 @@ function extractStructuredSections(text: string): Record<string, string> {
   if (matches.length === 0) return {};
 
   const sections: Record<string, string> = {};
-
   for (let i = 0; i < matches.length; i++) {
     const current = matches[i];
     const next = matches[i + 1];
     const start = current.index + current.fullLength;
     const end = next ? next.index : cleaned.length;
-    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
+    sections[normalizeHeading(current.title)] = cleanBody(
+      cleaned.slice(start, end)
+    );
   }
 
   return sections;
 }
 
-function extractLegacyNumberedSections(text: string): Record<string, string> {
+function extractLegacyNumberedSections(
+  text: string
+): Record<string, string> {
   const cleaned = cleanBody(text);
   if (!cleaned) return {};
 
@@ -155,13 +156,16 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
     },
   ];
 
-  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
+  const sectionHeaders = mappings
+    .flatMap(m => m.patterns.map(escapeRegex))
+    .join('|');
   const regex = new RegExp(
     `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
     'gi'
   );
 
-  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  const matches: Array<{ title: string; index: number; fullLength: number }> =
+    [];
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(cleaned)) !== null) {
@@ -175,18 +179,17 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   if (matches.length === 0) return {};
 
   const sections: Record<string, string> = {};
-
   for (let i = 0; i < matches.length; i++) {
     const current = matches[i];
     const next = matches[i + 1];
     const start = current.index + current.fullLength;
     const end = next ? next.index : cleaned.length;
     const body = cleanBody(cleaned.slice(start, end));
-
-    const mapping = mappings.find((m) =>
-      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
+    const mapping = mappings.find(m =>
+      m.patterns.some(
+        p => p.toLowerCase() === current.title.toLowerCase()
+      )
     );
-
     if (mapping && body) {
       sections[normalizeHeading(mapping.target)] = body;
     }
@@ -196,9 +199,10 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 }
 
 function buildStructuredOutput(sections: Record<string, string>): string {
-  const content = SECTION_TITLES.map((title) => {
+  const content = SECTION_TITLES.map(title => {
     const key = normalizeHeading(title);
-    const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
+    const body =
+      cleanBody(sections[key] || '') || generateFallbackContent(title);
     return `${title}\n\n${body}`.trim();
   }).join('\n\n');
 
@@ -208,27 +212,19 @@ function buildStructuredOutput(sections: Record<string, string>): string {
   if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) {
     return cleaned;
   }
-
   return `${cleaned}\n\n${FINAL_LINE}`;
 }
 
 function normalizeAIContentToStructuredFormat(rawText: string): string {
   const text = cleanBody(rawText);
-
-  if (!text || text.length < 30) {
-    return buildStructuredOutput({});
-  }
+  if (!text || text.length < 30) return buildStructuredOutput({});
 
   let sections = extractStructuredSections(text);
-
   if (Object.keys(sections).length === 0) {
     sections = extractLegacyNumberedSections(text);
   }
-
   if (Object.keys(sections).length === 0) {
-    sections = {
-      [normalizeHeading('Most Consistent With')]: text,
-    };
+    sections = { [normalizeHeading('Most Consistent With')]: text };
   }
 
   return buildStructuredOutput(sections);
@@ -240,23 +236,24 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   conversationId,
   onApplyContent,
 }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
+  const [messages, setMessages] = useState
+    { role: 'user' | 'ai'; content: string }[]
+  >([
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.",
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nThe response will be applied to the Assessment editor automatically.",
     },
   ]);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [latestDraft, setLatestDraft] = useState<string>('');
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMsg = input.trim();
-    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
 
@@ -266,13 +263,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       formData.append('id', conversationId);
       formData.append(
         'question',
-        `${STRUCTURED_FORMAT_PROMPT}
-
-Context:
-${contextData}
-
-Doctor's request:
-${userMsg}`
+        `${STRUCTURED_FORMAT_PROMPT}\n\nContext:\n${contextData}\n\nDoctor's request:\n${userMsg}`
       );
 
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
@@ -281,50 +272,36 @@ ${userMsg}`
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get AI response');
-      }
+      if (!response.ok) throw new Error('Failed to get AI response');
 
       const data = await response.json();
       const rawAiContent: string =
-        data.result?.trim() ||
-        data.response?.trim() ||
-        data.message?.trim() ||
-        '';
+        data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
-      const normalizedContent = normalizeAIContentToStructuredFormat(rawAiContent);
-      const aiContent = normalizedContent || buildStructuredOutput({});
+      const aiContent =
+        normalizeAIContentToStructuredFormat(rawAiContent) ||
+        buildStructuredOutput({});
 
-      setLatestDraft(aiContent);
+      setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'ai',
-          content: aiContent,
-        },
-      ]);
+      // AUTO-APPLY: every AI response is written directly into
+      // the Assessment & Response editor — no button needed
+      if (onApplyContent) {
+        onApplyContent(aiContent);
+      }
     } catch (error) {
       console.error('Error consulting AI:', error);
-      setMessages((prev) => [
+      setMessages(prev => [
         ...prev,
         {
           role: 'ai',
-          content: 'I encountered an error. Please ensure the backend is running and try again.',
+          content:
+            'I encountered an error. Please ensure the backend is running and try again.',
         },
       ]);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleApply = () => {
-    if (!onApplyContent) return;
-
-    const contentToApply = normalizeAIContentToStructuredFormat(latestDraft);
-    if (!contentToApply.trim()) return;
-
-    onApplyContent(contentToApply);
   };
 
   return (
@@ -345,7 +322,9 @@ ${userMsg}`
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+                className={`flex flex-col ${
+                  m.role === 'user' ? 'items-end' : 'items-start'
+                }`}
               >
                 <div
                   className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
@@ -368,7 +347,7 @@ ${userMsg}`
                       <ReactMarkdown
                         components={{
                           a: ({ node, ...props }) => (
-                            <a
+                            
                               {...props}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -382,6 +361,13 @@ ${userMsg}`
                     </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
+                  )}
+
+                  {/* Confirmation label on every AI response after the first */}
+                  {m.role === 'ai' && i > 0 && (
+                    <p className="mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
+                      ✓ Applied to Assessment editor
+                    </p>
                   )}
                 </div>
               </div>
@@ -399,37 +385,30 @@ ${userMsg}`
           </div>
         </ScrollArea>
 
-        <div className="border-t p-3 space-y-2">
-          {onApplyContent && latestDraft.trim() && (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full gap-2"
-              onClick={handleApply}
-              disabled={isLoading}
-            >
-              <Sparkles className="h-4 w-4" />
-              Apply to Editor
-            </Button>
-          )}
-
-          <div className="flex gap-2">
+        <div className="p-3 border-t bg-background">
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
             <Input
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask AI to refine the draft..."
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
+              onChange={e => setInput(e.target.value)}
+              placeholder="Ask for diagnosis, plan..."
+              className="flex-1 h-9 text-xs"
               disabled={isLoading}
             />
-            <Button onClick={handleSend} disabled={isLoading || !input.trim()} size="icon">
+            <Button
+              type="submit"
+              size="icon"
+              className="h-9 w-9"
+              disabled={isLoading || !input.trim()}
+            >
               <Send className="h-4 w-4" />
             </Button>
-          </div>
+          </form>
         </div>
       </CardContent>
     </Card>
