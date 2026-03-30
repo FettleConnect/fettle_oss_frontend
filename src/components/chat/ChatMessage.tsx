@@ -166,10 +166,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}> <div className={cn('flex items-center gap-1.5 text-xs font-medium', getLabelColors())}>
           {getRoleIcon()}<span>{getRoleLabel()}</span>
         </div>
-        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}> <ReactMarkdown
-            components={mdComponents}
-          >{renderedContent}</ReactMarkdown>
+        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
+          <div className="whitespace-pre-wrap">{renderedContent}</div>
           {images.length > 0 && (
+
             <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}> {images.map((url, idx) => (
                 <img key={idx} src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)}
                   className="w-full h-auto object-cover max-h-64 rounded-lg border border-black/10 cursor-pointer hover:opacity-90 transition-opacity" />

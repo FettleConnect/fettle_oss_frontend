@@ -132,6 +132,27 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
 // ─────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────
+interface ConsultationSidebarProps {
+  conversation: Conversation;
+  setShowAI: (show: boolean) => void;
+  handleApplyAIContent: (content: string) => void;
+}
+
+const ConsultationSidebar: React.FC<ConsultationSidebarProps> = ({ 
+  conversation, 
+  setShowAI, 
+  handleApplyAIContent 
+}) => (
+  <div className="h-full flex flex-col bg-card">
+    <AIReviewAssistant
+      onClose={() => setShowAI(false)}
+      conversationId={String(conversation.id)}
+      contextData={JSON.stringify(conversation.intakeData || {})}
+      onApplyContent={handleApplyAIContent}
+    />
+  </div>
+);
+
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
