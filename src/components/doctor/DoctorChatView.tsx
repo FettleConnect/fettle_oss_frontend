@@ -790,11 +790,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
-              {/* {resolvedIntakeData && (
+              {resolvedIntakeData && (
                 <section>
                   <IntakeSummaryCard intakeData={resolvedIntakeData} />
                 </section>
-              )} */}
+              )}
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="h-px flex-1 bg-border" />
