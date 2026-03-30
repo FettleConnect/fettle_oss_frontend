@@ -230,13 +230,22 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
   return buildStructuredOutput(sections);
 }
 
+const AIReviewAssistantLink = (props: any) => (
+  <a
+    {...props}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="text-blue-600 underline break-words"
+  />
+);
+
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
   conversationId,
   onApplyContent,
 }) => {
-  const [messages, setMessages] = useState
+  const [messages, setMessages] = useState<
     { role: 'user' | 'ai'; content: string }[]
   >([
     {

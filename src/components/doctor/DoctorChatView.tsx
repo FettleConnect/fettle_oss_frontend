@@ -98,6 +98,279 @@ function extractBase64(dataUrl: string): string {
   return dataUrl.split(',')[1] ?? '';
 }
 
+const DEFAULT_ASSESSMENT_TEMPLATE = `Most Consistent With
+
+Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.
+
+Close Differentials
+
+Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.
+
+Morphologic Justification
+
+Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.
+
+Educational Treatment Framework
+
+General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.
+
+Investigations Commonly Considered
+
+Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.
+
+References
+
+Standard dermatology clinical references and guidelines.
+
+You're welcome to ask follow-up questions.`;
+
+const SECTION_TITLES = [
+  'Most Consistent With',
+  'Close Differentials',
+  'Morphologic Justification',
+  'Educational Treatment Framework',
+  'Investigations Commonly Considered',
+  'References',
+];
+
+function normalizeHeading(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cleanBody(text: string): string {
+  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function isPlaceholder(text: string): boolean {
+  const value = (text || '').trim().toLowerCase();
+  if (!value) return true;
+
+  const placeholders = [
+    'type here',
+    'enter response',
+    'write response',
+    'draft response',
+    'assessment',
+    'pending',
+    'tbd',
+    'todo',
+    'n/a',
+    'na',
+    '-',
+    '--',
+  ];
+
+  return placeholders.some((p) => value === p || value.includes(p));
+}
+
+function generateFallbackContent(section: string): string {
+  switch (section) {
+    case 'Most Consistent With':
+      return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
+    case 'Close Differentials':
+      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
+    case 'Morphologic Justification':
+      return 'Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.';
+    case 'Educational Treatment Framework':
+      return 'General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.';
+    case 'Investigations Commonly Considered':
+      return 'Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.';
+    case 'References':
+      return 'Standard dermatology clinical references and guidelines.';
+    default:
+      return 'Clinical details not available.';
+  }
+}
+
+function extractStructuredSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
+  if (!cleaned) return {};
+
+  const escaped = SECTION_TITLES.map(escapeRegex).join('|');
+  const regex = new RegExp(`(?:^|\\n)\\s*(${escaped})\\s*:?\\s*(?=\\n|$)`, 'gi');
+
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
+  }
+
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
+  }
+
+  return sections;
+}
+
+function extractLegacyNumberedSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
+  if (!cleaned) return {};
+
+  const mappings = [
+    {
+      patterns: ['Diagnosis', 'Most Consistent With'],
+      target: 'Most Consistent With',
+    },
+    {
+      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
+      target: 'Close Differentials',
+    },
+    {
+      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'],
+      target: 'Morphologic Justification',
+    },
+    {
+      patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'],
+      target: 'Educational Treatment Framework',
+    },
+    {
+      patterns: ['Investigations', 'Investigations Commonly Considered'],
+      target: 'Investigations Commonly Considered',
+    },
+    {
+      patterns: ['Educational References', 'References'],
+      target: 'References',
+    },
+  ];
+
+  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
+
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
+  }
+
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    const body = cleanBody(cleaned.slice(start, end));
+
+    const mapping = mappings.find((m) =>
+      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
+    );
+
+    if (mapping && body) {
+      sections[normalizeHeading(mapping.target)] = body;
+    }
+  }
+
+  return sections;
+}
+
+function normalizeAIContentToStructuredFormat(rawText: string): string {
+  const text = cleanBody(rawText);
+
+  if (!text || text.length < 30) {
+    return DEFAULT_ASSESSMENT_TEMPLATE;
+  }
+
+  let sections = extractStructuredSections(text);
+
+  if (Object.keys(sections).length === 0) {
+    sections = extractLegacyNumberedSections(text);
+  }
+
+  const normalized = SECTION_TITLES.map((title) => {
+    const key = normalizeHeading(title);
+    let body = cleanBody(sections[key] || '');
+
+    if (!body || isPlaceholder(body)) {
+      body = generateFallbackContent(title);
+    }
+
+    return `${title}\n\n${body}`.trim();
+  }).join('\n\n');
+
+  let finalText = cleanBody(normalized);
+
+  if (!finalText) {
+    finalText = DEFAULT_ASSESSMENT_TEMPLATE;
+  }
+
+  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
+    finalText = `${finalText}\\n\\nYou're welcome to ask follow-up questions.`;
+  }
+
+  return finalText;
+}
+
+function extractSections(text: string): Record<string, string> {
+  const structured = extractStructuredSections(text);
+  if (Object.keys(structured).length > 0) return structured;
+
+  const legacy = extractLegacyNumberedSections(text);
+  if (Object.keys(legacy).length > 0) return legacy;
+
+  return {};
+}
+
+function mergeStructuredContent(existingText: string, aiText: string): string {
+  const normalizedExisting = normalizeAIContentToStructuredFormat(existingText);
+  const normalizedAI = normalizeAIContentToStructuredFormat(aiText);
+
+  const existingSections = extractSections(normalizedExisting);
+  const aiSections = extractSections(normalizedAI);
+
+  const mergedBlocks = SECTION_TITLES.map((title) => {
+    const key = normalizeHeading(title);
+    const existing = cleanBody(existingSections[key] ?? '');
+    const ai = cleanBody(aiSections[key] ?? '');
+
+    let finalBody = existing;
+
+    if (!existing || isPlaceholder(existing)) {
+      finalBody = ai || generateFallbackContent(title);
+    }
+
+    if (title === 'References' && !finalBody) {
+      finalBody = ai || generateFallbackContent(title);
+    }
+
+    return `${title}\n\n${cleanBody(finalBody)}`.trim();
+  });
+
+  let finalText = mergedBlocks.join('\n\n').trim();
+
+  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
+    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
+  }
+
+  return cleanBody(finalText);
+}
+
 // ─────────────────────────────────────────────────────────
 // Intake parser
 // ─────────────────────────────────────────────────────────
@@ -132,27 +405,6 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
 // ─────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────
-interface ConsultationSidebarProps {
-  conversation: Conversation;
-  setShowAI: (show: boolean) => void;
-  handleApplyAIContent: (content: string) => void;
-}
-
-const ConsultationSidebar: React.FC<ConsultationSidebarProps> = ({ 
-  conversation, 
-  setShowAI, 
-  handleApplyAIContent 
-}) => (
-  <div className="h-full flex flex-col bg-card">
-    <AIReviewAssistant
-      onClose={() => setShowAI(false)}
-      conversationId={String(conversation.id)}
-      contextData={JSON.stringify(conversation.intakeData || {})}
-      onApplyContent={handleApplyAIContent}
-    />
-  </div>
-);
-
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
@@ -437,15 +689,19 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   // ─────────────────────────────────────────────────────────
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const cleaned = content.replace(/\n{3,}/g, '\n\n').trim();
-      setPatientMessage(cleaned);
+      const normalized = normalizeAIContentToStructuredFormat(content);
+      const merged = mergeStructuredContent(patientMessage, normalized);
+
+      setPatientMessage(merged);
+
       toast({
         title: 'Assessment Updated',
-        description: 'AI response applied directly to the editor.',
+        description: 'Structured AI content was applied to the editor.',
       });
+
       if (isMobile) setShowAI(false);
     },
-    [isMobile, toast]
+    [isMobile, patientMessage, toast]
   );
 
   const canRespond =
@@ -534,11 +790,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
-              {resolvedIntakeData && (
+              {/* {resolvedIntakeData && (
                 <section>
                   <IntakeSummaryCard intakeData={resolvedIntakeData} />
                 </section>
-              )}
+              )} */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="h-px flex-1 bg-border" />
