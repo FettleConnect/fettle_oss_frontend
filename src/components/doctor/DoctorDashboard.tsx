@@ -43,6 +43,60 @@ interface ConvMessage {
   images?: string[];
 }
 
+interface SidebarContentProps {
+  filter: 'all' | 'paid' | 'unpaid' | 'active' | 'completed';
+  setFilter: (filter: 'all' | 'paid' | 'unpaid' | 'active' | 'completed') => void;
+  isMobile: boolean;
+  setIsSidebarOpen: (open: boolean) => void;
+  conversations: Conversation[];
+  selectedId: string | null;
+  setSelectedId: (id: string | null) => void;
+}
+
+const SidebarContent: React.FC<SidebarContentProps> = ({ 
+  filter, 
+  setFilter, 
+  isMobile, 
+  setIsSidebarOpen, 
+  conversations, 
+  selectedId, 
+  setSelectedId 
+}) => (
+  <div className="flex flex-col h-full bg-card">
+    <div className="p-4 border-b border-border">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold flex items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          Patients
+        </h2>
+        {isMobile && (
+          <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(false)}>
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+        <TabsList className="w-full grid grid-cols-3">
+          <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
+          <TabsTrigger value="paid" className="text-xs">Paid</TabsTrigger>
+          <TabsTrigger value="active" className="text-xs">Active</TabsTrigger>
+        </TabsList>
+      </Tabs>
+    </div>
+    <div className="flex-1 overflow-auto">
+      <ConversationList
+        conversations={conversations}
+        selectedId={selectedId}
+        onSelect={(id) => {
+          setSelectedId(id);
+          if (isMobile) setIsSidebarOpen(false);
+        }}
+        filter={filter}
+      />
+    </div>
+  </div>
+);
+
 export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -161,42 +215,6 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
 
   const handleUpdate = () => setRefreshKey(k => k + 1);
 
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-card">
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold flex items-center gap-2">
-            <Users className="h-4 w-4 text-primary" />
-            Patients
-          </h2>
-          {isMobile && (
-            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-        <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
-          <TabsList className="w-full grid grid-cols-3">
-            <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
-            <TabsTrigger value="paid" className="text-xs">Paid</TabsTrigger>
-            <TabsTrigger value="active" className="text-xs">Active</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-      <div className="flex-1 overflow-auto">
-        <ConversationList
-          conversations={conversations}
-          selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            if (isMobile) setIsSidebarOpen(false);
-          }}
-          filter={filter}
-        />
-      </div>
-    </div>
-  );
-
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Top bar */}
@@ -242,7 +260,15 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
         {/* Desktop Sidebar */}
         {!isMobile && (
           <div className="w-80 border-r border-border flex flex-col bg-card">
-            <SidebarContent />
+            <SidebarContent 
+              filter={filter} 
+              setFilter={setFilter} 
+              isMobile={isMobile} 
+              setIsSidebarOpen={setIsSidebarOpen} 
+              conversations={conversations} 
+              selectedId={selectedId} 
+              setSelectedId={setSelectedId} 
+            />
           </div>
         )}
 
@@ -250,7 +276,15 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
         {isMobile && (
           <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
             <SheetContent side="left" className="p-0 w-80">
-              <SidebarContent />
+              <SidebarContent 
+                filter={filter} 
+                setFilter={setFilter} 
+                isMobile={isMobile} 
+                setIsSidebarOpen={setIsSidebarOpen} 
+                conversations={conversations} 
+                selectedId={selectedId} 
+                setSelectedId={setSelectedId} 
+              />
             </SheetContent>
           </Sheet>
         )}
@@ -266,7 +300,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
               onUpdate={handleUpdate}
               onRefresh={() => {
                 loadConversations();
-                loadConversationMessages(selectedId!);
+                if (selectedId) loadConversationMessages(selectedId);
               }}
             />
           ) : (

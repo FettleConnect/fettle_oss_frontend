@@ -12,7 +12,7 @@ export const IntakeSummaryCard: React.FC<IntakeSummaryCardProps> = ({ intakeData
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
-  const images = intakeData?.images ?? [];
+  const images = Array.isArray(intakeData?.images) ? intakeData.images : [];
 
   const openLightbox = (idx: number) => {
     setLightboxIndex(idx);
@@ -92,17 +92,20 @@ export const IntakeSummaryCard: React.FC<IntakeSummaryCardProps> = ({ intakeData
           </div>
         </CardHeader>
         <CardContent className="py-4 grid gap-4 md:grid-cols-2">
-          {items.map((item, index) => (
-            <div key={index} className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <item.icon className="h-3.5 w-3.5" />
-                {item.label}
+          {items.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <div key={index} className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <Icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </div>
+                <div className="text-sm font-medium leading-relaxed bg-muted/30 p-2 rounded-md border border-transparent hover:border-border transition-colors">
+                  {String(item.value || "Not reported")}
+                </div>
               </div>
-              <div className="text-sm font-medium leading-relaxed bg-muted/30 p-2 rounded-md border border-transparent hover:border-border transition-colors">
-                {item.value || "Not reported"}
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {images.length > 0 && (
             <div className="col-span-full mt-2">

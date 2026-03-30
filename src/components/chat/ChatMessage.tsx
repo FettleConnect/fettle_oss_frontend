@@ -9,6 +9,21 @@ interface ChatMessageProps { message: Message; isStreaming?: boolean; }
 
 const URL_REGEX = /(https?:\/\/[^\s<>")\]]+)/g;
 
+const MarkdownP = (props: any) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />;
+const MarkdownStrong = (props: any) => <strong className="font-bold" {...props} />;
+const MarkdownUl = (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />;
+const MarkdownOl = (props: any) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />;
+const MarkdownLi = (props: any) => <li className="text-sm leading-relaxed" {...props} />;
+const MarkdownA = ({ href, children, ...props }: any) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
+    {...props}
+  >{children}</a>
+);
+
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
   const isPatient = message.role === 'patient';
   const isDoctor = message.role === 'doctor';
@@ -22,8 +37,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const openLightbox = (idx: number) => { setLightboxIndex(idx); setLightboxOpen(true); };
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
-  const prevImage = useCallback(() => setLightboxIndex(i => (i - 1 + images.length) % images.length), [images.length]);
-  const nextImage = useCallback(() => setLightboxIndex(i => (i + 1) % images.length), [images.length]);
+  const prevImage = useCallback(() => {
+    if (images.length === 0) return;
+    setLightboxIndex(i => (i - 1 + images.length) % images.length);
+  }, [images.length]);
+  const nextImage = useCallback(() => {
+    if (images.length === 0) return;
+    setLightboxIndex(i => (i + 1) % images.length);
+  }, [images.length]);
 
   const handleDownload = async (url: string, idx: number) => {
     try {
@@ -61,6 +82,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return text.replace(/(?<!\]\()(https?:\/\/[^\s\)\]>"'\n]+)/g, (url) => `[${url}](${url})`);
   };
 
+
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
     const stripped = isAI ? stripNote(text) : text;
@@ -81,7 +103,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     const parts = text.split(URL_REGEX);
     return parts.map((part, idx) => {
       if (!part) return null;
-      if (/^https?:\/\//.test(part)) {
+      if (part.startsWith('http')) {
         return (
           <a
             key={`url-${idx}`}
@@ -99,13 +121,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   };
 
   const getRoleLabel = () => {
-    if (message.senderName) return message.senderName;
-    if (isPatient) return 'You'; if (isDoctor) return 'Doctor';
+    if (message.senderName) return message.senderName; if (isPatient) return 'You'; if (isDoctor) return 'Doctor';
     if (isSystem) return 'System Notification'; return 'AI Educational Assistant';
   };
   const getRoleIcon = () => {
-    if (isPatient) return <User className="h-4 w-4" />;
-    if (isDoctor) return <Stethoscope className="h-4 w-4" />;
+    if (isPatient) return <User className="h-4 w-4" />; if (isDoctor) return <Stethoscope className="h-4 w-4" />;
     return <Bot className="h-4 w-4" />;
   };
   const getBubbleColors = () => {
@@ -132,35 +152,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const safeContent = message.content ?? '';
   const renderedContent = (isDoctor || isAI) ? formatContent(safeContent) : safeContent;
 
+  const mdComponents = {
+    p: MarkdownP,
+    strong: MarkdownStrong,
+    ul: MarkdownUl,
+    ol: MarkdownOl,
+    li: MarkdownLi,
+    a: MarkdownA,
+  };
+
   return (
     <>
-      <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
-        <div className={cn('flex items-center gap-1.5 text-xs font-medium', getLabelColors())}>
+      <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}> <div className={cn('flex items-center gap-1.5 text-xs font-medium', getLabelColors())}>
           {getRoleIcon()}<span>{getRoleLabel()}</span>
         </div>
-        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              p: ({ node, ...props }) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />,
-              strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
-              ul: ({ node, ...props }) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
-              ol: ({ node, ...props }) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,
-              li: ({ node, ...props }) => <li className="text-sm leading-relaxed" {...props} />,
-              a: ({ node, href, children, ...props }) => (
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
-                  {...props}
-                >{children}</a>
-              ),
-            }}
+        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}> <ReactMarkdown
+            components={mdComponents}
           >{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
-            <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
-              {images.map((url, idx) => (
+            <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}> {images.map((url, idx) => (
                 <img key={idx} src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)}
                   className="w-full h-auto object-cover max-h-64 rounded-lg border border-black/10 cursor-pointer hover:opacity-90 transition-opacity" />
               ))}
