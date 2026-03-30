@@ -167,7 +167,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           {getRoleIcon()}<span>{getRoleLabel()}</span>
         </div>
         <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
-          <div className="whitespace-pre-wrap">{renderedContent}</div>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={mdComponents}
+          >{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
 
             <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}> {images.map((url, idx) => (
