@@ -211,7 +211,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
       setSelectedConversation(null);
       setSelectedMessages([]);
     }
-  }, [selectedId, loadConversationMessages, refreshKey]);
+  }, [selectedId, conversations, loadConversationMessages, refreshKey]);
 
   const handleUpdate = () => setRefreshKey(k => k + 1);
 
