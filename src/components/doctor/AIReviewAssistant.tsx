@@ -28,52 +28,6 @@ const SECTION_TITLES = [
 
 const FINAL_LINE = "You're welcome to ask follow-up questions.";
 
-// ─────────────────────────────────────────────────────────
-// MODE 5 — FINAL PATIENT OUTPUT PROMPT
-// ─────────────────────────────────────────────────────────
-const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist in producing a structured clinical assessment (MODE 5 — FINAL PATIENT OUTPUT).
-
-CONTINUITY PRINCIPLE
-Do not restart the educational framework. Anchor the response to prior context with a phrase such as:
-"Applying the dermatologic pattern framework described earlier…"
-Build on what the user already knows. Do not repeat biology already explained.
-
-RESPONSE STRUCTURE — use exactly these six section titles as plain headings, in this order, with no numbering and no bold markers around the titles:
-
-Most Consistent With
-State the most likely pattern category in 2–3 sentences. Use category-based classification. Provide a brief educational explanation of why this pattern fits.
-
-Close Differentials
-Name 2–3 differential patterns in 1–2 sentences each. No detailed explanation required.
-
-Morphologic Justification
-Write a short paragraph explaining the visual features that support the primary classification. Do not use a bullet list here.
-
-Educational Treatment Framework
-Present treatment classes in escalation order: foundational care first, then topical agents, then procedural options. Medication names are permitted. No dosing, timing, or application instructions.
-
-Investigations Commonly Considered
-Include if clinically relevant. Frame biopsy as a classification tool, not a diagnostic confirmation.
-
-References
-Cite NHS, DermNet NZ, BAD, or CDC sources only. Descriptive, not instructive.
-
-STRICT RULES
-- Use exactly the six section titles above, in exactly this order.
-- Do not number sections.
-- Do not wrap section titles in bold markdown (**).
-- Do not leave any section empty — write a brief safe clinical statement if information is limited.
-- Do not use placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
-- No dosing, frequency, or application instructions anywhere.
-- Total response must not exceed 400 words unless clinical complexity genuinely requires it.
-- Tone: textbook-style, calm authority, no personalisation or directives, emotionally stable.
-- When a current draft is provided, make targeted edits only to sections that need updating — do not rewrite the entire document.
-- End every response with exactly this closing line (nothing after it):
-You're welcome to ask follow-up questions.`;
-
-// ─────────────────────────────────────────────────────────
-// Text utilities
-// ─────────────────────────────────────────────────────────
 function cleanBody(text: string): string {
   return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -89,6 +43,7 @@ function normalizeHeading(title: string): string {
 function isPlaceholder(text: string): boolean {
   const v = (text || '').trim().toLowerCase();
   if (!v) return true;
+
   const placeholders = [
     'type here',
     'enter response',
@@ -103,6 +58,7 @@ function isPlaceholder(text: string): boolean {
     '-',
     '--',
   ];
+
   return placeholders.some((p) => v === p || v.includes(p));
 }
 
@@ -125,9 +81,6 @@ function generateFallbackContent(section: string): string {
   }
 }
 
-// ─────────────────────────────────────────────────────────
-// Section extraction
-// ─────────────────────────────────────────────────────────
 function extractStructuredSections(text: string): Record<string, string> {
   const cleaned = cleanBody(text);
   if (!cleaned) return {};
@@ -245,7 +198,7 @@ function stripDosingInfo(text: string): string {
 
 function normaliseAIResponse(raw: string): string {
   const text = cleanBody(raw);
-  if (!text || text.length < 30) return '';
+  if (!text || text.length < 20) return '';
 
   let sections = extractStructuredSections(text);
   if (Object.keys(sections).length === 0) sections = extractLegacyNumberedSections(text);
@@ -261,9 +214,6 @@ function normaliseAIResponse(raw: string): string {
   return buildStructuredOutput(stripped);
 }
 
-// ─────────────────────────────────────────────────────────
-// Smart merge — only replaces sections that AI improved
-// ─────────────────────────────────────────────────────────
 function smartMerge(existingDraft: string, aiResponse: string): string {
   const existingSections = (() => {
     let s = extractStructuredSections(existingDraft);
@@ -296,9 +246,6 @@ function smartMerge(existingDraft: string, aiResponse: string): string {
   return buildStructuredOutput(merged);
 }
 
-// ─────────────────────────────────────────────────────────
-// Image utilities
-// ─────────────────────────────────────────────────────────
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -332,9 +279,6 @@ const AIReviewAssistantLink = (props: any) => (
   />
 );
 
-// ─────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
@@ -348,7 +292,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\nClose Differentials\nMorphologic Justification\nEducational Treatment Framework\nInvestigations Commonly Considered\nReferences\n\nUse the **Apply to editor** button under any response to merge the changes into the Assessment editor.",
+        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to merge the changes into the Assessment editor.",
     },
   ]);
 
@@ -421,21 +365,9 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
-      formData.append(
-        'question',
-        `${STRUCTURED_FORMAT_PROMPT}
-
-Patient intake context:
-${contextData}
-
-Current editor draft:
-${editorContent || 'No draft yet.'}
-
-Doctor's request:
-${userMsg}`
-      );
+      formData.append('question', userMsg);
       formData.append('currentDraft', editorContent || '');
-      formData.append('contextData', contextData);
+      formData.append('contextData', contextData || '');
 
       if (imageToClear?.file) {
         formData.append('image', imageToClear.file);
@@ -447,27 +379,28 @@ ${userMsg}`
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get AI response');
+      const data = await response.json();
+
+      if (!response.ok || data?.error === 1) {
+        throw new Error(data?.errorMsg || 'Failed to get AI response');
       }
 
-      const data = await response.json();
       const rawAiContent: string =
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
       const aiContent =
-        rawAiContent && rawAiContent.trim().length > 30
+        rawAiContent && rawAiContent.trim().length > 20
           ? normaliseAIResponse(rawAiContent)
-          : "I couldn't generate a strong structured revision for that request. Please try a more specific instruction such as 'improve diagnosis wording' or 'rewrite references section only'.";
+          : "I couldn't generate a structured revision for that request. Please try a more specific instruction such as 'improve diagnosis wording' or 'rewrite references section only'.";
 
       setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error consulting AI:', error);
       setMessages((prev) => [
         ...prev,
         {
           role: 'ai',
-          content: 'I encountered an error. Please ensure the backend is running and try again.',
+          content: error?.message || 'I encountered an error. Please ensure the backend is running and try again.',
         },
       ]);
     } finally {
