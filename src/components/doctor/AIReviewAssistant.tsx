@@ -361,6 +361,9 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     setPendingImage(null);
     setImageError(null);
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
@@ -377,6 +380,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
+        signal: controller.signal,
       });
 
       const data = await response.json();
@@ -396,16 +400,24 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error: any) {
       console.error('Error consulting AI:', error);
+
+      const message =
+        error?.name === 'AbortError'
+          ? 'AI request timed out. Please try again.'
+          : error?.message || 'I encountered an error. Please ensure the backend is running and try again.';
+
       setMessages((prev) => [
         ...prev,
         {
           role: 'ai',
-          content: error?.message || 'I encountered an error. Please ensure the backend is running and try again.',
+          content: message,
         },
       ]);
     } finally {
+      window.clearTimeout(timeoutId);
       setIsLoading(false);
       if (imageToClear) URL.revokeObjectURL(imageToClear.previewUrl);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   };
 
@@ -566,7 +578,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               onKeyDown={handleKeyDown}
               placeholder="Type your instruction, e.g. revise diagnosis or improve differentials..."
               className="flex-1 h-9 text-xs"
-              disabled={isLoading}
+              disabled={false}
               autoComplete="off"
             />
 
