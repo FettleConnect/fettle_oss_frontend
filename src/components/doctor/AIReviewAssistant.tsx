@@ -170,6 +170,14 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   return sections;
 }
 
+function splitIntoSections(text: string): Record<string, string> {
+  let sections = extractStructuredSections(text);
+  if (Object.keys(sections).length === 0) {
+    sections = extractLegacyNumberedSections(text);
+  }
+  return sections;
+}
+
 function buildStructuredOutput(
   sections: Record<string, string>,
   options?: {
@@ -216,6 +224,37 @@ function stripDosingInfo(text: string): string {
     .trim();
 }
 
+function mergeParagraphAware(existing: string, incoming: string): string {
+  const oldText = cleanBody(existing);
+  const newText = cleanBody(incoming);
+
+  if (!newText) return oldText;
+  if (!oldText) return newText;
+
+  const oldNorm = oldText.replace(/\s+/g, ' ').trim().toLowerCase();
+  const newNorm = newText.replace(/\s+/g, ' ').trim().toLowerCase();
+
+  if (oldNorm === newNorm) return oldText;
+  if (oldNorm.includes(newNorm)) return oldText;
+  if (newNorm.includes(oldNorm)) return newText;
+
+  const oldParas = oldText.split(/\n\s*\n/).map((p) => cleanBody(p)).filter(Boolean);
+  const newParas = newText.split(/\n\s*\n/).map((p) => cleanBody(p)).filter(Boolean);
+
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const para of [...oldParas, ...newParas]) {
+    const key = para.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(para);
+    }
+  }
+
+  return merged.join('\n\n').trim();
+}
+
 function normaliseAIResponse(raw: string): string {
   const text = cleanBody(raw);
   if (!text || text.length < 20) return '';
@@ -244,36 +283,42 @@ function normaliseAIResponse(raw: string): string {
 }
 
 function smartMerge(existingDraft: string, aiResponse: string): string {
-  const existingSections = (() => {
-    let s = extractStructuredSections(existingDraft);
-    if (Object.keys(s).length === 0) s = extractLegacyNumberedSections(existingDraft);
-    return s;
-  })();
+  const existingSections = splitIntoSections(existingDraft);
+  const aiSections = splitIntoSections(aiResponse);
 
-  const aiSections = (() => {
-    let s = extractStructuredSections(aiResponse);
-    if (Object.keys(s).length === 0) s = extractLegacyNumberedSections(aiResponse);
-    return s;
-  })();
+  if (Object.keys(aiSections).length === 0) {
+    return cleanBody(existingDraft);
+  }
 
-  const merged: Record<string, string> = {};
+  const finalBlocks: string[] = [];
 
   for (const title of SECTION_TITLES) {
     const key = normalizeHeading(title);
     const existing = cleanBody(existingSections[key] || '');
-    const ai = cleanBody(aiSections[key] || '');
+    const incoming = cleanBody(aiSections[key] || '');
 
-    if (ai && !isPlaceholder(ai)) {
-      merged[key] = ai;
-    } else if (existing) {
-      merged[key] = existing;
+    let finalBody = existing;
+
+    if (incoming && !isPlaceholder(incoming)) {
+      finalBody = mergeParagraphAware(existing, incoming);
+    }
+
+    if (finalBody) {
+      finalBlocks.push(`${title}\n\n${finalBody}`.trim());
     }
   }
 
-  return buildStructuredOutput(merged, {
-    fillMissing: false,
-    boldHeadings: false,
-  });
+  let result = cleanBody(finalBlocks.join('\n\n'));
+
+  if (!result) {
+    result = cleanBody(existingDraft);
+  }
+
+  if (result && !result.toLowerCase().includes(FINAL_LINE.toLowerCase())) {
+    result = `${result}\n\n${FINAL_LINE}`;
+  }
+
+  return result;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -322,7 +367,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to merge only the changed sections into the Assessment editor.",
+        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to merge changes into the current draft while preserving the flow.",
     },
   ]);
 
