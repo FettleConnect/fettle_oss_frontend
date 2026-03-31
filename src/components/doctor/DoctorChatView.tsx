@@ -31,46 +31,21 @@ interface SafeImage {
 
 // ─────────────────────────────────────────────────────────
 // Face + PII detection — runs BEFORE image enters state
+// CHANGED: now uses /api/openai-vision-check instead of Anthropic API directly
 // ─────────────────────────────────────────────────────────
 async function detectFaceOrPII(
   dataUrl: string
 ): Promise<{ blocked: boolean; reason: string }> {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const base64 = extractBase64(dataUrl);
+
+    const response = await fetch('/api/openai-vision-check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 100,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: extractMime(dataUrl),
-                  data: extractBase64(dataUrl),
-                },
-              },
-              {
-                type: 'text',
-                text: `You are a strict image safety checker for a medical platform.
-Analyse this image and answer ONLY with valid JSON in this exact shape:
-{"blocked":true|false,"reason":"short reason or empty string"}
-
-Block (blocked:true) if the image contains ANY of:
-- A human face (full or partial — eyes, nose, mouth visible together)
-- Personal identifying text: full name, date of birth, national ID, passport, address, phone number, email
-- Medical report header with patient name or ID printed on it
-
-If the image is a safe clinical photo (skin lesion, wound, rash without an identifiable face or PII text), respond {"blocked":false,"reason":""}.
-Reply with JSON only. No explanation outside the JSON.`,
-              },
-            ],
-          },
-        ],
+        imageBase64: base64,
+        prompt:
+          'Reply with only YES if this image contains a human face or any personal identifying information such as a name, ID number, address, or date of birth. Reply with only NO otherwise.',
       }),
     });
 
@@ -80,19 +55,22 @@ Reply with JSON only. No explanation outside the JSON.`,
     }
 
     const data = await response.json();
-    const text: string = data?.content?.[0]?.text ?? '{}';
-    const cleaned = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleaned) as { blocked: boolean; reason: string };
+    const answer: string = data.result?.trim().toUpperCase() ?? 'NO';
+
+    if (answer === 'YES') {
+      return {
+        blocked: true,
+        reason: 'contains a face or personal identifying information',
+      };
+    }
+    return { blocked: false, reason: '' };
   } catch (err) {
     console.warn('PII detection failed, allowing image:', err);
     return { blocked: false, reason: '' };
   }
 }
 
-function extractMime(dataUrl: string): string {
-  const match = dataUrl.match(/^data:(image\/[a-z+]+);base64,/);
-  return (match?.[1] ?? 'image/jpeg') as string;
-}
+// REMOVED: extractMime — no longer needed after switching to OpenAI route
 
 function extractBase64(dataUrl: string): string {
   return dataUrl.split(',')[1] ?? '';
@@ -430,6 +408,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const [showAI, setShowAI] = useState(false);
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
 
+  // ADDED: state to prefill AI chat input from the assessment editor
+  const [aiPrefillMessage, setAiPrefillMessage] = useState<string>('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -680,6 +661,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isCaseDone =
     caseCompleted || conversation.mode === 'general_education';
 
+  // CHANGED: pass prefillMessage and onPrefillConsumed to AIReviewAssistant
   const ConsultationSidebar = () => (
     <div className="h-full flex flex-col bg-card">
       <AIReviewAssistant
@@ -688,6 +670,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         contextData={JSON.stringify(conversation.intakeData || {})}
         onApplyContent={handleApplyAIContent}
         editorContent={patientMessage}
+        prefillMessage={aiPrefillMessage}
+        onPrefillConsumed={() => setAiPrefillMessage('')}
       />
     </div>
   );
@@ -837,6 +821,23 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                         </>
                       )}
                     </Button>
+
+                    {/* ADDED: Ask AI button — prefills AI chat with current editor content */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (patientMessage.trim()) {
+                          setAiPrefillMessage(patientMessage.trim());
+                        }
+                        setShowAI(true);
+                      }}
+                      className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
+                    >
+                      <Bot className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Ask AI</span>
+                    </Button>
+
                     <Button
                       variant={showAI ? 'default' : 'secondary'}
                       size="sm"
