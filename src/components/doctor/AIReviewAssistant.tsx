@@ -89,9 +89,21 @@ function normalizeHeading(title: string): string {
 function isPlaceholder(text: string): boolean {
   const v = (text || '').trim().toLowerCase();
   if (!v) return true;
-  const placeholders = ['type here', 'enter response', 'write response', 'draft response',
-    'assessment', 'pending', 'tbd', 'todo', 'n/a', 'na', '-', '--'];
-  return placeholders.some(p => v === p || v.includes(p));
+  const placeholders = [
+    'type here',
+    'enter response',
+    'write response',
+    'draft response',
+    'assessment',
+    'pending',
+    'tbd',
+    'todo',
+    'n/a',
+    'na',
+    '-',
+    '--',
+  ];
+  return placeholders.some((p) => v === p || v.includes(p));
 }
 
 function generateFallbackContent(section: string): string {
@@ -128,12 +140,19 @@ function extractStructuredSections(text: string): Record<string, string> {
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
+
   while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({ title: match[1], index: match.index, fullLength: match[0].length });
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
   }
+
   if (matches.length === 0) return {};
 
   const sections: Record<string, string> = {};
+
   for (let i = 0; i < matches.length; i++) {
     const current = matches[i];
     const next = matches[i + 1];
@@ -141,6 +160,7 @@ function extractStructuredSections(text: string): Record<string, string> {
     const end = next ? next.index : cleaned.length;
     sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
   }
+
   return sections;
 }
 
@@ -157,7 +177,7 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
     { patterns: ['Educational References', 'References'], target: 'References' },
   ];
 
-  const sectionHeaders = mappings.flatMap(m => m.patterns.map(escapeRegex)).join('|');
+  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
   const regex = new RegExp(
     `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
     'gi'
@@ -165,30 +185,40 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
+
   while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({ title: match[1], index: match.index, fullLength: match[0].length });
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
   }
+
   if (matches.length === 0) return {};
 
   const sections: Record<string, string> = {};
+
   for (let i = 0; i < matches.length; i++) {
     const current = matches[i];
     const next = matches[i + 1];
     const start = current.index + current.fullLength;
     const end = next ? next.index : cleaned.length;
     const body = cleanBody(cleaned.slice(start, end));
-    const mapping = mappings.find(m =>
-      m.patterns.some(p => p.toLowerCase() === current.title.toLowerCase())
+
+    const mapping = mappings.find((m) =>
+      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
     );
+
     if (mapping && body) {
       sections[normalizeHeading(mapping.target)] = body;
     }
   }
+
   return sections;
 }
 
 function buildStructuredOutput(sections: Record<string, string>): string {
-  const content = SECTION_TITLES.map(title => {
+  const content = SECTION_TITLES.map((title) => {
     const key = normalizeHeading(title);
     const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
     return `${title}\n\n${body}`.trim();
@@ -215,7 +245,7 @@ function stripDosingInfo(text: string): string {
 
 function normaliseAIResponse(raw: string): string {
   const text = cleanBody(raw);
-  if (!text || text.length < 30) return buildStructuredOutput({});
+  if (!text || text.length < 30) return '';
 
   let sections = extractStructuredSections(text);
   if (Object.keys(sections).length === 0) sections = extractLegacyNumberedSections(text);
@@ -227,6 +257,7 @@ function normaliseAIResponse(raw: string): string {
   for (const [key, body] of Object.entries(sections)) {
     stripped[key] = stripDosingInfo(body);
   }
+
   return buildStructuredOutput(stripped);
 }
 
@@ -254,10 +285,8 @@ function smartMerge(existingDraft: string, aiResponse: string): string {
     const ai = cleanBody(aiSections[key] || '');
 
     if (ai && !isPlaceholder(ai)) {
-      // AI produced meaningful content — use it (it may refine the existing)
       merged[key] = ai;
     } else if (existing && !isPlaceholder(existing)) {
-      // AI left this section alone — preserve the doctor's existing text
       merged[key] = existing;
     } else {
       merged[key] = generateFallbackContent(title);
@@ -289,12 +318,18 @@ async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
         'Reply with only YES if this image contains a human face or any personal identifying information such as a name, ID number, address, or date of birth. Reply with only NO otherwise.',
     }),
   });
+
   const data = await response.json();
   return data.result?.trim().toUpperCase() === 'YES';
 }
 
 const AIReviewAssistantLink = (props: any) => (
-  <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-words" />
+  <a
+    {...props}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="text-blue-600 underline break-words"
+  />
 );
 
 // ─────────────────────────────────────────────────────────
@@ -313,7 +348,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\nClose Differentials\nMorphologic Justification\nEducational Treatment Framework\nInvestigations Commonly Considered\nReferences\n\nUse the **Apply to editor** button under any response to intelligently merge it into your Assessment — only sections that need updating will be changed.",
+        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\nClose Differentials\nMorphologic Justification\nEducational Treatment Framework\nInvestigations Commonly Considered\nReferences\n\nUse the **Apply to editor** button under any response to merge the changes into the Assessment editor.",
     },
   ]);
 
@@ -327,16 +362,14 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Prefill input when triggered from editor toolbar
   useEffect(() => {
     if (prefillMessage && prefillMessage.trim()) {
       setInput(prefillMessage.trim());
       onPrefillConsumed?.();
       setTimeout(() => inputRef.current?.focus(), 80);
     }
-  }, [prefillMessage]);
+  }, [prefillMessage, onPrefillConsumed]);
 
-  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -347,13 +380,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     if (!file) return;
 
     setImageError(null);
+
     try {
       const base64 = await fileToBase64(file);
       const blocked = await containsFaceOrPII(base64);
+
       if (blocked) {
-        setImageError('This image appears to contain a face or personal identifying information and cannot be uploaded.');
+        setImageError(
+          'This image appears to contain a face or personal identifying information and cannot be uploaded.'
+        );
         return;
       }
+
       setPendingImage({ file, previewUrl: URL.createObjectURL(file) });
     } catch {
       setImageError('Image check failed. Please try again.');
@@ -370,7 +408,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     if (!input.trim() || isLoading) return;
 
     const userMsg = input.trim();
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
     setAppliedIndex(null);
@@ -385,11 +423,23 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       formData.append('id', conversationId);
       formData.append(
         'question',
-        `${STRUCTURED_FORMAT_PROMPT}\n\nPatient intake context:\n${contextData}\n\nCurrent editor draft:\n${editorContent || 'No draft yet.'}\n\nDoctor's request:\n${userMsg}`
+        `${STRUCTURED_FORMAT_PROMPT}
+
+Patient intake context:
+${contextData}
+
+Current editor draft:
+${editorContent || 'No draft yet.'}
+
+Doctor's request:
+${userMsg}`
       );
       formData.append('currentDraft', editorContent || '');
       formData.append('contextData', contextData);
-      if (imageToClear?.file) formData.append('image', imageToClear.file);
+
+      if (imageToClear?.file) {
+        formData.append('image', imageToClear.file);
+      }
 
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
@@ -397,19 +447,28 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Failed to get AI response');
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
 
       const data = await response.json();
       const rawAiContent: string =
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
-      const aiContent = normaliseAIResponse(rawAiContent) || buildStructuredOutput({});
-      setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
+      const aiContent =
+        rawAiContent && rawAiContent.trim().length > 30
+          ? normaliseAIResponse(rawAiContent)
+          : "I couldn't generate a strong structured revision for that request. Please try a more specific instruction such as 'improve diagnosis wording' or 'rewrite references section only'.";
+
+      setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error) {
       console.error('Error consulting AI:', error);
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
-        { role: 'ai', content: 'I encountered an error. Please ensure the backend is running and try again.' },
+        {
+          role: 'ai',
+          content: 'I encountered an error. Please ensure the backend is running and try again.',
+        },
       ]);
     } finally {
       setIsLoading(false);
@@ -417,7 +476,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
-  // Smart apply: merges AI output into existing draft, only updating sections that changed
   const handleApply = useCallback(
     (content: string, index: number) => {
       if (!onApplyContent) return;
@@ -448,11 +506,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
-        {/* Message list */}
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => (
-              <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+              <div
+                key={i}
+                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+              >
                 <div
                   className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
                     m.role === 'user'
@@ -471,13 +531,14 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                         [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
                         [&_a]:text-blue-600 [&_a]:underline break-words"
                     >
-                      <ReactMarkdown components={{ a: AIReviewAssistantLink }}>{m.content}</ReactMarkdown>
+                      <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
+                        {m.content}
+                      </ReactMarkdown>
                     </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
 
-                  {/* Apply to editor — only on AI messages after the first */}
                   {m.role === 'ai' && i > 0 && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50">
                       {appliedIndex === i ? (
@@ -515,7 +576,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
           </div>
         </ScrollArea>
 
-        {/* Input area — div not form to avoid nested form conflicts */}
         <div className="p-3 border-t bg-background space-y-2 shrink-0">
           {imageError && (
             <div className="flex items-start gap-1.5 text-[11px] text-destructive bg-destructive/10 rounded px-2 py-1.5">
@@ -554,6 +614,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               className="hidden"
               onChange={handleImageSelect}
             />
+
             <Button
               type="button"
               variant="outline"
@@ -564,16 +625,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             >
               <ImagePlus className="h-4 w-4" />
             </Button>
+
             <Input
               ref={inputRef}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask for diagnosis, plan..."
+              placeholder="Type your instruction, e.g. revise diagnosis or improve differentials..."
               className="flex-1 h-9 text-xs"
               disabled={isLoading}
               autoComplete="off"
             />
+
             <Button
               type="button"
               size="icon"
