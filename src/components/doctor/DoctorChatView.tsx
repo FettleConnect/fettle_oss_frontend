@@ -8,13 +8,23 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
-  Send, User, RefreshCw, ImagePlus, X, Bot,
-  Sparkles, Plus, CheckCircle, Maximize2, Minimize2, AlertTriangle
+  Send,
+  User,
+  RefreshCw,
+  ImagePlus,
+  X,
+  Bot,
+  Sparkles,
+  Plus,
+  CheckCircle,
+  Maximize2,
+  Minimize2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 
 interface DoctorChatViewProps {
   conversation: Conversation;
@@ -23,16 +33,11 @@ interface DoctorChatViewProps {
   onRefresh: () => void;
 }
 
-// FIX: stable ID per image — deletion is by ID not array index
 interface SafeImage {
   dataUrl: string;
   id: string;
 }
 
-// ─────────────────────────────────────────────────────────
-// Face + PII detection — runs BEFORE image enters state
-// CHANGED: now uses /api/openai-vision-check instead of Anthropic API directly
-// ─────────────────────────────────────────────────────────
 async function detectFaceOrPII(
   dataUrl: string
 ): Promise<{ blocked: boolean; reason: string }> {
@@ -63,14 +68,13 @@ async function detectFaceOrPII(
         reason: 'contains a face or personal identifying information',
       };
     }
+
     return { blocked: false, reason: '' };
   } catch (err) {
     console.warn('PII detection failed, allowing image:', err);
     return { blocked: false, reason: '' };
   }
 }
-
-// REMOVED: extractMime — no longer needed after switching to OpenAI route
 
 function extractBase64(dataUrl: string): string {
   return dataUrl.split(',')[1] ?? '';
@@ -299,7 +303,7 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
   }
 
   if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
-    finalText = `${finalText}\\n\\nYou're welcome to ask follow-up questions.`;
+    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
   }
 
   return finalText;
@@ -330,13 +334,10 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
     let finalBody: string;
 
     if (ai && !isPlaceholder(ai)) {
-      // AI has meaningful content for this section — use it
       finalBody = ai;
     } else if (existing && !isPlaceholder(existing)) {
-      // AI did not address this section — keep existing
       finalBody = existing;
     } else {
-      // Neither has meaningful content — use fallback
       finalBody = generateFallbackContent(title);
     }
 
@@ -357,21 +358,26 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
 // ─────────────────────────────────────────────────────────
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
-    m =>
+    (m) =>
       m.content &&
       m.content.includes('INTAKE COMPLETE') &&
       m.content.includes('Summary:')
   );
+
   if (!intakeMsg) return null;
+
   const text = intakeMsg.content;
+
   const extract = (label: string): string => {
     const regex = new RegExp(`${label}:\\s*([^\\n]*)`, 'i');
     const match = text.match(regex);
     return match ? match[1].trim() : '';
   };
+
   const allPatientImages: string[] = messages
-    .filter(m => m.role === 'patient')
-    .flatMap(m => m.images ?? []);
+    .filter((m) => m.role === 'patient')
+    .flatMap((m) => m.images ?? []);
+
   return {
     duration: extract('Duration'),
     symptoms: extract('Symptoms'),
@@ -383,9 +389,6 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   };
 }
 
-// ─────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
@@ -395,20 +398,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
-  const [patientMessage, setPatientMessage] = useState(
-    conversation.draftResponse || ''
-  );
+  const [patientMessage, setPatientMessage] = useState(conversation.draftResponse || '');
   const [isSending, setIsSending] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
-
-  // SafeImage[] with stable IDs
   const [images, setImages] = useState<SafeImage[]>([]);
   const [checkingImages, setCheckingImages] = useState(false);
-
   const [showAI, setShowAI] = useState(false);
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
-
-  // ADDED: state to prefill AI chat input from the assessment editor
   const [aiPrefillMessage, setAiPrefillMessage] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -421,7 +417,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     if (conversation.draftResponse && !patientMessage) {
       setPatientMessage(conversation.draftResponse);
     }
-  }, [conversation.draftResponse, conversation.id]);
+  }, [conversation.draftResponse, conversation.id, patientMessage]);
 
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
@@ -430,6 +426,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
     const parsed = parseIntakeFromMessages(messages);
     if (!parsed) return conversation.intakeData;
+
     return {
       ...(conversation.intakeData ?? parsed),
       images:
@@ -441,7 +438,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const visibleMessages = useMemo(() => {
     return messages.filter(
-      m =>
+      (m) =>
         !(
           m.content &&
           m.content.includes('INTAKE COMPLETE') &&
@@ -460,16 +457,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // ─────────────────────────────────────────────────────────
-  // Image select → read → detect → accept or reject
-  // Input value reset FIRST before any await
-  // ─────────────────────────────────────────────────────────
   const handleImageSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
 
-      // Reset immediately so re-selecting same file triggers onChange
       if (fileInputRef.current) fileInputRef.current.value = '';
 
       setCheckingImages(true);
@@ -480,11 +472,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
       await Promise.all(
         fileArray.map(
-          file =>
-            new Promise<void>(resolve => {
+          (file) =>
+            new Promise<void>((resolve) => {
               const reader = new FileReader();
-              reader.onload = async ev => {
+              reader.onload = async (ev) => {
                 const dataUrl = ev.target?.result as string;
+
                 if (!dataUrl) {
                   resolve();
                   return;
@@ -502,8 +495,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     id: `${Date.now()}-${Math.random()}`,
                   });
                 }
+
                 resolve();
               };
+
               reader.readAsDataURL(file);
             })
         )
@@ -512,7 +507,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       setCheckingImages(false);
 
       if (accepted.length > 0) {
-        setImages(prev => [...prev, ...accepted]);
+        setImages((prev) => [...prev, ...accepted]);
       }
 
       if (rejected.length > 0) {
@@ -527,8 +522,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 </p>
               ))}
               <p className="text-xs text-muted-foreground mt-2 border-t pt-2">
-                Please upload clinical photos only — no faces, names, or
-                identifying information.
+                Please upload clinical photos only — no faces, names, or identifying
+                information.
               </p>
             </div>
           ),
@@ -540,9 +535,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     [toast]
   );
 
-  // Remove by stable ID — no index-shifting bugs
   const removeImage = useCallback((id: string) => {
-    setImages(prev => prev.filter(img => img.id !== id));
+    setImages((prev) => prev.filter((img) => img.id !== id));
   }, []);
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
@@ -550,11 +544,16 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const res = await fetch(dataUrl);
       return res.blob();
     }
+
     const [header, base64] = dataUrl.split(',');
     const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
     return new Blob([bytes], { type: mime });
   };
 
@@ -567,14 +566,15 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       });
       return;
     }
+
     setIsSending(true);
+
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
 
-      // Only images currently in safe state are sent
       for (let i = 0; i < images.length; i++) {
         const blob = await dataURLtoBlob(images[i].dataUrl);
         const ext = blob.type.split('/')[1] ?? 'jpg';
@@ -586,12 +586,14 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
+
       if (!response.ok) throw new Error('Failed to send message');
 
       setPatientMessage('');
-      setImages([]); // Full clear after send
+      setImages([]);
       setAssessmentExpanded(false);
       onUpdate();
+
       toast({
         title: 'Response Sent',
         description: 'Your response has been sent to the patient.',
@@ -610,6 +612,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleArchive = async () => {
     if (caseCompleted) return;
+
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const response = await fetch(`${BASE_URL}/api/archive_consultation/`, {
@@ -620,6 +623,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         },
         body: JSON.stringify({ user_id: conversation.patient_id }),
       });
+
       if (response.ok) {
         setCaseCompleted(true);
         toast({
@@ -634,9 +638,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   };
 
   // ─────────────────────────────────────────────────────────
-  // AI content goes DIRECTLY into the Assessment editor.
-  // Called automatically after every generate in AIReviewAssistant.
-  // No Regenerate / Sync / Apply button needed.
+  // AI content is applied to the Assessment editor only when the
+  // doctor clicks "Apply to editor" in the AI Consultation panel.
+  // The merge keeps existing sections unless the AI returned a
+  // meaningful update for that section.
   // ─────────────────────────────────────────────────────────
   const handleApplyAIContent = useCallback(
     (content: string) => {
@@ -658,16 +663,14 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const canRespond =
     conversation.paymentStatus === 'paid' || !!conversation.draftResponse;
   const isCompleted = conversation.status === 'completed';
-  const isCaseDone =
-    caseCompleted || conversation.mode === 'general_education';
+  const isCaseDone = caseCompleted || conversation.mode === 'general_education';
 
-  // CHANGED: pass prefillMessage and onPrefillConsumed to AIReviewAssistant
   const ConsultationSidebar = () => (
     <div className="h-full flex flex-col bg-card">
       <AIReviewAssistant
         onClose={() => setShowAI(false)}
         conversationId={String(conversation.id)}
-        contextData={JSON.stringify(conversation.intakeData || {})}
+        contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
         onApplyContent={handleApplyAIContent}
         editorContent={patientMessage}
         prefillMessage={aiPrefillMessage}
@@ -678,14 +681,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
-
-      {/* Header */}
       <div className="border-b border-border bg-card px-4 md:px-6 py-3 md:py-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 md:gap-4">
             <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
               <User className="h-5 w-5 md:h-6 md:w-6 text-primary" />
             </div>
+
             <div className="min-w-0">
               <h3 className="font-bold text-sm md:text-lg leading-none mb-1 truncate">
                 {conversation.patientName}
@@ -695,6 +697,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               </p>
             </div>
           </div>
+
           <div className="flex items-center gap-2 md:gap-3">
             <Button
               variant="outline"
@@ -716,6 +719,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 {isCaseDone ? 'Case Completed' : 'Complete Case'}
               </span>
             </Button>
+
             <Button
               variant="ghost"
               size="sm"
@@ -725,24 +729,19 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               <RefreshCw className="h-3.5 w-3.5 md:mr-2" />
               <span className="hidden sm:inline">Sync</span>
             </Button>
+
             <Badge
-              variant={
-                conversation.paymentStatus === 'paid' ? 'default' : 'secondary'
-              }
+              variant={conversation.paymentStatus === 'paid' ? 'default' : 'secondary'}
               className="px-2 md:px-3 py-0.5 md:py-1 text-[10px] md:text-xs"
             >
-              {conversation.paymentStatus === 'paid'
-                ? 'Paid Consultation'
-                : 'Unpaid'}
+              {conversation.paymentStatus === 'paid' ? 'Paid Consultation' : 'Unpaid'}
             </Badge>
           </div>
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0 w-full relative">
-
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
               {resolvedIntakeData && (
@@ -750,6 +749,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   <IntakeSummaryCard intakeData={resolvedIntakeData} />
                 </section>
               )}
+
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="h-px flex-1 bg-border" />
@@ -758,9 +758,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
+
                 {visibleMessages.length > 0 ? (
                   <div className="space-y-4">
-                    {visibleMessages.map(message => (
+                    {visibleMessages.map((message) => (
                       <ChatMessage key={message.id} message={message} />
                     ))}
                   </div>
@@ -773,7 +774,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </ScrollArea>
 
-          {/* Assessment & Response */}
           {canRespond && !isCompleted && (
             <div
               className={
@@ -783,13 +783,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               }
             >
               <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col space-y-3 md:space-y-4">
-
-                {/* Toolbar */}
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs md:text-sm font-semibold flex items-center gap-2">
                     <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary" />
                     Assessment & Response
                   </label>
+
                   <div className="flex gap-1.5 md:gap-2">
                     {conversation.draftResponse &&
                       patientMessage !== conversation.draftResponse && (
@@ -803,10 +802,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                           AI Draft
                         </Button>
                       )}
+
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setAssessmentExpanded(e => !e)}
+                      onClick={() => setAssessmentExpanded((e) => !e)}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
                     >
                       {assessmentExpanded ? (
@@ -822,14 +822,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       )}
                     </Button>
 
-                    {/* ADDED: Ask AI button — prefills AI chat with current editor content */}
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        if (patientMessage.trim()) {
-                          setAiPrefillMessage(patientMessage.trim());
-                        }
+                        setAiPrefillMessage(
+                          'Please revise the current draft and return the response in the required structured format. Only update sections that need improvement.'
+                        );
                         setShowAI(true);
                       }}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
@@ -850,10 +849,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </div>
                 </div>
 
-                {/* Image previews — stable id keys, remove by id */}
                 {images.length > 0 && (
                   <div className="flex gap-2 mb-2 flex-wrap bg-muted/30 p-2 rounded-lg border border-dashed">
-                    {images.map(img => (
+                    {images.map((img) => (
                       <div key={img.id} className="relative group">
                         <img
                           src={img.dataUrl}
@@ -874,7 +872,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
                 <Textarea
                   value={patientMessage}
-                  onChange={e => setPatientMessage(e.target.value)}
+                  onChange={(e) => setPatientMessage(e.target.value)}
                   placeholder="Write your professional assessment here..."
                   className={
                     assessmentExpanded
@@ -894,6 +892,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       onChange={handleImageSelect}
                       className="hidden"
                     />
+
                     <Button
                       type="button"
                       variant="outline"
@@ -907,10 +906,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                         {checkingImages ? 'Checking images…' : 'Attach Images'}
                       </span>
                     </Button>
+
                     <p className="hidden md:block text-[10px] text-muted-foreground">
                       Clinical photos only — no faces or personal information
                     </p>
                   </div>
+
                   <Button
                     onClick={handleSendToPatient}
                     disabled={isSending || !patientMessage.trim()}
@@ -921,20 +922,17 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     Send Response
                   </Button>
                 </div>
-
               </div>
             </div>
           )}
         </div>
 
-        {/* Desktop AI sidebar */}
         {!isMobile && showAI && (
           <div className="w-96 border-l border-border bg-card flex flex-col">
             <ConsultationSidebar />
           </div>
         )}
 
-        {/* Mobile AI sheet */}
         {isMobile && (
           <Sheet open={showAI} onOpenChange={setShowAI}>
             <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
