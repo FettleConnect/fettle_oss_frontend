@@ -646,20 +646,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isCaseDone =
     caseCompleted || conversation.mode === 'general_education';
 
-  const ConsultationSidebar = () => (
-    <div className="h-full flex flex-col bg-card">
-      <AIReviewAssistant
-        onClose={() => setShowAI(false)}
-        conversationId={String(conversation.id)}
-        contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
-        onApplyContent={handleApplyAIContent}
-        editorContent={patientMessage}
-        prefillMessage={aiPrefillMessage}
-        onPrefillConsumed={() => setAiPrefillMessage('')}
-      />
-    </div>
-  );
-
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
       <div className="border-b border-border bg-card px-4 md:px-6 py-3 md:py-4 shadow-sm z-10">
@@ -912,16 +898,38 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           )}
         </div>
 
-        {!isMobile && showAI && (
-          <div className="w-96 border-l border-border bg-card flex flex-col">
-            <ConsultationSidebar />
+        <div
+          className={`w-96 border-l border-border bg-card flex-col ${
+            !isMobile && showAI ? 'flex' : 'hidden'
+          }`}
+        >
+          <div className="h-full flex flex-col bg-card">
+            <AIReviewAssistant
+              onClose={() => setShowAI(false)}
+              conversationId={String(conversation.id)}
+              contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
+              onApplyContent={handleApplyAIContent}
+              editorContent={patientMessage}
+              prefillMessage={aiPrefillMessage}
+              onPrefillConsumed={() => setAiPrefillMessage('')}
+            />
           </div>
-        )}
+        </div>
 
         {isMobile && (
           <Sheet open={showAI} onOpenChange={setShowAI}>
             <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
-              <ConsultationSidebar />
+              <div className="h-full flex flex-col bg-card">
+                <AIReviewAssistant
+                  onClose={() => setShowAI(false)}
+                  conversationId={String(conversation.id)}
+                  contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
+                  onApplyContent={handleApplyAIContent}
+                  editorContent={patientMessage}
+                  prefillMessage={aiPrefillMessage}
+                  onPrefillConsumed={() => setAiPrefillMessage('')}
+                />
+              </div>
             </SheetContent>
           </Sheet>
         )}
