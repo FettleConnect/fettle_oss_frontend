@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Send, X } from 'lucide-react';
+import { Bot, Send, X, ImagePlus, AlertTriangle } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
 
@@ -52,6 +52,7 @@ Rules:
 - Keep the tone textbook-style and concise.
 - No dosing, frequency, or application instructions.
 - References should be educational sources only.
+- When a current draft is provided, make targeted edits only to the sections that need updating rather than rewriting the entire document from scratch.
 - End every response with exactly:
 You're welcome to ask follow-up questions.`;
 
@@ -96,8 +97,7 @@ function extractStructuredSections(text: string): Record<string, string> {
     'gi'
   );
 
-  const matches: Array<{ title: string; index: number; fullLength: number }> =
-    [];
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(cleaned)) !== null) {
@@ -116,57 +116,32 @@ function extractStructuredSections(text: string): Record<string, string> {
     const next = matches[i + 1];
     const start = current.index + current.fullLength;
     const end = next ? next.index : cleaned.length;
-    sections[normalizeHeading(current.title)] = cleanBody(
-      cleaned.slice(start, end)
-    );
+    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
   }
 
   return sections;
 }
 
-function extractLegacyNumberedSections(
-  text: string
-): Record<string, string> {
+function extractLegacyNumberedSections(text: string): Record<string, string> {
   const cleaned = cleanBody(text);
   if (!cleaned) return {};
 
   const mappings = [
-    {
-      patterns: ['Diagnosis', 'Most Consistent With'],
-      target: 'Most Consistent With',
-    },
-    {
-      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
-      target: 'Close Differentials',
-    },
-    {
-      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'],
-      target: 'Morphologic Justification',
-    },
-    {
-      patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'],
-      target: 'Educational Treatment Framework',
-    },
-    {
-      patterns: ['Investigations', 'Investigations Commonly Considered'],
-      target: 'Investigations Commonly Considered',
-    },
-    {
-      patterns: ['Educational References', 'References'],
-      target: 'References',
-    },
+    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
+    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
+    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
+    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
+    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
+    { patterns: ['Educational References', 'References'], target: 'References' },
   ];
 
-  const sectionHeaders = mappings
-    .flatMap(m => m.patterns.map(escapeRegex))
-    .join('|');
+  const sectionHeaders = mappings.flatMap(m => m.patterns.map(escapeRegex)).join('|');
   const regex = new RegExp(
     `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
     'gi'
   );
 
-  const matches: Array<{ title: string; index: number; fullLength: number }> =
-    [];
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(cleaned)) !== null) {
@@ -187,9 +162,7 @@ function extractLegacyNumberedSections(
     const end = next ? next.index : cleaned.length;
     const body = cleanBody(cleaned.slice(start, end));
     const mapping = mappings.find(m =>
-      m.patterns.some(
-        p => p.toLowerCase() === current.title.toLowerCase()
-      )
+      m.patterns.some(p => p.toLowerCase() === current.title.toLowerCase())
     );
     if (mapping && body) {
       sections[normalizeHeading(mapping.target)] = body;
@@ -202,8 +175,7 @@ function extractLegacyNumberedSections(
 function buildStructuredOutput(sections: Record<string, string>): string {
   const content = SECTION_TITLES.map(title => {
     const key = normalizeHeading(title);
-    const body =
-      cleanBody(sections[key] || '') || generateFallbackContent(title);
+    const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
     return `${title}\n\n${body}`.trim();
   }).join('\n\n');
 
@@ -216,8 +188,21 @@ function buildStructuredOutput(sections: Record<string, string>): string {
   return `${cleaned}\n\n${FINAL_LINE}`;
 }
 
-function normalizeAIContentToStructuredFormat(rawText: string): string {
-  const text = cleanBody(rawText);
+function stripDosingInfo(text: string): string {
+  return text
+    .replace(/\b\d+(\.\d+)?\s*(mg|mcg|μg|g|ml|mL|%)\b/gi, '')
+    .replace(/\b(once|twice|three times|four times)\s+(a\s+)?(day|daily|weekly|nightly)\b/gi, '')
+    .replace(/\b(BID|TID|QID|QD|PRN|OD|BD)\b/g, '')
+    .replace(/\bevery\s+\d+\s+(hour|hours|hrs?|day|days|week|weeks)\b/gi, '')
+    .replace(/\bfor\s+\d+\s+(day|days|week|weeks|month|months)\b/gi, '')
+    .replace(/\b(apply|use|take|administer)\s+(twice|once|daily|topically|orally|topical)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s([,.])/g, '$1')
+    .trim();
+}
+
+function normaliseAIResponse(raw: string): string {
+  const text = cleanBody(raw);
   if (!text || text.length < 30) return buildStructuredOutput({});
 
   let sections = extractStructuredSections(text);
@@ -228,7 +213,37 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
     sections = { [normalizeHeading('Most Consistent With')]: text };
   }
 
-  return buildStructuredOutput(sections);
+  const strippedSections: Record<string, string> = {};
+  for (const [key, body] of Object.entries(sections)) {
+    strippedSections[key] = stripDosingInfo(body);
+  }
+
+  return buildStructuredOutput(strippedSections);
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
+  const response = await fetch('/api/openai-vision-check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      imageBase64,
+      prompt:
+        'Reply with only YES if this image contains a human face or any personal identifying information such as a name, ID number, address, or date of birth. Reply with only NO otherwise.',
+    }),
+  });
+
+  const data = await response.json();
+  const answer = data.result?.trim().toUpperCase();
+  return answer === 'YES';
 }
 
 const AIReviewAssistantLink = (props: any) => (
@@ -259,6 +274,37 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setImageError(null);
+    try {
+      const base64 = await fileToBase64(file);
+      const blocked = await containsFaceOrPII(base64);
+      if (blocked) {
+        setImageError(
+          'This image appears to contain a face or personal identifying information and cannot be uploaded. Please remove personal details and try again.'
+        );
+        return;
+      }
+      const previewUrl = URL.createObjectURL(file);
+      setPendingImage({ file, previewUrl });
+    } catch {
+      setImageError('Image check failed. Please try again.');
+    }
+  }, []);
+
+  const removePendingImage = useCallback(() => {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl);
+    setPendingImage(null);
+    setImageError(null);
+  }, [pendingImage]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -268,6 +314,10 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     setInput('');
     setIsLoading(true);
 
+    const imageToClear = pendingImage;
+    setPendingImage(null);
+    setImageError(null);
+
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
@@ -276,6 +326,12 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         'question',
         `${STRUCTURED_FORMAT_PROMPT}\n\nPatient intake context:\n${contextData}\n\nCurrent editor draft:\n${editorContent || 'No draft yet.'}\n\nDoctor's request:\n${userMsg}`
       );
+      formData.append('currentDraft', editorContent || '');
+      formData.append('contextData', contextData);
+
+      if (imageToClear?.file) {
+        formData.append('image', imageToClear.file);
+      }
 
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
@@ -289,9 +345,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const rawAiContent: string =
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
-      const aiContent =
-        normalizeAIContentToStructuredFormat(rawAiContent) ||
-        buildStructuredOutput({});
+      const aiContent = normaliseAIResponse(rawAiContent) || buildStructuredOutput({});
 
       setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error) {
@@ -306,6 +360,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       ]);
     } finally {
       setIsLoading(false);
+      if (imageToClear) URL.revokeObjectURL(imageToClear.previewUrl);
     }
   };
 
@@ -355,7 +410,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
 
-                  {/* Apply button on every AI response after the first */}
                   {m.role === 'ai' && i > 0 && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50">
                       <Button
@@ -384,7 +438,36 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
           </div>
         </ScrollArea>
 
-        <div className="p-3 border-t bg-background">
+        <div className="p-3 border-t bg-background space-y-2">
+          {imageError && (
+            <div className="flex items-start gap-1.5 text-[11px] text-destructive bg-destructive/10 rounded px-2 py-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>{imageError}</span>
+            </div>
+          )}
+
+          {pendingImage && (
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <img
+                  src={pendingImage.previewUrl}
+                  alt="Pending upload"
+                  className="h-12 w-12 object-cover rounded border border-border"
+                />
+                <button
+                  type="button"
+                  onClick={removePendingImage}
+                  className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                {pendingImage.file.name}
+              </span>
+            </div>
+          )}
+
           <form
             onSubmit={e => {
               e.preventDefault();
@@ -392,6 +475,23 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             }}
             className="flex gap-2"
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              disabled={isLoading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
             <Input
               value={input}
               onChange={e => setInput(e.target.value)}

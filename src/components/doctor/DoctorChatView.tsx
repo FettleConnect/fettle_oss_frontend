@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   Send, User, RefreshCw, ImagePlus, X, Bot,
-  Sparkles, Plus, CheckCircle, Maximize2, Minimize2, RotateCcw, AlertTriangle
+  Sparkles, Plus, CheckCircle, Maximize2, Minimize2, AlertTriangle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
@@ -421,7 +421,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     conversation.draftResponse || ''
   );
   const [isSending, setIsSending] = useState(false);
-  const [isRegenerating, setIsRegenerating] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
 
   // SafeImage[] with stable IDs
@@ -477,38 +476,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         title: 'Draft Applied',
         description: 'AI-generated draft has been loaded into the editor.',
       });
-    }
-  };
-
-  const handleRegenerateDraft = async () => {
-    setIsRegenerating(true);
-    try {
-      const authToken = localStorage.getItem('DoctorToken');
-      const formData = new FormData();
-      formData.append('id', String(conversation.id));
-      formData.append('question', 'REGENERATE_DRAFT');
-      await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: formData,
-      });
-      toast({
-        title: 'Regenerating Draft',
-        description:
-          'New draft is being generated. Click Sync in ~10 seconds to load it.',
-      });
-      setTimeout(() => {
-        onRefresh();
-      }, 12000);
-    } catch (error) {
-      console.error('Regenerate draft error:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to regenerate draft.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsRegenerating(false);
     }
   };
 
