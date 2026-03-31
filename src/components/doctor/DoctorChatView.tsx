@@ -173,7 +173,10 @@ function extractStructuredSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(`(?:^|\\n)\\s*(${escaped})\\s*:?\\s*(?=\\n|$)`, 'gi');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
@@ -206,30 +209,12 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const mappings = [
-    {
-      patterns: ['Diagnosis', 'Most Consistent With'],
-      target: 'Most Consistent With',
-    },
-    {
-      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
-      target: 'Close Differentials',
-    },
-    {
-      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'],
-      target: 'Morphologic Justification',
-    },
-    {
-      patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'],
-      target: 'Educational Treatment Framework',
-    },
-    {
-      patterns: ['Investigations', 'Investigations Commonly Considered'],
-      target: 'Investigations Commonly Considered',
-    },
-    {
-      patterns: ['Educational References', 'References'],
-      target: 'References',
-    },
+    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
+    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
+    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
+    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
+    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
+    { patterns: ['Educational References', 'References'], target: 'References' },
   ];
 
   const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
@@ -275,7 +260,7 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 function normalizeAIContentToStructuredFormat(rawText: string): string {
   const text = cleanBody(rawText);
 
-  if (!text || text.length < 30) {
+  if (!text || text.length < 20) {
     return DEFAULT_ASSESSMENT_TEMPLATE;
   }
 
@@ -283,6 +268,12 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
 
   if (Object.keys(sections).length === 0) {
     sections = extractLegacyNumberedSections(text);
+  }
+
+  if (Object.keys(sections).length === 0) {
+    sections = {
+      [normalizeHeading('Most Consistent With')]: text,
+    };
   }
 
   const normalized = SECTION_TITLES.map((title) => {
@@ -353,9 +344,6 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
   return cleanBody(finalText);
 }
 
-// ─────────────────────────────────────────────────────────
-// Intake parser
-// ─────────────────────────────────────────────────────────
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
     (m) =>
@@ -414,10 +402,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [isMobile]);
 
   useEffect(() => {
-    if (conversation.draftResponse && !patientMessage) {
-      setPatientMessage(conversation.draftResponse);
-    }
-  }, [conversation.draftResponse, conversation.id, patientMessage]);
+    setPatientMessage(conversation.draftResponse || '');
+    setImages([]);
+  }, [conversation.id, conversation.draftResponse]);
 
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
@@ -522,8 +509,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 </p>
               ))}
               <p className="text-xs text-muted-foreground mt-2 border-t pt-2">
-                Please upload clinical photos only — no faces, names, or identifying
-                information.
+                Please upload clinical photos only — no faces, names, or identifying information.
               </p>
             </div>
           ),
@@ -637,12 +623,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // ─────────────────────────────────────────────────────────
-  // AI content is applied to the Assessment editor only when the
-  // doctor clicks "Apply to editor" in the AI Consultation panel.
-  // The merge keeps existing sections unless the AI returned a
-  // meaningful update for that section.
-  // ─────────────────────────────────────────────────────────
   const handleApplyAIContent = useCallback(
     (content: string) => {
       const normalized = normalizeAIContentToStructuredFormat(content);
@@ -663,7 +643,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const canRespond =
     conversation.paymentStatus === 'paid' || !!conversation.draftResponse;
   const isCompleted = conversation.status === 'completed';
-  const isCaseDone = caseCompleted || conversation.mode === 'general_education';
+  const isCaseDone =
+    caseCompleted || conversation.mode === 'general_education';
 
   const ConsultationSidebar = () => (
     <div className="h-full flex flex-col bg-card">
@@ -731,10 +712,14 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </Button>
 
             <Badge
-              variant={conversation.paymentStatus === 'paid' ? 'default' : 'secondary'}
+              variant={
+                conversation.paymentStatus === 'paid' ? 'default' : 'secondary'
+              }
               className="px-2 md:px-3 py-0.5 md:py-1 text-[10px] md:text-xs"
             >
-              {conversation.paymentStatus === 'paid' ? 'Paid Consultation' : 'Unpaid'}
+              {conversation.paymentStatus === 'paid'
+                ? 'Paid Consultation'
+                : 'Unpaid'}
             </Badge>
           </div>
         </div>
