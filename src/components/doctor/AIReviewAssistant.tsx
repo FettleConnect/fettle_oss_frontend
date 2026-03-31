@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
@@ -296,7 +296,27 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     },
   ]);
 
-  const [input, setInput] = useState('');
+  const storageKey = useMemo(
+    () => `ai-review-assistant-input:${conversationId || 'default'}`,
+    [conversationId]
+  );
+
+  const getSavedDraft = useCallback((): string => {
+    try {
+      return sessionStorage.getItem(storageKey) || '';
+    } catch {
+      return '';
+    }
+  }, [storageKey]);
+
+  const [input, setInput] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem(`ai-review-assistant-input:${conversationId || 'default'}`) || '';
+    } catch {
+      return '';
+    }
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
   const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
@@ -306,10 +326,38 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastAppliedPrefillRef = useRef<string>('');
+  const didRestoreRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(storageKey, input);
+    } catch {
+      // ignore storage errors
+    }
+  }, [input, storageKey]);
+
+  useEffect(() => {
+    if (didRestoreRef.current) return;
+    didRestoreRef.current = true;
+
+    const savedDraft = getSavedDraft();
+    if (savedDraft.trim()) {
+      setInput(savedDraft);
+      setTimeout(() => inputRef.current?.focus(), 80);
+      return;
+    }
+
+    const trimmedPrefill = prefillMessage?.trim() || '';
+    if (!trimmedPrefill) return;
+
+    lastAppliedPrefillRef.current = trimmedPrefill;
+    setInput(trimmedPrefill);
+    onPrefillConsumed?.();
+    setTimeout(() => inputRef.current?.focus(), 80);
+  }, [getSavedDraft, prefillMessage, onPrefillConsumed]);
 
   useEffect(() => {
     const trimmedPrefill = prefillMessage?.trim() || '';
-
     if (!trimmedPrefill) return;
     if (lastAppliedPrefillRef.current === trimmedPrefill) return;
 
@@ -320,7 +368,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     });
 
     onPrefillConsumed?.();
-    setTimeout(() => inputRef.current?.focus(), 80);
   }, [prefillMessage, onPrefillConsumed]);
 
   useEffect(() => {
@@ -357,12 +404,25 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     setImageError(null);
   }, [pendingImage]);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const clearStoredDraft = useCallback(() => {
+    try {
+      sessionStorage.removeItem(storageKey);
+    } catch {
+      // ignore storage errors
+    }
+  }, [storageKey]);
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMsg = input.trim();
     setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
+    clearStoredDraft();
     setIsLoading(true);
     setAppliedIndex(null);
 
@@ -583,7 +643,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             <Input
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Type your instruction, e.g. revise diagnosis or improve differentials..."
               className="flex-1 h-9 text-xs"
