@@ -170,15 +170,35 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   return sections;
 }
 
-function buildStructuredOutput(sections: Record<string, string>): string {
-  const content = SECTION_TITLES.map((title) => {
-    const key = normalizeHeading(title);
-    const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
-    return `${title}\n\n${body}`.trim();
-  }).join('\n\n');
+function buildStructuredOutput(
+  sections: Record<string, string>,
+  options?: {
+    fillMissing?: boolean;
+    boldHeadings?: boolean;
+  }
+): string {
+  const fillMissing = options?.fillMissing ?? true;
+  const boldHeadings = options?.boldHeadings ?? false;
 
-  const cleaned = cleanBody(content);
+  const blocks: string[] = [];
+
+  for (const title of SECTION_TITLES) {
+    const key = normalizeHeading(title);
+    let body = cleanBody(sections[key] || '');
+
+    if (!body && fillMissing) {
+      body = generateFallbackContent(title);
+    }
+
+    if (!body) continue;
+
+    const heading = boldHeadings ? `**${title}**` : title;
+    blocks.push(`${heading}\n\n${body}`.trim());
+  }
+
+  const cleaned = cleanBody(blocks.join('\n\n'));
   if (!cleaned) return '';
+
   if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) return cleaned;
   return `${cleaned}\n\n${FINAL_LINE}`;
 }
@@ -202,16 +222,25 @@ function normaliseAIResponse(raw: string): string {
 
   let sections = extractStructuredSections(text);
   if (Object.keys(sections).length === 0) sections = extractLegacyNumberedSections(text);
+
   if (Object.keys(sections).length === 0) {
-    sections = { [normalizeHeading('Most Consistent With')]: text };
+    sections = {
+      [normalizeHeading('Most Consistent With')]: text,
+    };
   }
 
   const stripped: Record<string, string> = {};
   for (const [key, body] of Object.entries(sections)) {
-    stripped[key] = stripDosingInfo(body);
+    const cleaned = stripDosingInfo(body);
+    if (cleanBody(cleaned)) {
+      stripped[key] = cleaned;
+    }
   }
 
-  return buildStructuredOutput(stripped);
+  return buildStructuredOutput(stripped, {
+    fillMissing: false,
+    boldHeadings: true,
+  });
 }
 
 function smartMerge(existingDraft: string, aiResponse: string): string {
@@ -236,14 +265,15 @@ function smartMerge(existingDraft: string, aiResponse: string): string {
 
     if (ai && !isPlaceholder(ai)) {
       merged[key] = ai;
-    } else if (existing && !isPlaceholder(existing)) {
+    } else if (existing) {
       merged[key] = existing;
-    } else {
-      merged[key] = generateFallbackContent(title);
     }
   }
 
-  return buildStructuredOutput(merged);
+  return buildStructuredOutput(merged, {
+    fillMissing: false,
+    boldHeadings: false,
+  });
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -292,7 +322,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to merge the changes into the Assessment editor.",
+        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to merge only the changed sections into the Assessment editor.",
     },
   ]);
 
@@ -460,7 +490,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const aiContent =
         rawAiContent && rawAiContent.trim().length > 20
           ? normaliseAIResponse(rawAiContent)
-          : "I couldn't generate a structured revision for that request. Please try a more specific instruction such as 'improve diagnosis wording' or 'rewrite references section only'.";
+          : "**Most Consistent With**\n\nI couldn't generate a structured revision for that request. Please try a more specific instruction such as improving one section at a time.";
 
       setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error: any) {
@@ -470,7 +500,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         ...prev,
         {
           role: 'ai',
-          content: error?.message || 'I encountered an error. Please try again.',
+          content: `**Most Consistent With**\n\n${error?.message || 'I encountered an error. Please try again.'}`,
         },
       ]);
     } finally {
@@ -527,12 +557,10 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                   {m.role === 'ai' ? (
                     <div
                       className="prose prose-sm dark:prose-invert max-w-none
-                        [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
-                        [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
-                        [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
                         [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
+                        [&_strong]:font-bold
                         [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
+                        [&_ol]:pl-4 [&_ol]:mb-2
                         [&_a]:text-blue-600 [&_a]:underline break-words"
                     >
                       <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
