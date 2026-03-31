@@ -305,13 +305,22 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const lastAppliedPrefillRef = useRef<string>('');
 
   useEffect(() => {
-    if (prefillMessage && prefillMessage.trim()) {
-      setInput(prefillMessage.trim());
-      onPrefillConsumed?.();
-      setTimeout(() => inputRef.current?.focus(), 80);
-    }
+    const trimmedPrefill = prefillMessage?.trim() || '';
+
+    if (!trimmedPrefill) return;
+    if (lastAppliedPrefillRef.current === trimmedPrefill) return;
+
+    setInput((currentInput) => {
+      if (currentInput.trim()) return currentInput;
+      lastAppliedPrefillRef.current = trimmedPrefill;
+      return trimmedPrefill;
+    });
+
+    onPrefillConsumed?.();
+    setTimeout(() => inputRef.current?.focus(), 80);
   }, [prefillMessage, onPrefillConsumed]);
 
   useEffect(() => {
