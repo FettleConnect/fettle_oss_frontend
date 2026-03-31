@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Send, X, ImagePlus, AlertTriangle } from 'lucide-react';
+import { Bot, Send, X, ImagePlus, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
 
@@ -28,36 +28,52 @@ const SECTION_TITLES = [
 
 const FINAL_LINE = "You're welcome to ask follow-up questions.";
 
-const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist.
+// ─────────────────────────────────────────────────────────
+// MODE 5 — FINAL PATIENT OUTPUT PROMPT
+// ─────────────────────────────────────────────────────────
+const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist in producing a structured clinical assessment (MODE 5 — FINAL PATIENT OUTPUT).
 
-Every response MUST use this exact section order and section titles exactly as written below:
+CONTINUITY PRINCIPLE
+Do not restart the educational framework. Anchor the response to prior context with a phrase such as:
+"Applying the dermatologic pattern framework described earlier…"
+Build on what the user already knows. Do not repeat biology already explained.
+
+RESPONSE STRUCTURE — use exactly these six section titles as plain headings, in this order, with no numbering and no bold markers around the titles:
 
 Most Consistent With
+State the most likely pattern category in 2–3 sentences. Use category-based classification. Provide a brief educational explanation of why this pattern fits.
 
 Close Differentials
+Name 2–3 differential patterns in 1–2 sentences each. No detailed explanation required.
 
 Morphologic Justification
+Write a short paragraph explaining the visual features that support the primary classification. Do not use a bullet list here.
 
 Educational Treatment Framework
+Present treatment classes in escalation order: foundational care first, then topical agents, then procedural options. Medication names are permitted. No dosing, timing, or application instructions.
 
 Investigations Commonly Considered
+Include if clinically relevant. Frame biopsy as a classification tool, not a diagnostic confirmation.
 
 References
+Cite NHS, DermNet NZ, BAD, or CDC sources only. Descriptive, not instructive.
 
-Rules:
-- Use exactly the section titles above in exactly the same order.
-- Do not use numbered sections.
-- Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, or Plan.
-- Do not leave any section empty.
-- Do not output placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
-- If information is limited, write a brief safe clinical statement for that section instead of leaving it empty.
-- Keep the tone textbook-style and concise.
-- No dosing, frequency, or application instructions.
-- References should be educational sources only.
-- When a current draft is provided, make targeted edits only to the sections that need updating rather than rewriting the entire document from scratch.
-- End every response with exactly:
+STRICT RULES
+- Use exactly the six section titles above, in exactly this order.
+- Do not number sections.
+- Do not wrap section titles in bold markdown (**).
+- Do not leave any section empty — write a brief safe clinical statement if information is limited.
+- Do not use placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
+- No dosing, frequency, or application instructions anywhere.
+- Total response must not exceed 400 words unless clinical complexity genuinely requires it.
+- Tone: textbook-style, calm authority, no personalisation or directives, emotionally stable.
+- When a current draft is provided, make targeted edits only to sections that need updating — do not rewrite the entire document.
+- End every response with exactly this closing line (nothing after it):
 You're welcome to ask follow-up questions.`;
 
+// ─────────────────────────────────────────────────────────
+// Text utilities
+// ─────────────────────────────────────────────────────────
 function cleanBody(text: string): string {
   return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -70,6 +86,14 @@ function normalizeHeading(title: string): string {
   return title.trim().toLowerCase();
 }
 
+function isPlaceholder(text: string): boolean {
+  const v = (text || '').trim().toLowerCase();
+  if (!v) return true;
+  const placeholders = ['type here', 'enter response', 'write response', 'draft response',
+    'assessment', 'pending', 'tbd', 'todo', 'n/a', 'na', '-', '--'];
+  return placeholders.some(p => v === p || v.includes(p));
+}
+
 function generateFallbackContent(section: string): string {
   switch (section) {
     case 'Most Consistent With':
@@ -77,18 +101,21 @@ function generateFallbackContent(section: string): string {
     case 'Close Differentials':
       return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
     case 'Morphologic Justification':
-      return 'Assessment is based on the provided history and any available images. Morphology suggests a localized dermatologic process requiring clinical correlation.';
+      return 'Assessment is based on the provided history and any available images. Morphology suggests a localised dermatologic process requiring clinical correlation.';
     case 'Educational Treatment Framework':
       return 'General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.';
     case 'Investigations Commonly Considered':
       return 'Further evaluation may include dermatologic examination, bedside tests, laboratory workup, or biopsy if clinically indicated.';
     case 'References':
-      return 'Standard dermatology educational references and clinical guidelines.';
+      return 'Standard dermatology educational references and clinical guidelines (NHS, DermNet NZ, BAD, CDC).';
     default:
       return 'Clinical details are limited from the currently available information.';
   }
 }
 
+// ─────────────────────────────────────────────────────────
+// Section extraction
+// ─────────────────────────────────────────────────────────
 function extractStructuredSections(text: string): Record<string, string> {
   const cleaned = cleanBody(text);
   if (!cleaned) return {};
@@ -101,15 +128,9 @@ function extractStructuredSections(text: string): Record<string, string> {
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
-
   while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({
-      title: match[1],
-      index: match.index,
-      fullLength: match[0].length,
-    });
+    matches.push({ title: match[1], index: match.index, fullLength: match[0].length });
   }
-
   if (matches.length === 0) return {};
 
   const sections: Record<string, string> = {};
@@ -120,7 +141,6 @@ function extractStructuredSections(text: string): Record<string, string> {
     const end = next ? next.index : cleaned.length;
     sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
   }
-
   return sections;
 }
 
@@ -145,15 +165,9 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
-
   while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({
-      title: match[1],
-      index: match.index,
-      fullLength: match[0].length,
-    });
+    matches.push({ title: match[1], index: match.index, fullLength: match[0].length });
   }
-
   if (matches.length === 0) return {};
 
   const sections: Record<string, string> = {};
@@ -170,7 +184,6 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
       sections[normalizeHeading(mapping.target)] = body;
     }
   }
-
   return sections;
 }
 
@@ -183,10 +196,7 @@ function buildStructuredOutput(sections: Record<string, string>): string {
 
   const cleaned = cleanBody(content);
   if (!cleaned) return '';
-
-  if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) {
-    return cleaned;
-  }
+  if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) return cleaned;
   return `${cleaned}\n\n${FINAL_LINE}`;
 }
 
@@ -208,21 +218,58 @@ function normaliseAIResponse(raw: string): string {
   if (!text || text.length < 30) return buildStructuredOutput({});
 
   let sections = extractStructuredSections(text);
-  if (Object.keys(sections).length === 0) {
-    sections = extractLegacyNumberedSections(text);
-  }
+  if (Object.keys(sections).length === 0) sections = extractLegacyNumberedSections(text);
   if (Object.keys(sections).length === 0) {
     sections = { [normalizeHeading('Most Consistent With')]: text };
   }
 
-  const strippedSections: Record<string, string> = {};
+  const stripped: Record<string, string> = {};
   for (const [key, body] of Object.entries(sections)) {
-    strippedSections[key] = stripDosingInfo(body);
+    stripped[key] = stripDosingInfo(body);
   }
-
-  return buildStructuredOutput(strippedSections);
+  return buildStructuredOutput(stripped);
 }
 
+// ─────────────────────────────────────────────────────────
+// Smart merge — only replaces sections that AI improved
+// ─────────────────────────────────────────────────────────
+function smartMerge(existingDraft: string, aiResponse: string): string {
+  const existingSections = (() => {
+    let s = extractStructuredSections(existingDraft);
+    if (Object.keys(s).length === 0) s = extractLegacyNumberedSections(existingDraft);
+    return s;
+  })();
+
+  const aiSections = (() => {
+    let s = extractStructuredSections(aiResponse);
+    if (Object.keys(s).length === 0) s = extractLegacyNumberedSections(aiResponse);
+    return s;
+  })();
+
+  const merged: Record<string, string> = {};
+
+  for (const title of SECTION_TITLES) {
+    const key = normalizeHeading(title);
+    const existing = cleanBody(existingSections[key] || '');
+    const ai = cleanBody(aiSections[key] || '');
+
+    if (ai && !isPlaceholder(ai)) {
+      // AI produced meaningful content — use it (it may refine the existing)
+      merged[key] = ai;
+    } else if (existing && !isPlaceholder(existing)) {
+      // AI left this section alone — preserve the doctor's existing text
+      merged[key] = existing;
+    } else {
+      merged[key] = generateFallbackContent(title);
+    }
+  }
+
+  return buildStructuredOutput(merged);
+}
+
+// ─────────────────────────────────────────────────────────
+// Image utilities
+// ─────────────────────────────────────────────────────────
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -242,21 +289,17 @@ async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
         'Reply with only YES if this image contains a human face or any personal identifying information such as a name, ID number, address, or date of birth. Reply with only NO otherwise.',
     }),
   });
-
   const data = await response.json();
-  const answer = data.result?.trim().toUpperCase();
-  return answer === 'YES';
+  return data.result?.trim().toUpperCase() === 'YES';
 }
 
 const AIReviewAssistantLink = (props: any) => (
-  <a
-    {...props}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="text-blue-600 underline break-words"
-  />
+  <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-words" />
 );
 
+// ─────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
@@ -266,28 +309,37 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   prefillMessage,
   onPrefillConsumed,
 }) => {
-  const [messages, setMessages] = useState<
-    { role: 'user' | 'ai'; content: string }[]
-  >([
+  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nUse the Apply to editor button under any response to merge it into the Assessment editor.",
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\nClose Differentials\nMorphologic Justification\nEducational Treatment Framework\nInvestigations Commonly Considered\nReferences\n\nUse the **Apply to editor** button under any response to intelligently merge it into your Assessment — only sections that need updating will be changed.",
     },
   ]);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
   const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Prefill input when triggered from editor toolbar
   useEffect(() => {
     if (prefillMessage && prefillMessage.trim()) {
       setInput(prefillMessage.trim());
       onPrefillConsumed?.();
+      setTimeout(() => inputRef.current?.focus(), 80);
     }
   }, [prefillMessage]);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
 
   const handleImageSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -299,13 +351,10 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const base64 = await fileToBase64(file);
       const blocked = await containsFaceOrPII(base64);
       if (blocked) {
-        setImageError(
-          'This image appears to contain a face or personal identifying information and cannot be uploaded. Please remove personal details and try again.'
-        );
+        setImageError('This image appears to contain a face or personal identifying information and cannot be uploaded.');
         return;
       }
-      const previewUrl = URL.createObjectURL(file);
-      setPendingImage({ file, previewUrl });
+      setPendingImage({ file, previewUrl: URL.createObjectURL(file) });
     } catch {
       setImageError('Image check failed. Please try again.');
     }
@@ -324,6 +373,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
+    setAppliedIndex(null);
 
     const imageToClear = pendingImage;
     setPendingImage(null);
@@ -333,18 +383,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
-
       formData.append(
         'question',
         `${STRUCTURED_FORMAT_PROMPT}\n\nPatient intake context:\n${contextData}\n\nCurrent editor draft:\n${editorContent || 'No draft yet.'}\n\nDoctor's request:\n${userMsg}`
       );
-
       formData.append('currentDraft', editorContent || '');
       formData.append('contextData', contextData);
-
-      if (imageToClear?.file) {
-        formData.append('image', imageToClear.file);
-      }
+      if (imageToClear?.file) formData.append('image', imageToClear.file);
 
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
         method: 'POST',
@@ -359,17 +404,12 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
       const aiContent = normaliseAIResponse(rawAiContent) || buildStructuredOutput({});
-
       setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error) {
       console.error('Error consulting AI:', error);
       setMessages(prev => [
         ...prev,
-        {
-          role: 'ai',
-          content:
-            'I encountered an error. Please ensure the backend is running and try again.',
-        },
+        { role: 'ai', content: 'I encountered an error. Please ensure the backend is running and try again.' },
       ]);
     } finally {
       setIsLoading(false);
@@ -377,9 +417,27 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
+  // Smart apply: merges AI output into existing draft, only updating sections that changed
+  const handleApply = useCallback(
+    (content: string, index: number) => {
+      if (!onApplyContent) return;
+      const merged = smartMerge(editorContent || '', content);
+      onApplyContent(merged);
+      setAppliedIndex(index);
+    },
+    [editorContent, onApplyContent]
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <Card className="h-full flex flex-col border-none shadow-none rounded-none">
-      <CardHeader className="py-3 px-4 border-b bg-primary/5 flex flex-row items-center justify-between">
+      <CardHeader className="py-3 px-4 border-b bg-primary/5 flex flex-row items-center justify-between shrink-0">
         <CardTitle className="text-sm flex items-center gap-2 text-primary">
           <Bot className="h-4 w-4" />
           AI Consultation
@@ -389,16 +447,12 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         </Button>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+      <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
+        {/* Message list */}
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`flex flex-col ${
-                  m.role === 'user' ? 'items-end' : 'items-start'
-                }`}
-              >
+              <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <div
                   className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
                     m.role === 'user'
@@ -423,16 +477,24 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
 
+                  {/* Apply to editor — only on AI messages after the first */}
                   {m.role === 'ai' && i > 0 && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px] px-2"
-                        onClick={() => onApplyContent(m.content)}
-                      >
-                        Apply to editor
-                      </Button>
+                      {appliedIndex === i ? (
+                        <span className="flex items-center gap-1 text-[10px] text-green-600 font-medium">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Applied to editor
+                        </span>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] px-2 border-primary/30 text-primary hover:bg-primary/5"
+                          onClick={() => handleApply(m.content, i)}
+                        >
+                          Apply to editor
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -448,10 +510,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                 </div>
               </div>
             )}
+
+            <div ref={bottomRef} />
           </div>
         </ScrollArea>
 
-        <div className="p-3 border-t bg-background space-y-2">
+        {/* Input area — div not form to avoid nested form conflicts */}
+        <div className="p-3 border-t bg-background space-y-2 shrink-0">
           {imageError && (
             <div className="flex items-start gap-1.5 text-[11px] text-destructive bg-destructive/10 rounded px-2 py-1.5">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -481,13 +546,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             </div>
           )}
 
-          <form
-            onSubmit={e => {
-              e.preventDefault();
-              handleSend();
-            }}
-            className="flex gap-2"
-          >
+          <div className="flex gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -506,21 +565,25 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               <ImagePlus className="h-4 w-4" />
             </Button>
             <Input
+              ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="Ask for diagnosis, plan..."
               className="flex-1 h-9 text-xs"
               disabled={isLoading}
+              autoComplete="off"
             />
             <Button
-              type="submit"
+              type="button"
               size="icon"
-              className="h-9 w-9"
+              className="h-9 w-9 shrink-0"
               disabled={isLoading || !input.trim()}
+              onClick={handleSend}
             >
               <Send className="h-4 w-4" />
             </Button>
-          </form>
+          </div>
         </div>
       </CardContent>
     </Card>
