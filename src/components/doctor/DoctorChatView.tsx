@@ -349,14 +349,17 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
     const existing = cleanBody(existingSections[key] ?? '');
     const ai = cleanBody(aiSections[key] ?? '');
 
-    let finalBody = existing;
+    let finalBody: string;
 
-    if (!existing || isPlaceholder(existing)) {
-      finalBody = ai || generateFallbackContent(title);
-    }
-
-    if (title === 'References' && !finalBody) {
-      finalBody = ai || generateFallbackContent(title);
+    if (ai && !isPlaceholder(ai)) {
+      // AI has meaningful content for this section — use it
+      finalBody = ai;
+    } else if (existing && !isPlaceholder(existing)) {
+      // AI did not address this section — keep existing
+      finalBody = existing;
+    } else {
+      // Neither has meaningful content — use fallback
+      finalBody = generateFallbackContent(title);
     }
 
     return `${title}\n\n${cleanBody(finalBody)}`.trim();
@@ -717,6 +720,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         conversationId={String(conversation.id)}
         contextData={JSON.stringify(conversation.intakeData || {})}
         onApplyContent={handleApplyAIContent}
+        editorContent={patientMessage}
       />
     </div>
   );
@@ -836,20 +840,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     Assessment & Response
                   </label>
                   <div className="flex gap-1.5 md:gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRegenerateDraft}
-                      disabled={isRegenerating}
-                      className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs text-amber-700 border-amber-200 hover:bg-amber-50"
-                    >
-                      <RotateCcw
-                        className={`h-3.5 w-3.5 ${isRegenerating ? 'animate-spin' : ''}`}
-                      />
-                      <span className="hidden sm:inline">
-                        {isRegenerating ? 'Generating...' : 'Regenerate Draft'}
-                      </span>
-                    </Button>
                     {conversation.draftResponse &&
                       patientMessage !== conversation.draftResponse && (
                         <Button

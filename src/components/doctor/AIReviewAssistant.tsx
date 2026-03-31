@@ -12,6 +12,7 @@ interface AIReviewAssistantProps {
   contextData: string;
   conversationId: string;
   onApplyContent?: (content: string) => void;
+  editorContent?: string;
 }
 
 const SECTION_TITLES = [
@@ -244,6 +245,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   contextData,
   conversationId,
   onApplyContent,
+  editorContent,
 }) => {
   const [messages, setMessages] = useState<
     { role: 'user' | 'ai'; content: string }[]
@@ -251,7 +253,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nThe response will be applied to the Assessment editor automatically.",
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nUse the Apply to editor button under any response to merge it into the Assessment editor.",
     },
   ]);
 
@@ -272,7 +274,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       formData.append('id', conversationId);
       formData.append(
         'question',
-        `${STRUCTURED_FORMAT_PROMPT}\n\nContext:\n${contextData}\n\nDoctor's request:\n${userMsg}`
+        `${STRUCTURED_FORMAT_PROMPT}\n\nPatient intake context:\n${contextData}\n\nCurrent editor draft:\n${editorContent || 'No draft yet.'}\n\nDoctor's request:\n${userMsg}`
       );
 
       const response = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
@@ -292,12 +294,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         buildStructuredOutput({});
 
       setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
-
-      // AUTO-APPLY: every AI response is written directly into
-      // the Assessment & Response editor — no button needed
-      if (onApplyContent) {
-        onApplyContent(aiContent);
-      }
     } catch (error) {
       console.error('Error consulting AI:', error);
       setMessages(prev => [
@@ -359,11 +355,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
 
-                  {/* Confirmation label on every AI response after the first */}
-                  {m.role === 'ai' && i > 0 && (
-                    <p className="mt-2 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
-                      ✓ Applied to Assessment editor
-                    </p>
+                  {/* Apply button on every AI response after the first */}
+                  {m.role === 'ai' && i > 0 && onApplyContent && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px] px-2"
+                        onClick={() => onApplyContent(m.content)}
+                      >
+                        Apply to editor
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
