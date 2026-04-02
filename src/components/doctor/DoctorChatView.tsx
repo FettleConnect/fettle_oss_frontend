@@ -310,12 +310,16 @@ function extractSections(text: string): Record<string, string> {
   return {};
 }
 
+// ✅ CHANGED: intelligent section-by-section merge.
+// Rules per section:
+//   - AI has nothing useful            → keep doctor's existing content
+//   - Doctor hasn't written anything   → take AI content
+//   - Both have content, existing is still the default boilerplate and AI differs → take AI
+//   - Both have content, doctor has customised the section and AI also has something different → AI wins (doctor clicked Apply intentionally)
+//   - AI content is same as existing or same as default boilerplate → preserve doctor's edits
 function mergeStructuredContent(existingText: string, aiText: string): string {
-  const normalizedExisting = normalizeAIContentToStructuredFormat(existingText);
-  const normalizedAI = normalizeAIContentToStructuredFormat(aiText);
-
-  const existingSections = extractSections(normalizedExisting);
-  const aiSections = extractSections(normalizedAI);
+  const existingSections = extractSections(existingText);
+  const aiSections = extractSections(normalizeAIContentToStructuredFormat(aiText));
 
   const mergedBlocks = SECTION_TITLES.map((title) => {
     const key = normalizeHeading(title);
@@ -324,12 +328,35 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
 
     let finalBody: string;
 
-    if (ai && !isPlaceholder(ai)) {
+    const aiIsReal = ai && !isPlaceholder(ai);
+    const existingIsReal = existing && !isPlaceholder(existing);
+
+    if (!aiIsReal) {
+      // AI has nothing useful — keep doctor's content
+      finalBody = existingIsReal ? existing : generateFallbackContent(title);
+    } else if (!existingIsReal) {
+      // Doctor hasn't written anything yet — take AI content
       finalBody = ai;
-    } else if (existing && !isPlaceholder(existing)) {
-      finalBody = existing;
     } else {
-      finalBody = generateFallbackContent(title);
+      // Both have content — decide intelligently
+      const normalExisting = existing.replace(/\s+/g, ' ').trim().toLowerCase();
+      const normalAi = ai.replace(/\s+/g, ' ').trim().toLowerCase();
+      const defaultBody = generateFallbackContent(title).replace(/\s+/g, ' ').trim().toLowerCase();
+
+      const existingIsDefault = normalExisting === defaultBody;
+      const aiIsDefault = normalAi === defaultBody;
+      const aiIsDifferent = normalAi !== normalExisting;
+
+      if (existingIsDefault && !aiIsDefault) {
+        // Doctor hasn't customised this section — AI has something better
+        finalBody = ai;
+      } else if (!existingIsDefault && aiIsDifferent && !aiIsDefault) {
+        // Doctor edited this section AND AI revised it — AI wins (intentional Apply)
+        finalBody = ai;
+      } else {
+        // AI returned same as existing or same as default — preserve doctor's edits
+        finalBody = existing;
+      }
     }
 
     return `${title}\n\n${cleanBody(finalBody)}`.trim();
@@ -337,7 +364,7 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
 
   let finalText = mergedBlocks.join('\n\n').trim();
 
-  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
+  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`)) {
     finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
   }
 
@@ -623,16 +650,16 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
+  // ✅ CHANGED: uses mergeStructuredContent for intelligent section-by-section update.
+  // Only sections that AI actually improved get updated; doctor's manual edits are preserved elsewhere.
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const normalized = normalizeAIContentToStructuredFormat(content);
-      const merged = mergeStructuredContent(patientMessage, normalized);
-
+      const merged = mergeStructuredContent(patientMessage, content);
       setPatientMessage(merged);
 
       toast({
         title: 'Assessment Updated',
-        description: 'Structured AI content was applied to the editor.',
+        description: 'AI suggestions applied to sections that needed improvement.',
       });
 
       if (isMobile) setShowAI(false);
