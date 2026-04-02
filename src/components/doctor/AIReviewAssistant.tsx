@@ -170,14 +170,6 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   return sections;
 }
 
-function splitIntoSections(text: string): Record<string, string> {
-  let sections = extractStructuredSections(text);
-  if (Object.keys(sections).length === 0) {
-    sections = extractLegacyNumberedSections(text);
-  }
-  return sections;
-}
-
 function buildStructuredOutput(
   sections: Record<string, string>,
   options?: {
@@ -485,7 +477,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
-  // ✅ CHANGED: pass raw AI content directly to onApplyContent.
+  // Pass raw AI content directly to onApplyContent.
   // DoctorChatView.handleApplyAIContent handles the intelligent section-by-section merge.
   const handleApply = useCallback(
     (content: string, index: number) => {
@@ -518,57 +510,65 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
-              >
-                <div
-                  className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                    m.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-foreground'
-                  }`}
-                >
-                  {m.role === 'ai' ? (
-                    <div
-                      className="prose prose-sm dark:prose-invert max-w-none
-                        [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
-                        [&_strong]:font-bold
-                        [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                        [&_ol]:pl-4 [&_ol]:mb-2
-                        [&_a]:text-blue-600 [&_a]:underline break-words"
-                    >
-                      <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
-                        {m.content}
-                      </ReactMarkdown>
-                    </div>
-                  ) : (
-                    <div className="whitespace-pre-wrap">{m.content}</div>
-                  )}
+            {messages.map((m, i) => {
+              // Capture variables explicitly — fixes Safari closure bug where
+              // onClick references inside .map() fail to resolve loop variables
+              const messageContent = m.content;
+              const messageIndex = i;
+              const messageRole = m.role;
 
-                  {m.role === 'ai' && i > 0 && onApplyContent && (
-                    <div className="mt-2 pt-2 border-t border-border/50">
-                      {appliedIndex === i ? (
-                        <span className="flex items-center gap-1 text-[10px] text-green-600 font-medium">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Applied to editor
-                        </span>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[10px] px-2 border-primary/30 text-primary hover:bg-primary/5"
-                          onClick={() => handleApply(m.content, i)}
-                        >
-                          Apply to editor
-                        </Button>
-                      )}
-                    </div>
-                  )}
+              return (
+                <div
+                  key={messageIndex}
+                  className={`flex flex-col ${messageRole === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div
+                    className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                      messageRole === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-foreground'
+                    }`}
+                  >
+                    {messageRole === 'ai' ? (
+                      <div
+                        className="prose prose-sm dark:prose-invert max-w-none
+                          [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
+                          [&_strong]:font-bold
+                          [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
+                          [&_ol]:pl-4 [&_ol]:mb-2
+                          [&_a]:text-blue-600 [&_a]:underline break-words"
+                      >
+                        <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
+                          {messageContent}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{messageContent}</div>
+                    )}
+
+                    {messageRole === 'ai' && messageIndex > 0 && onApplyContent && (
+                      <div className="mt-2 pt-2 border-t border-border/50">
+                        {appliedIndex === messageIndex ? (
+                          <span className="flex items-center gap-1 text-[10px] text-green-600 font-medium">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Applied to editor
+                          </span>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] px-2 border-primary/30 text-primary hover:bg-primary/5"
+                            onClick={() => handleApply(messageContent, messageIndex)}
+                          >
+                            Apply to editor
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {isLoading && (
               <div className="flex justify-start">
