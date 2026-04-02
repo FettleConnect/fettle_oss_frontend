@@ -649,21 +649,23 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // Intelligent section-by-section merge: only updates sections the AI actually improved.
-  // Doctor's manual edits in other sections are fully preserved.
+  // Write the AI response content directly into the Assessment textarea.
+  // normalizeAIContentToStructuredFormat strips markdown bold markers from headings,
+  // fills any missing sections with fallback placeholders, and preserves the body
+  // content exactly as it appeared in the AI discussion (bullets, paragraphs, line breaks).
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const merged = mergeStructuredContent(patientMessage, content);
-      setPatientMessage(merged);
+      const normalized = normalizeAIContentToStructuredFormat(content);
+      setPatientMessage(normalized);
 
       toast({
         title: 'Assessment Updated',
-        description: 'AI suggestions applied to sections that needed improvement.',
+        description: 'AI content applied to the Assessment & Response editor.',
       });
 
       if (isMobile) setShowAI(false);
     },
-    [isMobile, patientMessage, toast]
+    [isMobile, toast]
   );
 
   const canRespond =
