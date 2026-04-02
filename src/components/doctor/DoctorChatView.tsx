@@ -310,13 +310,12 @@ function extractSections(text: string): Record<string, string> {
   return {};
 }
 
-// ✅ CHANGED: intelligent section-by-section merge.
-// Rules per section:
+// Intelligent section-by-section merge rules:
 //   - AI has nothing useful            → keep doctor's existing content
 //   - Doctor hasn't written anything   → take AI content
-//   - Both have content, existing is still the default boilerplate and AI differs → take AI
-//   - Both have content, doctor has customised the section and AI also has something different → AI wins (doctor clicked Apply intentionally)
-//   - AI content is same as existing or same as default boilerplate → preserve doctor's edits
+//   - Both have content, existing is still default boilerplate, AI differs → take AI
+//   - Both have content, doctor edited it, AI has something different → AI wins (intentional Apply)
+//   - AI content same as existing or same as default boilerplate → preserve doctor's edits
 function mergeStructuredContent(existingText: string, aiText: string): string {
   const existingSections = extractSections(existingText);
   const aiSections = extractSections(normalizeAIContentToStructuredFormat(aiText));
@@ -351,7 +350,7 @@ function mergeStructuredContent(existingText: string, aiText: string): string {
         // Doctor hasn't customised this section — AI has something better
         finalBody = ai;
       } else if (!existingIsDefault && aiIsDifferent && !aiIsDefault) {
-        // Doctor edited this section AND AI revised it — AI wins (intentional Apply)
+        // Doctor edited AND AI revised it — AI wins (intentional Apply click)
         finalBody = ai;
       } else {
         // AI returned same as existing or same as default — preserve doctor's edits
@@ -650,8 +649,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // ✅ CHANGED: uses mergeStructuredContent for intelligent section-by-section update.
-  // Only sections that AI actually improved get updated; doctor's manual edits are preserved elsewhere.
+  // Intelligent section-by-section merge: only updates sections the AI actually improved.
+  // Doctor's manual edits in other sections are fully preserved.
   const handleApplyAIContent = useCallback(
     (content: string) => {
       const merged = mergeStructuredContent(patientMessage, content);
