@@ -224,37 +224,6 @@ function stripDosingInfo(text: string): string {
     .trim();
 }
 
-function mergeParagraphAware(existing: string, incoming: string): string {
-  const oldText = cleanBody(existing);
-  const newText = cleanBody(incoming);
-
-  if (!newText) return oldText;
-  if (!oldText) return newText;
-
-  const oldNorm = oldText.replace(/\s+/g, ' ').trim().toLowerCase();
-  const newNorm = newText.replace(/\s+/g, ' ').trim().toLowerCase();
-
-  if (oldNorm === newNorm) return oldText;
-  if (oldNorm.includes(newNorm)) return oldText;
-  if (newNorm.includes(oldNorm)) return newText;
-
-  const oldParas = oldText.split(/\n\s*\n/).map((p) => cleanBody(p)).filter(Boolean);
-  const newParas = newText.split(/\n\s*\n/).map((p) => cleanBody(p)).filter(Boolean);
-
-  const seen = new Set<string>();
-  const merged: string[] = [];
-
-  for (const para of [...oldParas, ...newParas]) {
-    const key = para.replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(para);
-    }
-  }
-
-  return merged.join('\n\n').trim();
-}
-
 function normaliseAIResponse(raw: string): string {
   const text = cleanBody(raw);
   if (!text || text.length < 20) return '';
@@ -280,45 +249,6 @@ function normaliseAIResponse(raw: string): string {
     fillMissing: false,
     boldHeadings: true,
   });
-}
-
-function smartMerge(existingDraft: string, aiResponse: string): string {
-  const existingSections = splitIntoSections(existingDraft);
-  const aiSections = splitIntoSections(aiResponse);
-
-  if (Object.keys(aiSections).length === 0) {
-    return cleanBody(existingDraft);
-  }
-
-  const finalBlocks: string[] = [];
-
-  for (const title of SECTION_TITLES) {
-    const key = normalizeHeading(title);
-    const existing = cleanBody(existingSections[key] || '');
-    const incoming = cleanBody(aiSections[key] || '');
-
-    let finalBody = existing;
-
-    if (incoming && !isPlaceholder(incoming)) {
-      finalBody = mergeParagraphAware(existing, incoming);
-    }
-
-    if (finalBody) {
-      finalBlocks.push(`${title}\n\n${finalBody}`.trim());
-    }
-  }
-
-  let result = cleanBody(finalBlocks.join('\n\n'));
-
-  if (!result) {
-    result = cleanBody(existingDraft);
-  }
-
-  if (result && !result.toLowerCase().includes(FINAL_LINE.toLowerCase())) {
-    result = `${result}\n\n${FINAL_LINE}`;
-  }
-
-  return result;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -555,14 +485,15 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
+  // ✅ CHANGED: pass raw AI content directly to onApplyContent.
+  // DoctorChatView.handleApplyAIContent handles the intelligent section-by-section merge.
   const handleApply = useCallback(
     (content: string, index: number) => {
       if (!onApplyContent) return;
-      const merged = smartMerge(editorContent || '', content);
-      onApplyContent(merged);
+      onApplyContent(content);
       setAppliedIndex(index);
     },
-    [editorContent, onApplyContent]
+    [onApplyContent]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
