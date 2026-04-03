@@ -38,6 +38,49 @@ interface SafeImage {
   id: string;
 }
 
+const SECTION_TITLES = [
+  'Most Consistent With',
+  'Close Differentials',
+  'Morphologic Justification',
+  'Educational Treatment Framework',
+  'Investigations Commonly Considered',
+  'References',
+];
+
+const DEFAULT_ASSESSMENT_TEMPLATE = `Most Consistent With
+
+Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.
+
+Close Differentials
+
+Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.
+
+Morphologic Justification
+
+Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.
+
+Educational Treatment Framework
+
+General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.
+
+Investigations Commonly Considered
+
+Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.
+
+References
+
+Standard dermatology clinical references and guidelines.
+
+You're welcome to ask follow-up questions.`;
+
+function cleanBody(text: string): string {
+  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function extractBase64(dataUrl: string): string {
+  return dataUrl.split(',')[1] ?? '';
+}
+
 async function detectFaceOrPII(
   dataUrl: string
 ): Promise<{ blocked: boolean; reason: string }> {
@@ -76,77 +119,12 @@ async function detectFaceOrPII(
   }
 }
 
-function extractBase64(dataUrl: string): string {
-  return dataUrl.split(',')[1] ?? '';
-}
-
-const DEFAULT_ASSESSMENT_TEMPLATE = `Most Consistent With
-
-Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.
-
-Close Differentials
-
-Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.
-
-Morphologic Justification
-
-Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.
-
-Educational Treatment Framework
-
-General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.
-
-Investigations Commonly Considered
-
-Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.
-
-References
-
-Standard dermatology clinical references and guidelines.
-
-You're welcome to ask follow-up questions.`;
-
-const SECTION_TITLES = [
-  'Most Consistent With',
-  'Close Differentials',
-  'Morphologic Justification',
-  'Educational Treatment Framework',
-  'Investigations Commonly Considered',
-  'References',
-];
-
 function normalizeHeading(title: string): string {
   return title.trim().toLowerCase();
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function cleanBody(text: string): string {
-  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function isPlaceholder(text: string): boolean {
-  const value = (text || '').trim().toLowerCase();
-  if (!value) return true;
-
-  const placeholders = [
-    'type here',
-    'enter response',
-    'write response',
-    'draft response',
-    'assessment',
-    'pending',
-    'tbd',
-    'todo',
-    'n/a',
-    'na',
-    '-',
-    '--',
-  ];
-
-  return placeholders.some((p) => value === p || value.includes(p));
+function stripMarkdownBold(value: string): string {
+  return value.replace(/\*\*/g, '').trim();
 }
 
 function generateFallbackContent(section: string): string {
@@ -168,107 +146,89 @@ function generateFallbackContent(section: string): string {
   }
 }
 
-function extractStructuredSections(text: string): Record<string, string> {
-  const cleaned = cleanBody(text);
+function parseStructuredSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(stripMarkdownBold(text));
   if (!cleaned) return {};
 
-  const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(
-    `(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
-    'gi'
-  );
-
-  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({
-      title: match[1],
-      index: match.index,
-      fullLength: match[0].length,
-    });
-  }
-
-  if (matches.length === 0) return {};
-
   const sections: Record<string, string> = {};
+  const lines = cleaned.split('\n');
 
-  for (let i = 0; i < matches.length; i++) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const start = current.index + current.fullLength;
-    const end = next ? next.index : cleaned.length;
-    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
-  }
+  let currentTitle: string | null = null;
+  let buffer: string[] = [];
 
-  return sections;
-}
+  const flush = () => {
+    if (!currentTitle) return;
+    const body = cleanBody(buffer.join('\n'));
+    if (body) {
+      sections[normalizeHeading(currentTitle)] = body;
+    }
+    buffer = [];
+  };
 
-function extractLegacyNumberedSections(text: string): Record<string, string> {
-  const cleaned = cleanBody(text);
-  if (!cleaned) return {};
+  const legacyMap: Record<string, string> = {
+    diagnosis: 'Most Consistent With',
+    'most consistent with': 'Most Consistent With',
+    'differential diagnoses': 'Close Differentials',
+    'close differentials': 'Close Differentials',
+    differentials: 'Close Differentials',
+    'technical justification': 'Morphologic Justification',
+    'morphologic justification': 'Morphologic Justification',
+    justification: 'Morphologic Justification',
+    'prescription regimen': 'Educational Treatment Framework',
+    'educational treatment framework': 'Educational Treatment Framework',
+    'treatment framework': 'Educational Treatment Framework',
+    investigations: 'Investigations Commonly Considered',
+    'investigations commonly considered': 'Investigations Commonly Considered',
+    'educational references': 'References',
+    references: 'References',
+  };
 
-  const mappings = [
-    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
-    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
-    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
-    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
-    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
-    { patterns: ['Educational References', 'References'], target: 'References' },
-  ];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (currentTitle) buffer.push('');
+      continue;
+    }
 
-  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
-  const regex = new RegExp(
-    `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
-    'gi'
-  );
+    const normalizedLine = stripMarkdownBold(line);
 
-  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
-  let match: RegExpExecArray | null;
+    let matchedTitle: string | null = null;
+    let inlineBody = '';
 
-  while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({
-      title: match[1],
-      index: match.index,
-      fullLength: match[0].length,
-    });
-  }
+    for (const candidate of Object.keys(legacyMap)) {
+      const regex = new RegExp(`^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`, 'i');
+      const match = normalizedLine.match(regex);
+      if (match) {
+        matchedTitle = legacyMap[candidate];
+        inlineBody = (match[1] || '').trim();
+        break;
+      }
+    }
 
-  if (matches.length === 0) return {};
+    if (matchedTitle) {
+      flush();
+      currentTitle = matchedTitle;
+      if (inlineBody) buffer.push(inlineBody);
+      continue;
+    }
 
-  const sections: Record<string, string> = {};
-
-  for (let i = 0; i < matches.length; i++) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const start = current.index + current.fullLength;
-    const end = next ? next.index : cleaned.length;
-    const body = cleanBody(cleaned.slice(start, end));
-
-    const mapping = mappings.find((m) =>
-      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
-    );
-
-    if (mapping && body) {
-      sections[normalizeHeading(mapping.target)] = body;
+    if (currentTitle) {
+      buffer.push(rawLine);
     }
   }
 
+  flush();
   return sections;
 }
 
-function normalizeAIContentToStructuredFormat(rawText: string): string {
+function ensureCompleteStructuredAssessment(rawText: string): string {
   const text = cleanBody(rawText);
 
   if (!text || text.length < 20) {
     return DEFAULT_ASSESSMENT_TEMPLATE;
   }
 
-  let sections = extractStructuredSections(text);
-
-  if (Object.keys(sections).length === 0) {
-    sections = extractLegacyNumberedSections(text);
-  }
+  let sections = parseStructuredSections(text);
 
   if (Object.keys(sections).length === 0) {
     sections = {
@@ -276,28 +236,18 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
     };
   }
 
-  const normalized = SECTION_TITLES.map((title) => {
+  const finalText = SECTION_TITLES.map((title) => {
     const key = normalizeHeading(title);
-    let body = cleanBody(sections[key] || '');
-
-    if (!body || isPlaceholder(body) || body.length < 10) {
-      body = generateFallbackContent(title);
-    }
-
-    return `${title}\n\n${body}`.trim();
+    const body = cleanBody(sections[key] || generateFallbackContent(title));
+    return `${title}\n\n${body}`;
   }).join('\n\n');
 
-  let finalText = cleanBody(normalized);
-
-  if (!finalText) {
-    finalText = DEFAULT_ASSESSMENT_TEMPLATE;
+  const cleaned = cleanBody(finalText);
+  if (cleaned.toLowerCase().includes("you're welcome to ask follow-up questions.")) {
+    return cleaned;
   }
 
-  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
-    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
-  }
-
-  return finalText;
+  return `${cleaned}\n\nYou're welcome to ask follow-up questions.`;
 }
 
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
@@ -579,17 +529,14 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // FULL REPLACE ONLY:
-  // Whatever AI returns gets normalized into the required structure
-  // and then replaces the entire Assessment & Response box.
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const normalized = normalizeAIContentToStructuredFormat(content);
-      setPatientMessage(normalized);
+      const fullDraft = ensureCompleteStructuredAssessment(content);
+      setPatientMessage(fullDraft);
 
       toast({
         title: 'Assessment Updated',
-        description: 'AI response fully replaced the Assessment & Response draft.',
+        description: 'The full AI draft replaced the entire Assessment & Response editor.',
       });
 
       if (isMobile) setShowAI(false);
@@ -894,3 +841,5 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     </div>
   );
 };
+
+export default DoctorChatView;
