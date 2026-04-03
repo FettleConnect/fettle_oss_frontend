@@ -280,7 +280,7 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
     const key = normalizeHeading(title);
     let body = cleanBody(sections[key] || '');
 
-    if (!body || isPlaceholder(body)) {
+    if (!body || isPlaceholder(body) || body.length < 10) {
       body = generateFallbackContent(title);
     }
 
@@ -579,7 +579,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // DIRECT APPLY: replace what is currently inside the editor
   const handleApplyAIContent = useCallback(
     (content: string) => {
       const normalized = normalizeAIContentToStructuredFormat(content);
@@ -587,7 +586,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
       toast({
         title: 'Assessment Updated',
-        description: 'AI response was applied directly to the Assessment & Response box.',
+        description: 'The full Assessment & Response draft was regenerated.',
       });
 
       if (isMobile) setShowAI(false);
@@ -753,7 +752,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       size="sm"
                       onClick={() => {
                         setAiPrefillMessage(
-                          'Please revise the current draft and return the response in the required structured format.'
+                          'Please regenerate the entire Assessment & Response draft in the required structured format. Fill every section completely and do not leave any section generic or empty.'
                         );
                         setShowAI(true);
                       }}
