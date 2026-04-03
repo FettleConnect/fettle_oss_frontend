@@ -477,8 +477,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
-  // Pass raw AI content directly to onApplyContent.
-  // DoctorChatView.handleApplyAIContent handles the intelligent section-by-section merge.
   const handleApply = useCallback(
     (content: string, index: number) => {
       if (!onApplyContent) return;
@@ -511,8 +509,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => {
-              // Capture variables explicitly — fixes Safari closure bug where
-              // onClick references inside .map() fail to resolve loop variables
               const messageContent = m.content;
               const messageIndex = i;
               const messageRole = m.role;
