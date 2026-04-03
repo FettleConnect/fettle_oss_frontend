@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, ReactNode } from 'react';
 import { Message } from '@/types/dermatology';
 import { cn } from '@/lib/utils';
 import { Bot, User, Stethoscope, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -7,20 +7,32 @@ import remarkGfm from 'remark-gfm';
 
 interface ChatMessageProps { message: Message; isStreaming?: boolean; }
 
-const URL_REGEX = /(https?:\/\/[^\s<>")\]]+)/g;
+const SECTION_TITLES = [
+  'Most Consistent With',
+  'Close Differentials',
+  'Morphologic Justification',
+  'Educational Treatment Framework',
+  'Typical Course and Prognosis',
+  'When In-Person Evaluation Is Considered',
+  'Educational References',
+];
 
-const MarkdownP = (props: any) => <p className="whitespace-pre-wrap mb-2 last:mb-0" {...props} />;
-const MarkdownStrong = (props: any) => <strong className="font-bold" {...props} />;
-const MarkdownUl = (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />;
-const MarkdownOl = (props: any) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />;
-const MarkdownLi = (props: any) => <li className="text-sm leading-relaxed" {...props} />;
-const MarkdownA = ({ href, children, ...props }: any) => (
+interface MarkdownProps {
+  children?: ReactNode;
+  href?: string;
+}
+
+const MarkdownP = ({ children }: MarkdownProps) => <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>;
+const MarkdownStrong = ({ children }: MarkdownProps) => <strong className="font-bold">{children}</strong>;
+const MarkdownUl = ({ children }: MarkdownProps) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
+const MarkdownOl = ({ children }: MarkdownProps) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
+const MarkdownLi = ({ children }: MarkdownProps) => <li className="text-sm leading-relaxed">{children}</li>;
+const MarkdownA = ({ href, children }: MarkdownProps) => (
   <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
     className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
-    {...props}
   >{children}</a>
 );
 
@@ -32,7 +44,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  // FIX 3: deduplicate images by URL before rendering
   const images = [...new Set(message.images ?? [])];
 
   const openLightbox = (idx: number) => { setLightboxIndex(idx); setLightboxOpen(true); };
@@ -69,88 +80,78 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
 
-  const stripNote = (text: string): string => {
-    const noteIndex = text.indexOf('Note: Free educational mode');
-    if (noteIndex !== -1) return text.slice(0, noteIndex).trimEnd();
-    return text.split('\n').filter(line => {
-      const l = line.toLowerCase();
-      return !(l.startsWith('note:') && (l.includes('free educational') || l.includes('text-only') || l.includes('image uploads')));
-    }).join('\n').trimEnd();
-  };
-
   const linkifyUrls = (text: string): string => {
-    return text.replace(/(?<!\]\()(https?:\/\/[^\s\)\]>"'\n]+)/g, (url) => `[${url}](${url})`);
+    // Simple URL regex without unnecessary escapes
+    return text.replace(/(?<!\]\()(https?:\/\/[^\s)\]]+)/g, (url) => `[${url}](${url})`);
   };
-
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-    const stripped = isAI ? stripNote(text) : text;
-    const normalized = stripped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = (isDoctor || isAI) ? linkifyUrls(normalized) : normalized;
+    
     return withLinks.split('\n').map(line => {
-      const trimmed = line.trimEnd(); const content = trimmed.trim();
-      if (content.length < 2) return line;
-      if (content.startsWith('**')) return line;
-      if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/\-\(\)]+:?\s*$/.test(content)) return `**${content}**`;
-      if (/^[A-Z].+:\s*$/.test(content)) return `**${content}**`;
-      if (/^[A-Z][^.!?\n]*:\s+\S/.test(content)) return line.replace(/^([^:]+:)/, '**$1**');
+      const trimmed = line.trim();
+      if (trimmed.length < 2) return line;
+      if (trimmed.startsWith('**')) return line;
+      
+      const isHeader = SECTION_TITLES.some(title => 
+        trimmed.toLowerCase() === title.toLowerCase() || 
+        trimmed.toLowerCase().startsWith(title.toLowerCase() + ':')
+      );
+      
+      if (isHeader) {
+        if (trimmed.includes(':')) {
+          return trimmed.replace(/^([^:]+:)/, '**$1**');
+        }
+        return `**${trimmed}**`;
+      }
+      
+      if (/^(\d+\.\s+)?[A-Z][A-Za-z\s/()\-]+:?\s*$/.test(trimmed)) return `**${trimmed}**`;
+      
       return line;
     }).join('\n');
   };
 
-  const renderTextWithLinks = (text: string) => {
-    const parts = text.split(URL_REGEX);
-    return parts.map((part, idx) => {
-      if (!part) return null;
-      if (part.startsWith('http')) {
-        return (
-          <a
-            key={`url-${idx}`}
-            href={part}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
-          >
-            {part}
-          </a>
-        );
-      }
-      return <React.Fragment key={`text-${idx}`}>{part}</React.Fragment>;
-    });
+  const getRoleLabel = () => {
+    if (message.senderName) return message.senderName;
+    if (isPatient) return 'You';
+    if (isDoctor) return 'Doctor';
+    if (isSystem) return 'System Notification';
+    return 'AI Educational Assistant';
   };
 
-  const getRoleLabel = () => {
-    if (message.senderName) return message.senderName; if (isPatient) return 'You'; if (isDoctor) return 'Doctor';
-    if (isSystem) return 'System Notification'; return 'AI Educational Assistant';
-  };
   const getRoleIcon = () => {
-    if (isPatient) return <User className="h-4 w-4" />; if (isDoctor) return <Stethoscope className="h-4 w-4" />;
-    return <Bot className="h-4 w-4" />;
+    if (isPatient) return <User className="h-4 w-4" />; 
+    if (isDoctor) return <Stethoscope className="h-4 w-4" />; 
+    return <Bot className="h-4 w-4" />; 
   };
+
   const getBubbleColors = () => {
     if (isPatient) return 'bg-muted text-foreground';
     if (isDoctor) return 'bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-100';
     if (isSystem) return 'bg-blue-50 text-blue-900 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-100 dark:border-blue-900/30';
     return 'bg-primary/10 text-foreground';
   };
+
   const getLabelColors = () => {
-    if (isPatient) return 'text-muted-foreground'; if (isDoctor) return 'text-green-700 dark:text-green-300';
-    if (isSystem) return 'text-blue-700 dark:text-blue-300'; return 'text-primary';
+    if (isPatient) return 'text-muted-foreground';
+    if (isDoctor) return 'text-green-700 dark:text-green-300';
+    if (isSystem) return 'text-blue-700 dark:text-blue-300';
+    return 'text-primary';
   };
 
   if (isSystem) {
     return (
       <div className="flex flex-col items-center gap-2 w-full my-4">
         <div className={cn('rounded-lg px-6 py-3 text-sm text-center font-medium max-w-[90%]', getBubbleColors())}>
-          {renderTextWithLinks(message.content ?? '')}
+          {message.content}
         </div>
       </div>
     );
   }
 
-  const safeContent = message.content ?? '';
-  const renderedContent = (isDoctor || isAI) ? formatContent(safeContent) : safeContent;
+  const renderedContent = (isDoctor || isAI) ? formatContent(message.content) : message.content;
 
   const mdComponents = {
     p: MarkdownP,
@@ -163,23 +164,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   return (
     <>
-      <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}> <div className={cn('flex items-center gap-1.5 text-xs font-medium', getLabelColors())}>
+      <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}> 
+        <div className={cn('flex items-center gap-1.5 text-xs font-medium', getLabelColors())}>
           {getRoleIcon()}<span>{getRoleLabel()}</span>
         </div>
-        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={mdComponents}
-          >{renderedContent}</ReactMarkdown>
+        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}> 
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
-
-            <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}> {images.map((url, idx) => (
-                <img key={idx} src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)}
+            <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
+              {images.map((url, idx) => (
+                <img key={idx} src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)} 
                   className="w-full h-auto object-cover max-h-64 rounded-lg border border-black/10 cursor-pointer hover:opacity-90 transition-opacity" />
               ))}
             </div>
           )}
-          {isStreaming && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />}
+          {isStreaming && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />} 
         </div>
         <span className="text-xs text-muted-foreground">{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>

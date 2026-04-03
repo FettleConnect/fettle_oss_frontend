@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
-import { PaymentPage } from '@/components/payment/PaymentPage';
 import { Button } from '@/components/ui/button';
 import { LogOut, RefreshCw, Plus, ChevronLeft, MessageSquare, Clock } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
@@ -41,108 +40,27 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
-  const [intakeStep, setIntakeStep] = useState(0);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
-  const [intakeData, setIntakeData] = useState({
-    duration: '',
-    symptoms: '',
-    location: '',
-    meds: '',
-    history: '',
-  });
   const [privacyFlagged, setPrivacyFlagged] = useState(false);
   const [consentAcknowledged, setConsentAcknowledged] = useState(false);
-  const [proceedNoImages, setProceedNoImages] = useState(false);
 
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
-
-  const paymentProcessedRef = useRef(false);
   const isSendingRef = useRef(false);
 
-  const INTAKE_QUESTIONS = [
-    'Please upload a clear image of the skin condition — rash, lesion, or affected area. Do not include your face or any personally identifiable information. Only a direct image of the skin issue is required.',
-    "Thank you. Now please upload any relevant medical reports or test results if you have them. Ensure all personal information such as your name and mobile number is redacted or covered before uploading. If you have no reports, type 'none'.",
-    '1. How long has this skin concern been present? (Duration)',
-    '2. What symptoms are you experiencing? (e.g. itching, pain, bleeding, spreading)',
-    '3. Where on your body is this located?',
-    '4. Have you tried any medications or creams for this? If so, which ones?',
-    '5. Have you had any prior diagnoses for this or other skin conditions?',
-    '6. Do you have any other relevant medical history or allergies?',
-  ];
+  const lastAiMessage = useMemo(() => {
+    const aiMsgs = messages.filter(m => m.role === 'ai' || m.role === 'AI');
+    return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1] : null;
+  }, [messages]);
 
-  const STEP_KEYS = [
-    'images', 'reportImages', 'duration', 'symptoms',
-    'location', 'meds', 'history', 'history',
-  ] as const;
-
-  const DURATION_OPTIONS = [
-    'Less than 1 week', '1–4 weeks', '1–3 months', '3–6 months', 'Over 6 months',
-  ];
-
-  const lastAiContent =
-    messages.filter(m => m.role === 'AI' || m.role === 'ai').slice(-1)[0]?.content?.toLowerCase() ?? '';
-  const educationAiReplyCount = messages.filter(m => m.role === 'AI' || m.role === 'ai').length;
-  const freeTierExhausted = mode === 'general_education' && educationAiReplyCount >= 3;
-  const hasAnyAiReply = educationAiReplyCount > 0;
-
-  const showDurationChips =
-    mode === 'post_payment_intake' && !isLoading && !privacyFlagged &&
-    lastAiContent.includes('how long has this skin concern');
-
-  const showYesNo =
-    mode === 'post_payment_intake' && !isLoading && !privacyFlagged && (
-      lastAiContent.includes('have you tried any medications') ||
-      lastAiContent.includes('have you had any prior diagnoses') ||
-      lastAiContent.includes('do you have any other relevant medical history')
-    );
-
-  const showProceedNoImages =
-    mode === 'post_payment_intake' && !isLoading && !privacyFlagged && !proceedNoImages &&
-    (intakeStep === 0 || lastAiContent.includes('proceed without images'));
-
-  const showUpgradeButton =
-    mode === 'general_education' && !isLoading && hasAnyAiReply &&
-    !freeTierExhausted && !consentAcknowledged;
-
-  const showConfirmPayment = consentAcknowledged && !isLoading;
-
-  const sanitizeImages = (imgs?: string[]) =>
-    (imgs ?? []).filter(img => typeof img === 'string' && img.trim().length > 10);
-
-  const isPrivacyFlagMessage = (c: string) => {
-    const l = (c || '').toLowerCase();
-    return l.includes('these images may contain identifiable personal information') || l.includes('intake is paused');
-  };
-
-  const isFaceDetectedMessage = (content: string) => {
-    const lower = content.toLowerCase();
-    return lower.includes('face detected') || lower.includes('no clinical image of skin issue is visible');
-  };
-
-  const isReportPiiMessage = (content: string) => {
-    const lower = content.toLowerCase();
-    return lower.includes('personal information visible') || lower.includes('name or number');
-  };
-
-  const deriveIntakeStepFromMessages = useCallback((msgs: ChatMessage[]): number => {
-    let step = 0;
-    for (const msg of msgs) {
-      if (msg.role === 'AI' || msg.role === 'ai') {
-        const content = msg.content || '';
-        if (content.includes('Please upload a clear image of the skin condition')) step = Math.max(step, 1);
-        if (content.includes('upload any relevant medical reports')) step = Math.max(step, 2);
-        if (content.includes('How long has this skin concern')) step = Math.max(step, 3);
-        if (content.includes('What symptoms are you experiencing')) step = Math.max(step, 4);
-        if (content.includes('Where on your body is this located')) step = Math.max(step, 5);
-        if (content.includes('Have you tried any medications')) step = Math.max(step, 6);
-        if (content.includes('Have you had any prior diagnoses')) step = Math.max(step, 7);
-        if (content.includes('any other relevant medical history')) step = Math.max(step, 7);
-      }
-    }
-    return step;
-  }, []);
+  const currentIntakeStep = useMemo(() => {
+    if (mode !== 'post_payment_intake') return null;
+    const content = lastAiMessage?.content.toLowerCase() || '';
+    if (content.includes('upload clear images') || content.includes('image of the skin condition')) return 'skin_image';
+    if (content.includes('relevant medical reports')) return 'report_image';
+    return 'text_questions';
+  }, [mode, lastAiMessage]);
 
   const fetchConsultationHistory = useCallback(async () => {
     try {
@@ -169,33 +87,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (!res.ok) throw new Error('Failed to fetch chat history');
       const data = await res.json();
       if (!data.error && data.conv && Array.isArray(data.conv)) {
-        let loadedMessages: ChatMessage[] = [];
-        if (threadId) {
-          setMessages(data.conv);
-          loadedMessages = data.conv;
-        } else {
-          setMessages(prev => {
-            const backendIds = new Set(data.conv.map((m: ChatMessage) => m.id));
-            const localOnly = prev.filter(m => !backendIds.has(m.id));
-            loadedMessages = [...data.conv, ...localOnly];
-            return loadedMessages;
-          });
-          loadedMessages = data.conv;
-        }
-
-        if (data.mode) {
-          const restoredMode = data.mode as ConversationMode;
-          setMode(restoredMode);
-          if (restoredMode === 'post_payment_intake') {
-            const step = deriveIntakeStepFromMessages(loadedMessages);
-            setIntakeStep(step);
-          }
-        }
+        setMessages(data.conv);
+        if (data.mode) setMode(data.mode as ConversationMode);
       }
       if (data.thread_id) setActiveThreadId(data.thread_id);
     } catch (e) { console.error(e); }
     finally { setIsLoading(false); }
-  }, [deriveIntakeStepFromMessages]);
+  }, []);
 
   useEffect(() => {
     fetchChatHistory();
@@ -217,10 +115,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setActiveThreadId(data.thread_id);
         setPrivacyFlagged(false);
         setConsentAcknowledged(false);
-        setProceedNoImages(false);
-        setIntakeStep(0);
-        setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '' });
-        paymentProcessedRef.current = false;
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
@@ -228,6 +122,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     } catch (e) { console.error(e); }
     finally { setIsLoading(false); }
   };
+
+  const sanitizeImages = (imgs?: string[]) =>
+    (imgs ?? []).filter(img => typeof img === 'string' && img.trim().length > 10);
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
     if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http')) {
@@ -251,320 +148,70 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handlePrivacyRemoveImages = () => {
-    setMessages(prev => prev.map(m => m.images?.length ? { ...m, images: [] } : m));
-    setPrivacyFlagged(false);
-    toast({ title: 'Images Cleared', description: 'Please re-upload images without identifiable information.' });
-  };
-
-  const handlePrivacyOverride = async () => {
-    setPrivacyFlagged(false);
-    setIsLoading(true);
-    try {
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', 'IOverride');
-      formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[intakeStep] }]);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
-  };
-
-  const handleProceedNoImages = async () => {
-    setProceedNoImages(true);
-    setIsLoading(true);
-    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: "I don't have images — proceed with text only" }]);
-    try {
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', 'PROCEED_NO_IMAGES');
-      formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
-      const nextStep = 2;
-      setIntakeStep(nextStep);
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
-  };
-
-  const handleUpgradeClick = () => setConsentAcknowledged(true);
-  const handleConfirmGoBack = () => setConsentAcknowledged(false);
-  const handleConfirmPayment = () => { setConsentAcknowledged(false); setMode('payment_page'); };
-
-  const handlePaymentSuccess = async () => {
-    if (paymentProcessedRef.current) return;
-    paymentProcessedRef.current = true;
-    setMode('post_payment_intake');
-    setIntakeStep(0);
-    setPrivacyFlagged(false);
-    setConsentAcknowledged(false);
-    setProceedNoImages(false);
-    setIntakeData({ duration: '', symptoms: '', location: '', meds: '', history: '' });
-    setMessages(prev => {
-      if (prev.some(m => m.role === 'system' && m.content.includes('Thank you for your payment'))) return prev;
-      return [...prev, { id: `system-${Date.now()}`, role: 'system', content: 'Thank you for your payment! You are now connected to our intake process.' }];
-    });
-    setTimeout(() => {
-      setMessages(prev => {
-        if (prev.some(m => m.content === INTAKE_QUESTIONS[0])) return prev;
-        return [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[0] }];
-      });
-    }, 800);
-    try {
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', 'CONFIRM');
-      formData.append('thread_id', activeThreadId || '');
-      await fetch(`${BASE_URL}/api/chat_view/`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData });
-    } catch (e) { console.error(e); }
-    toast({ title: 'Payment Successful', description: 'You can now provide details for your consultation.' });
-  };
-
   const handleSendMessage = async (content: string, images?: string[]) => {
     if (isSendingRef.current || isLoading) return;
     isSendingRef.current = true;
 
-    if (mode === 'post_payment_intake') {
-      const rawImages = sanitizeImages(images);
-
-      if (intakeStep === 0) {
-        if (rawImages.length === 0) {
-          setMessages(prev => [...prev,
-            { id: `user-${Date.now()}`, role: 'user', content: content || '(no image)' },
-            { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[0] },
-          ]);
-          isSendingRef.current = false;
-          return;
-        }
-
-        setMessages(prev => [...prev, {
-          id: `user-${Date.now()}`, role: 'user', content, images: rawImages,
-        }]);
-
-        setIsLoading(true);
-        try {
-          const authToken = localStorage.getItem('authToken');
-          const formData = new FormData();
-          formData.append('question', content || 'IMAGE_UPLOAD_SKIN');
-          formData.append('thread_id', activeThreadId || '');
-          formData.append('step', 'skin_image');
-          await appendImagesToFormData(formData, rawImages);
-          const response = await fetch(`${BASE_URL}/api/chat_view/`, {
-            method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
-          });
-          const data = await response.json();
-          
-          if (data.result && isFaceDetectedMessage(data.result)) {
-            setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: "⚠️ Your image appears to contain a face or identifiable features. Please upload only a direct close-up of the affected skin area — no faces or identifying information should be visible." }]);
-            setIsLoading(false); isSendingRef.current = false; return;
-          }
-        } catch (e) { console.error(e); }
-
-        const nextStep = 1;
-        setIntakeStep(nextStep);
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
-        setIsLoading(false);
-        isSendingRef.current = false;
-        return;
-      }
-
-      if (intakeStep === 1) {
-        const textLower = content.trim().toLowerCase();
-        const skipped = textLower === 'none' || textLower === 'no' || rawImages.length === 0;
-
-        if (!skipped && rawImages.length > 0) {
-          setMessages(prev => [...prev, {
-            id: `user-${Date.now()}`, role: 'user', content, images: rawImages,
-          }]);
-
-          setIsLoading(true);
-          try {
-            const authToken = localStorage.getItem('authToken');
-            const formData = new FormData();
-            formData.append('question', content || 'IMAGE_UPLOAD_REPORT');
-            formData.append('thread_id', activeThreadId || '');
-            formData.append('step', 'report_image');
-            await appendImagesToFormData(formData, rawImages);
-            const response = await fetch(`${BASE_URL}/api/chat_view/`, {
-              method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
-            });
-            const data = await response.json();
-            
-            if (data.result && isReportPiiMessage(data.result)) {
-              setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: "⚠️ Your report appears to contain personal information (name or mobile number). Please redact all personal details and re-upload — only the medical findings should be visible." }]);
-              setIsLoading(false); isSendingRef.current = false; return;
-            }
-          } catch (e) { console.error(e); }
-        } else {
-          setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: content || 'none' }]);
-        }
-
-        const nextStep = 2;
-        setIntakeStep(nextStep);
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
-        setIsLoading(false);
-        isSendingRef.current = false;
-        return;
-      }
-
-      const currentStepKey = STEP_KEYS[intakeStep] as keyof typeof intakeData;
-      setMessages(prev => {
-        if (prev.some(m => m.role === 'user' && m.content === content)) return prev;
-        return [...prev, { id: `user-${Date.now()}`, role: 'user', content }];
-      });
-
-      if (currentStepKey !== 'images' && currentStepKey !== 'reportImages') {
-        setIntakeData(prev => ({ ...prev, [currentStepKey]: content }));
-      }
-
-      const isLastStep = content.toUpperCase().trim() === 'DONE' || intakeStep >= INTAKE_QUESTIONS.length - 1;
-
-      if (isLastStep) {
-        setIsLoading(true);
-        try {
-          const authToken = localStorage.getItem('authToken');
-          const formData = new FormData();
-          const updatedData = {
-            ...intakeData,
-            ...(currentStepKey !== 'images' && currentStepKey !== 'reportImages' ? { [currentStepKey]: content } : {}),
-          };
-
-          formData.append('question', `INTAKE COMPLETE. Summary:\nDuration: ${updatedData.duration}\nSymptoms: ${updatedData.symptoms}\nLocation: ${updatedData.location}\nMeds: ${updatedData.meds}\nHistory: ${updatedData.history}\nImages were uploaded in earlier steps.\nDONE`);
-          formData.append('thread_id', activeThreadId || '');
-          
-          if (images?.length) await appendImagesToFormData(formData, sanitizeImages(images));
-
-          await fetch(`${BASE_URL}/api/chat_view/`, {
-            method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
-          });
-
-          setMode('dermatologist_review');
-          setPrivacyFlagged(false);
-          setProceedNoImages(false);
-          setMessages(prev => [...prev, {
-            id: `ai-${Date.now()}`, role: 'AI',
-            content: '✅ Your intake is complete. Dr. Attili will personally review your case and respond shortly. You will be notified when your consultation is ready.\n\nYou can add any extra information or images below while you wait.',
-          }]);
-        } catch (e) { console.error(e); }
-        finally { setIsLoading(false); isSendingRef.current = false; }
-        return;
-      }
-
-      const nextStep = intakeStep + 1;
-      setIntakeStep(nextStep);
-
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', content);
-      formData.append('thread_id', activeThreadId || '');
-      fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
-      }).catch(e => console.error(e));
-
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: 'AI', content: INTAKE_QUESTIONS[nextStep] }]);
-      isSendingRef.current = false;
-      return;
-    }
-
-    if (mode === 'dermatologist_review') {
-      const rawImages = sanitizeImages(images);
-
-      setMessages(prev => {
-        if (prev.some(m => m.role === 'user' && m.content === content && JSON.stringify(m.images) === JSON.stringify(rawImages))) return prev;
-        return [...prev, { id: `user-${Date.now()}`, role: 'user', content, images: rawImages }];
-      });
-
-      setIsLoading(true);
-      try {
-        const authToken = localStorage.getItem('authToken');
-        const formData = new FormData();
-        formData.append('question', `ADDITIONAL INFO: ${content}`);
-        formData.append('thread_id', activeThreadId || '');
-        if (rawImages.length) await appendImagesToFormData(formData, rawImages);
-        await fetch(`${BASE_URL}/api/chat_view/`, {
-          method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
-        });
-      } catch (e) { console.error(e); }
-      finally { setIsLoading(false); isSendingRef.current = false; }
-      return;
-    }
-
-    const sanitizedImages = sanitizeImages(images);
+    const rawImages = sanitizeImages(images);
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`, role: 'user', content,
-      images: sanitizedImages.length ? sanitizedImages : undefined,
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+      images: rawImages.length ? rawImages : undefined,
     };
-    setMessages(prev => {
-      if (prev.some(m => m.role === 'user' && m.content === content && JSON.stringify(m.images) === JSON.stringify(sanitizedImages))) return prev;
-      return [...prev, userMessage];
-    });
+
+    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', content);
       formData.append('thread_id', activeThreadId || '');
-      if (sanitizedImages.length) await appendImagesToFormData(formData, sanitizedImages);
+      
+      if (rawImages.length && currentIntakeStep) {
+        formData.append('step', currentIntakeStep);
+        await appendImagesToFormData(formData, rawImages);
+      }
+
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData,
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData,
       });
+
       if (!res.ok) throw new Error('Failed to send message');
       const data = await res.json();
 
-      if (data.mode) {
-        const modeOrder: ConversationMode[] = [
-          'general_education', 'payment_page', 'post_payment_intake',
-          'dermatologist_review', 'final_output',
-        ];
-        const currentIndex = modeOrder.indexOf(mode);
-        const newIndex = modeOrder.indexOf(data.mode as ConversationMode);
-        if (newIndex > currentIndex) {
-          setMode(data.mode as ConversationMode);
-        }
-      }
+      if (data.mode) setMode(data.mode as ConversationMode);
 
-      const aiContent =
-        data.result?.trim() || data.response?.trim() || data.message?.trim() ||
-        data.answer?.trim() || data.content?.trim() || data.text?.trim() ||
-        'Sorry, I did not receive a response. Please try again.';
-      if (isPrivacyFlagMessage(aiContent)) setPrivacyFlagged(true);
-      setMessages(prev => {
-        if (prev.some(m => m.content === aiContent && (m.role === 'ai' || m.role === 'AI'))) return prev;
-        return [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: aiContent }];
-      });
+      if (data.result) {
+        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result }]);
+      }
     } catch (e) {
+      console.error(e);
       toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
-      setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setIsLoading(false);
       isSendingRef.current = false;
     }
   };
 
-  const hasDoctorResponded = messages.some(m => m.role === 'doctor');
-  const transformedMessages = messages
-    .filter(msg => {
-      const c = msg.content ?? '';
-      if (c.trim() === 'CONFIRM') return false;
-      if (c.includes('INTAKE COMPLETE') && c.includes('Summary:')) return false;
-      return true;
-    })
-    .map(msg => {
-      let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
-      if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
-      else if (msg.role === 'doctor') role = 'doctor';
-      else if (msg.role === 'system') role = 'system';
-      return {
-        id: msg.id,
-        role,
-        content: msg.content,
-        images: msg.images,
-        conversationId: activeThreadId || '',
-        timestamp: new Date(),
-        isVisible: true,
-      };
-    });
+  const transformedMessages = messages.map(msg => {
+    let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
+    if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
+    else if (msg.role === 'doctor') role = 'doctor';
+    else if (msg.role === 'system') role = 'system';
+    return {
+      id: msg.id,
+      role,
+      content: msg.content,
+      images: msg.images,
+      conversationId: activeThreadId || '',
+      timestamp: new Date(),
+      isVisible: true,
+    };
+  });
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card">
@@ -595,18 +242,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       </ScrollArea>
     </div>
   );
-
-  if (mode === 'payment_page') {
-    return (
-      <div className="h-screen">
-        <PaymentPage
-          onPaymentSuccess={handlePaymentSuccess}
-          onCancel={() => { setMode('general_education'); setConsentAcknowledged(false); }}
-          threadId={activeThreadId || ''}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="h-screen flex bg-background overflow-hidden">
@@ -641,13 +276,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </div>
           </div>
           <div className="flex gap-1.5 md:gap-2">
-            {hasDoctorResponded && (
-              <Button variant="default" size="sm" onClick={handleNewConsultation}
-                className="h-8 text-[10px] md:text-xs px-2 md:px-3 bg-green-600 hover:bg-green-700 text-white">
-                <Plus className="h-3.5 w-3.5 md:mr-1.5" />
-                <span className="font-bold">New Consultation</span>
-              </Button>
-            )}
             <Button variant="ghost" size="sm" className="h-8 md:h-10 text-[10px] md:text-sm" onClick={onLogout}>
               <LogOut className="h-4 w-4 md:mr-1.5" />
               <span className="font-bold">Logout</span>
@@ -662,23 +290,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             isLoading={isLoading}
             mode={mode}
             showDisclaimer={messages.length === 0}
-            showYesNo={showYesNo}
             onQuickReply={handleSendMessage}
-            showDurationChips={showDurationChips}
-            durationOptions={DURATION_OPTIONS}
-            privacyFlagged={privacyFlagged}
-            onPrivacyRemove={handlePrivacyRemoveImages}
-            onPrivacyOverride={handlePrivacyOverride}
-            showProceedNoImages={showProceedNoImages}
-            onProceedNoImages={handleProceedNoImages}
-            showUpgradeButton={showUpgradeButton}
-            onUpgradeClick={handleUpgradeClick}
-            showConfirmPayment={showConfirmPayment}
-            onConfirmPayment={handleConfirmPayment}
-            onConfirmGoBack={handleConfirmGoBack}
-            freeTierExhausted={freeTierExhausted}
-            freeAiReplyCount={educationAiReplyCount}
             intakeComplete={intakeComplete}
+            onNewConsultation={handleNewConsultation}
           />
         </div>
       </div>

@@ -1,6 +1,7 @@
 // Conversation modes (state machine)
 export type ConversationMode =
   | 'general_education'
+  | 'consent_clarification'
   | 'payment_page'
   | 'post_payment_intake'
   | 'dermatologist_review'
