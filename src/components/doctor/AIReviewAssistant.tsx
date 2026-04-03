@@ -19,8 +19,8 @@ interface AIReviewAssistantProps {
 
 type AssistantMessage = {
   role: 'user' | 'ai';
-  content: string;      // display content
-  applyText?: string;   // plain text for editor replacement
+  content: string;
+  applyText?: string;
 };
 
 const SECTION_TITLES = [
@@ -28,8 +28,9 @@ const SECTION_TITLES = [
   'Close Differentials',
   'Morphologic Justification',
   'Educational Treatment Framework',
-  'Investigations Commonly Considered',
-  'References',
+  'Typical Course and Prognosis',
+  'When In-Person Evaluation Is Considered',
+  'Educational References',
 ];
 
 const FINAL_LINE = "You're welcome to ask follow-up questions.";
@@ -51,15 +52,17 @@ function generateFallbackContent(section: string): string {
     case 'Most Consistent With':
       return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
     case 'Close Differentials':
-      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
+      return 'Related dermatologic conditions may present with overlapping features.';
     case 'Morphologic Justification':
-      return 'Assessment is based on the provided history and any available images. Morphology suggests a localised dermatologic process requiring clinical correlation.';
+      return 'Assessment is based on the provided history and any available images.';
     case 'Educational Treatment Framework':
-      return 'General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.';
-    case 'Investigations Commonly Considered':
-      return 'Further evaluation may include dermatologic examination, bedside tests, laboratory workup, or biopsy if clinically indicated.';
-    case 'References':
-      return 'Standard dermatology educational references and clinical guidelines (NHS, DermNet NZ, BAD, CDC).';
+      return 'General supportive care, avoidance of irritants, and standard dermatologic management may be considered in an educational context.';
+    case 'Typical Course and Prognosis':
+      return 'Course varies depending on the condition and may fluctuate over time.';
+    case 'When In-Person Evaluation Is Considered':
+      return 'In-person evaluation is considered if the condition is worsening, atypical, or not improving as expected.';
+    case 'Educational References':
+      return 'DermNet NZ\nBritish Association of Dermatologists\nMedscape';
     default:
       return 'Clinical details are limited from the currently available information.';
   }
@@ -84,22 +87,39 @@ function parseStructuredSections(text: string): Record<string, string> {
     buffer = [];
   };
 
-  const legacyMap: Record<string, string> = {
+  const headingMap: Record<string, string> = {
     diagnosis: 'Most Consistent With',
     'most consistent with': 'Most Consistent With',
+    'primary likely diagnosis': 'Most Consistent With',
+
     'differential diagnoses': 'Close Differentials',
+    'differential diagnoses (ranked)': 'Close Differentials',
     'close differentials': 'Close Differentials',
     differentials: 'Close Differentials',
+
     'technical justification': 'Morphologic Justification',
     'morphologic justification': 'Morphologic Justification',
     justification: 'Morphologic Justification',
+    'key morphologic / clinical features': 'Morphologic Justification',
+
     'prescription regimen': 'Educational Treatment Framework',
     'educational treatment framework': 'Educational Treatment Framework',
     'treatment framework': 'Educational Treatment Framework',
-    investigations: 'Investigations Commonly Considered',
-    'investigations commonly considered': 'Investigations Commonly Considered',
-    'educational references': 'References',
-    references: 'References',
+
+    'typical course and prognosis': 'Typical Course and Prognosis',
+    prognosis: 'Typical Course and Prognosis',
+
+    'when in-person evaluation is considered': 'When In-Person Evaluation Is Considered',
+    'in-person evaluation': 'When In-Person Evaluation Is Considered',
+    'red flags': 'When In-Person Evaluation Is Considered',
+    'red flags (if any)': 'When In-Person Evaluation Is Considered',
+
+    'educational references': 'Educational References',
+    references: 'Educational References',
+    'suggested investigations': 'Educational References',
+    'suggested investigations (if relevant)': 'Educational References',
+    investigations: 'Educational References',
+    'investigations commonly considered': 'Educational References',
   };
 
   for (const rawLine of lines) {
@@ -114,13 +134,31 @@ function parseStructuredSections(text: string): Record<string, string> {
     let matchedTitle: string | null = null;
     let inlineBody = '';
 
-    for (const candidate of Object.keys(legacyMap)) {
-      const regex = new RegExp(`^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`, 'i');
+    for (const candidate of Object.keys(headingMap)) {
+      const regex = new RegExp(
+        `^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
+        'i'
+      );
       const match = normalizedLine.match(regex);
       if (match) {
-        matchedTitle = legacyMap[candidate];
+        matchedTitle = headingMap[candidate];
         inlineBody = (match[1] || '').trim();
         break;
+      }
+    }
+
+    if (!matchedTitle) {
+      for (const title of SECTION_TITLES) {
+        const regex = new RegExp(
+          `^(?:\\d+\\.\\s*)?${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
+          'i'
+        );
+        const match = normalizedLine.match(regex);
+        if (match) {
+          matchedTitle = title;
+          inlineBody = (match[1] || '').trim();
+          break;
+        }
       }
     }
 
