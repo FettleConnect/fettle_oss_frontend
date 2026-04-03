@@ -17,6 +17,12 @@ interface AIReviewAssistantProps {
   onPrefillConsumed?: () => void;
 }
 
+type AssistantMessage = {
+  role: 'user' | 'ai';
+  content: string;      // display content
+  applyText?: string;   // plain text for editor replacement
+};
+
 const SECTION_TITLES = [
   'Most Consistent With',
   'Close Differentials',
@@ -32,12 +38,12 @@ function cleanBody(text: string): string {
   return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function normalizeHeading(title: string): string {
   return title.trim().toLowerCase();
+}
+
+function stripMarkdownBold(value: string): string {
+  return value.replace(/\*\*/g, '').trim();
 }
 
 function generateFallbackContent(section: string): string {
@@ -59,92 +65,78 @@ function generateFallbackContent(section: string): string {
   }
 }
 
-function extractStructuredSections(text: string): Record<string, string> {
-  const cleaned = cleanBody(text);
+function parseStructuredSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(stripMarkdownBold(text));
   if (!cleaned) return {};
 
-  const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(
-    `(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
-    'gi'
-  );
-
-  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({
-      title: match[1],
-      index: match.index,
-      fullLength: match[0].length,
-    });
-  }
-
-  if (matches.length === 0) return {};
-
   const sections: Record<string, string> = {};
+  const lines = cleaned.split('\n');
 
-  for (let i = 0; i < matches.length; i++) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const start = current.index + current.fullLength;
-    const end = next ? next.index : cleaned.length;
-    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
-  }
+  let currentTitle: string | null = null;
+  let buffer: string[] = [];
 
-  return sections;
-}
+  const flush = () => {
+    if (!currentTitle) return;
+    const body = cleanBody(buffer.join('\n'));
+    if (body) {
+      sections[normalizeHeading(currentTitle)] = body;
+    }
+    buffer = [];
+  };
 
-function extractLegacyNumberedSections(text: string): Record<string, string> {
-  const cleaned = cleanBody(text);
-  if (!cleaned) return {};
+  const legacyMap: Record<string, string> = {
+    diagnosis: 'Most Consistent With',
+    'most consistent with': 'Most Consistent With',
+    'differential diagnoses': 'Close Differentials',
+    'close differentials': 'Close Differentials',
+    differentials: 'Close Differentials',
+    'technical justification': 'Morphologic Justification',
+    'morphologic justification': 'Morphologic Justification',
+    justification: 'Morphologic Justification',
+    'prescription regimen': 'Educational Treatment Framework',
+    'educational treatment framework': 'Educational Treatment Framework',
+    'treatment framework': 'Educational Treatment Framework',
+    investigations: 'Investigations Commonly Considered',
+    'investigations commonly considered': 'Investigations Commonly Considered',
+    'educational references': 'References',
+    references: 'References',
+  };
 
-  const mappings = [
-    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
-    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
-    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
-    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
-    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
-    { patterns: ['Educational References', 'References'], target: 'References' },
-  ];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (currentTitle) buffer.push('');
+      continue;
+    }
 
-  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
-  const regex = new RegExp(
-    `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
-    'gi'
-  );
+    const normalizedLine = stripMarkdownBold(line);
 
-  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
-  let match: RegExpExecArray | null;
+    let matchedTitle: string | null = null;
+    let inlineBody = '';
 
-  while ((match = regex.exec(cleaned)) !== null) {
-    matches.push({
-      title: match[1],
-      index: match.index,
-      fullLength: match[0].length,
-    });
-  }
+    for (const candidate of Object.keys(legacyMap)) {
+      const regex = new RegExp(`^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`, 'i');
+      const match = normalizedLine.match(regex);
+      if (match) {
+        matchedTitle = legacyMap[candidate];
+        inlineBody = (match[1] || '').trim();
+        break;
+      }
+    }
 
-  if (matches.length === 0) return {};
+    if (matchedTitle) {
+      flush();
+      currentTitle = matchedTitle;
+      if (inlineBody) buffer.push(inlineBody);
+      continue;
+    }
 
-  const sections: Record<string, string> = {};
-
-  for (let i = 0; i < matches.length; i++) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const start = current.index + current.fullLength;
-    const end = next ? next.index : cleaned.length;
-    const body = cleanBody(cleaned.slice(start, end));
-
-    const mapping = mappings.find((m) =>
-      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
-    );
-
-    if (mapping && body) {
-      sections[normalizeHeading(mapping.target)] = body;
+    if (currentTitle) {
+      buffer.push(rawLine);
     }
   }
 
+  flush();
   return sections;
 }
 
@@ -194,12 +186,13 @@ function stripDosingInfo(text: string): string {
     .trim();
 }
 
-function normaliseAIResponse(raw: string): string {
+function normaliseAIResponse(raw: string, boldHeadings = false): string {
   const text = cleanBody(raw);
-  if (!text || text.length < 20) return '';
+  if (!text || text.length < 20) {
+    return buildStructuredOutput({}, { fillMissing: true, boldHeadings });
+  }
 
-  let sections = extractStructuredSections(text);
-  if (Object.keys(sections).length === 0) sections = extractLegacyNumberedSections(text);
+  let sections = parseStructuredSections(text);
 
   if (Object.keys(sections).length === 0) {
     sections = {
@@ -217,7 +210,7 @@ function normaliseAIResponse(raw: string): string {
 
   return buildStructuredOutput(stripped, {
     fillMissing: true,
-    boldHeadings: true,
+    boldHeadings,
   });
 }
 
@@ -263,7 +256,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   prefillMessage,
   onPrefillConsumed,
 }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
+  const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       role: 'ai',
       content:
@@ -286,7 +279,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
 
   const [input, setInput] = useState<string>(() => {
     try {
-      return sessionStorage.getItem(`ai-review-assistant-input:${conversationId || 'default'}`) || '';
+      return sessionStorage.getItem(storageKey) || '';
     } catch {
       return '';
     }
@@ -318,7 +311,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     const savedDraft = getSavedDraft();
     if (savedDraft.trim()) {
       setInput(savedDraft);
-      setTimeout(() => inputRef.current?.focus(), 80);
+      requestAnimationFrame(() => inputRef.current?.focus());
       return;
     }
 
@@ -328,7 +321,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     lastAppliedPrefillRef.current = trimmedPrefill;
     setInput(trimmedPrefill);
     onPrefillConsumed?.();
-    setTimeout(() => inputRef.current?.focus(), 80);
+    requestAnimationFrame(() => inputRef.current?.focus());
   }, [getSavedDraft, prefillMessage, onPrefillConsumed]);
 
   useEffect(() => {
@@ -432,33 +425,49 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const rawAiContent: string =
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
-      const aiContent =
-        rawAiContent && rawAiContent.trim().length > 20
-          ? normaliseAIResponse(rawAiContent)
-          : buildStructuredOutput({}, { fillMissing: true, boldHeadings: true });
-
-      setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
-    } catch (error: any) {
-      console.error('Error consulting AI:', error);
+      const plainApplyText = normaliseAIResponse(rawAiContent, false);
+      const displayText = normaliseAIResponse(rawAiContent, true);
 
       setMessages((prev) => [
         ...prev,
         {
           role: 'ai',
-          content: `**Most Consistent With**\n\n${error?.message || 'I encountered an error. Please try again.'}`,
+          content: displayText,
+          applyText: plainApplyText,
+        },
+      ]);
+    } catch (error: any) {
+      console.error('Error consulting AI:', error);
+
+      const fallbackPlain = normaliseAIResponse(
+        error?.message || 'I encountered an error. Please try again.',
+        false
+      );
+
+      const fallbackDisplay = normaliseAIResponse(
+        error?.message || 'I encountered an error. Please try again.',
+        true
+      );
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          content: fallbackDisplay,
+          applyText: fallbackPlain,
         },
       ]);
     } finally {
       setIsLoading(false);
       if (imageToClear) URL.revokeObjectURL(imageToClear.previewUrl);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
 
   const handleApply = useCallback(
-    (content: string, index: number) => {
+    (message: AssistantMessage, index: number) => {
       if (!onApplyContent) return;
-      onApplyContent(content);
+      onApplyContent(message.applyText || stripMarkdownBold(message.content));
       setAppliedIndex(index);
     },
     [onApplyContent]
@@ -487,7 +496,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
             {messages.map((m, i) => {
-              const messageContent = m.content;
               const messageIndex = i;
               const messageRole = m.role;
 
@@ -513,11 +521,11 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                           [&_a]:text-blue-600 [&_a]:underline break-words"
                       >
                         <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
-                          {messageContent}
+                          {m.content}
                         </ReactMarkdown>
                       </div>
                     ) : (
-                      <div className="whitespace-pre-wrap">{messageContent}</div>
+                      <div className="whitespace-pre-wrap">{m.content}</div>
                     )}
 
                     {messageRole === 'ai' && messageIndex > 0 && onApplyContent && (
@@ -532,7 +540,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                             variant="outline"
                             size="sm"
                             className="h-7 text-[10px] px-2 border-primary/30 text-primary hover:bg-primary/5"
-                            onClick={() => handleApply(messageContent, messageIndex)}
+                            onClick={() => handleApply(m, messageIndex)}
                           >
                             Apply to editor
                           </Button>
@@ -601,7 +609,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               type="button"
               variant="outline"
               size="icon"
-              className="h-9 w-9 shrink-0"
+              className="shrink-0"
               disabled={isLoading}
               onClick={() => fileInputRef.current?.click()}
             >
@@ -613,18 +621,16 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type your instruction, e.g. regenerate the full draft..."
-              className="flex-1 h-9 text-xs"
-              disabled={false}
-              autoComplete="off"
+              placeholder="Type your instruction, e.g. regenerate the full draft"
+              className="flex-1"
+              disabled={isLoading}
             />
 
             <Button
-              type="button"
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              disabled={isLoading || !input.trim()}
               onClick={handleSend}
+              disabled={isLoading || !input.trim()}
+              size="icon"
+              className="shrink-0"
             >
               <Send className="h-4 w-4" />
             </Button>
@@ -634,3 +640,5 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     </Card>
   );
 };
+
+export default AIReviewAssistant;
