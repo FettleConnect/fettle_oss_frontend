@@ -216,7 +216,7 @@ function normaliseAIResponse(raw: string): string {
   }
 
   return buildStructuredOutput(stripped, {
-    fillMissing: false,
+    fillMissing: true,
     boldHeadings: true,
   });
 }
@@ -267,7 +267,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to place that response directly into the current Assessment & Response box.",
+        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Regenerate the full draft\n- Strengthen all sections\n- Update the diagnosis and differentials\n- Improve morphologic justification\n- Replace the whole Assessment & Response with a more complete version\n\nUse the **Apply to editor** button under any response to replace the full Assessment & Response draft.",
     },
   ]);
 
@@ -435,7 +435,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const aiContent =
         rawAiContent && rawAiContent.trim().length > 20
           ? normaliseAIResponse(rawAiContent)
-          : "**Most Consistent With**\n\nI couldn't generate a structured revision for that request. Please try a more specific instruction.";
+          : buildStructuredOutput({}, { fillMissing: true, boldHeadings: true });
 
       setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error: any) {
@@ -613,7 +613,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type your instruction, e.g. revise diagnosis or improve differentials..."
+              placeholder="Type your instruction, e.g. regenerate the full draft..."
               className="flex-1 h-9 text-xs"
               disabled={false}
               autoComplete="off"
