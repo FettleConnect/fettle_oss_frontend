@@ -579,6 +579,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
+  // FULL REPLACE ONLY:
+  // Whatever AI returns gets normalized into the required structure
+  // and then replaces the entire Assessment & Response box.
   const handleApplyAIContent = useCallback(
     (content: string) => {
       const normalized = normalizeAIContentToStructuredFormat(content);
@@ -586,7 +589,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
       toast({
         title: 'Assessment Updated',
-        description: 'The full Assessment & Response draft was regenerated.',
+        description: 'AI response fully replaced the Assessment & Response draft.',
       });
 
       if (isMobile) setShowAI(false);
@@ -752,7 +755,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       size="sm"
                       onClick={() => {
                         setAiPrefillMessage(
-                          'Please regenerate the entire Assessment & Response draft in the required structured format. Fill every section completely and do not leave any section generic or empty.'
+                          'Please generate a full replacement Assessment & Response draft in the required structured format. Fill every section completely and keep all sections consistent.'
                         );
                         setShowAI(true);
                       }}
