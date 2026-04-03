@@ -40,28 +40,6 @@ function normalizeHeading(title: string): string {
   return title.trim().toLowerCase();
 }
 
-function isPlaceholder(text: string): boolean {
-  const v = (text || '').trim().toLowerCase();
-  if (!v) return true;
-
-  const placeholders = [
-    'type here',
-    'enter response',
-    'write response',
-    'draft response',
-    'assessment',
-    'pending',
-    'tbd',
-    'todo',
-    'n/a',
-    'na',
-    '-',
-    '--',
-  ];
-
-  return placeholders.some((p) => v === p || v.includes(p));
-}
-
 function generateFallbackContent(section: string): string {
   switch (section) {
     case 'Most Consistent With':
@@ -289,7 +267,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to merge changes into the current draft while preserving the flow.",
+        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Revise the diagnosis wording\n- Strengthen the differential section\n- Improve morphologic justification\n- Make the treatment framework more concise\n- Add better references\n\nUse the **Apply to editor** button under any response to place that response directly into the current Assessment & Response box.",
     },
   ]);
 
@@ -457,7 +435,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const aiContent =
         rawAiContent && rawAiContent.trim().length > 20
           ? normaliseAIResponse(rawAiContent)
-          : "**Most Consistent With**\n\nI couldn't generate a structured revision for that request. Please try a more specific instruction such as improving one section at a time.";
+          : "**Most Consistent With**\n\nI couldn't generate a structured revision for that request. Please try a more specific instruction.";
 
       setMessages((prev) => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error: any) {
