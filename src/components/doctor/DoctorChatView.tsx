@@ -300,64 +300,6 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
   return finalText;
 }
 
-function extractSections(text: string): Record<string, string> {
-  const structured = extractStructuredSections(text);
-  if (Object.keys(structured).length > 0) return structured;
-
-  const legacy = extractLegacyNumberedSections(text);
-  if (Object.keys(legacy).length > 0) return legacy;
-
-  return {};
-}
-
-function mergeStructuredContent(existingText: string, aiText: string): string {
-  const existingSections = extractSections(existingText);
-  const aiSections = extractSections(normalizeAIContentToStructuredFormat(aiText));
-
-  const mergedBlocks = SECTION_TITLES.map((title) => {
-    const key = normalizeHeading(title);
-    const existing = cleanBody(existingSections[key] ?? '');
-    const ai = cleanBody(aiSections[key] ?? '');
-
-    let finalBody: string;
-
-    const aiIsReal = ai && !isPlaceholder(ai);
-    const existingIsReal = existing && !isPlaceholder(existing);
-
-    if (!aiIsReal) {
-      finalBody = existingIsReal ? existing : generateFallbackContent(title);
-    } else if (!existingIsReal) {
-      finalBody = ai;
-    } else {
-      const normalExisting = existing.replace(/\s+/g, ' ').trim().toLowerCase();
-      const normalAi = ai.replace(/\s+/g, ' ').trim().toLowerCase();
-      const defaultBody = generateFallbackContent(title).replace(/\s+/g, ' ').trim().toLowerCase();
-
-      const existingIsDefault = normalExisting === defaultBody;
-      const aiIsDefault = normalAi === defaultBody;
-      const aiIsDifferent = normalAi !== normalExisting;
-
-      if (existingIsDefault && !aiIsDefault) {
-        finalBody = ai;
-      } else if (!existingIsDefault && aiIsDifferent && !aiIsDefault) {
-        finalBody = ai;
-      } else {
-        finalBody = existing;
-      }
-    }
-
-    return `${title}\n\n${cleanBody(finalBody)}`.trim();
-  });
-
-  let finalText = mergedBlocks.join('\n\n').trim();
-
-  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`)) {
-    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
-  }
-
-  return cleanBody(finalText);
-}
-
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
     (m) =>
@@ -637,25 +579,20 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
+  // DIRECT APPLY: replace what is currently inside the editor
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      setPatientMessage((current) => {
-        const baseText =
-          current && current.trim()
-            ? current
-            : conversation.draftResponse || DEFAULT_ASSESSMENT_TEMPLATE;
-
-        return mergeStructuredContent(baseText, content);
-      });
+      const normalized = normalizeAIContentToStructuredFormat(content);
+      setPatientMessage(normalized);
 
       toast({
         title: 'Assessment Updated',
-        description: 'AI changes were applied directly to the Assessment & Response box.',
+        description: 'AI response was applied directly to the Assessment & Response box.',
       });
 
       if (isMobile) setShowAI(false);
     },
-    [conversation.draftResponse, isMobile, toast]
+    [isMobile, toast]
   );
 
   const canRespond =
@@ -816,7 +753,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       size="sm"
                       onClick={() => {
                         setAiPrefillMessage(
-                          'Please revise the current draft and return the response in the required structured format. Only update sections that need improvement.'
+                          'Please revise the current draft and return the response in the required structured format.'
                         );
                         setShowAI(true);
                       }}
