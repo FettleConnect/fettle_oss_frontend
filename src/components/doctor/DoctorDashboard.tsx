@@ -4,7 +4,7 @@ import { DoctorChatView } from './DoctorChatView';
 import { SystemPromptEditor } from './SystemPromptEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LogOut, Stethoscope, RefreshCw, Menu, X, Users, Settings } from 'lucide-react';
+import { RefreshCw, Menu, X, Users, Settings, Stethoscope } from 'lucide-react';
 import { Conversation, Message } from '@/types/dermatology';
 import { BASE_URL } from '@/base_url';
 import { useToast } from '@/hooks/use-toast';
@@ -35,7 +35,6 @@ interface TabDoc {
   updated_at?: string;
 }
 
-// ✅ FIX: Added images field so it is no longer silently dropped
 interface ConvMessage {
   id: string;
   role: string;
@@ -65,9 +64,9 @@ const SidebarContent: React.FC<SidebarContentProps> = ({
   <div className="flex flex-col h-full bg-card">
     <div className="p-4 border-b border-border">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold flex items-center gap-2">
-          <Users className="h-4 w-4 text-primary" />
-          Patients
+        <h2 className="font-bold text-navy flex items-center gap-2 uppercase tracking-wider text-sm">
+          <Users className="h-4 w-4 text-accent-blue" />
+          Patient Registry
         </h2>
         {isMobile && (
           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(false)}>
@@ -76,10 +75,10 @@ const SidebarContent: React.FC<SidebarContentProps> = ({
         )}
       </div>
       <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
-        <TabsList className="w-full grid grid-cols-3">
-          <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
-          <TabsTrigger value="paid" className="text-xs">Paid</TabsTrigger>
-          <TabsTrigger value="active" className="text-xs">Active</TabsTrigger>
+        <TabsList className="w-full grid grid-cols-3 bg-muted/50">
+          <TabsTrigger value="all" className="text-[10px] font-bold uppercase">All</TabsTrigger>
+          <TabsTrigger value="paid" className="text-[10px] font-bold uppercase">Paid</TabsTrigger>
+          <TabsTrigger value="active" className="text-[10px] font-bold uppercase">Active</TabsTrigger>
         </TabsList>
       </Tabs>
     </div>
@@ -183,14 +182,13 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
             conversationId: id,
             role,
             content: msg.content,
-            images: msg.images ?? [], // ✅ FIX: images now flow through correctly
+            images: msg.images ?? [],
             timestamp: new Date(),
             isVisible: true,
             senderName,
           };
         });
         setSelectedMessages(msgs);
-
         setConversations(prev => prev.map(c => c.id === id ? { ...c, is_read: true } : c));
       }
     } catch (error) {
@@ -216,66 +214,36 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
   const handleUpdate = () => setRefreshKey(k => k + 1);
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-      {/* Top bar */}
-      <div className="bg-card border-b border-border px-4 py-3 flex items-center justify-between z-30">
-        <div className="flex items-center gap-3">
-          {isMobile && (
-            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(true)}>
-              <Menu className="h-5 w-5" />
-            </Button>
-          )}
-          <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-            <Stethoscope className="h-4 w-4 md:h-5 md:w-5 text-green-700 dark:text-green-300" />
+    <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh]">
+      <div className="container mx-auto">
+        <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-navy flex items-center justify-center text-white shadow-lg shadow-navy/20">
+              <Stethoscope className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-navy tracking-tight uppercase">Clinical Portal</h1>
+              <p className="text-xs font-bold text-accent-blue uppercase tracking-widest">Consultant Dashboard</p>
+            </div>
           </div>
-          <div className="hidden sm:block">
-            <h1 className="font-semibold text-foreground leading-none">Doctor Dashboard</h1>
-            <p className="text-xs text-muted-foreground mt-1">{user?.email}</p>
+          <div className="flex items-center gap-2">
+            <div className="bg-white px-4 py-2 rounded-lg border border-gray-200 text-xs font-bold text-navy shadow-sm">
+              <span className="text-muted-foreground mr-2 font-normal">Active Session:</span> {user?.email}
+            </div>
+            <Button variant="outline" size="sm" onClick={loadConversations} className="h-10 border-gray-200 hover:bg-gray-50 text-navy font-bold text-xs uppercase tracking-wider">
+              <RefreshCw className="h-3.5 w-3.5 mr-2" />
+              Sync
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onLogout} className="h-10 text-destructive font-bold text-xs uppercase tracking-wider">
+              Logout
+            </Button>
           </div>
         </div>
-        <div className="flex gap-2">
-          {activeView === 'patients' ? (
-            <Button variant="outline" size="sm" onClick={() => setActiveView('settings')} className="h-8 md:h-9">
-              <Settings className="h-3.5 w-3.5 mr-1.5" />
-              <span>Settings</span>
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => setActiveView('patients')} className="h-8 md:h-9">
-              <Users className="h-3.5 w-3.5 mr-1.5" />
-              <span>Patients</span>
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={loadConversations} className="h-8 md:h-9">
-            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-            <span className="hidden xs:inline">Sync</span>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onLogout} className="h-8 md:h-9">
-            <LogOut className="h-3.5 w-3.5 mr-1.5" />
-            <span>Logout</span>
-          </Button>
-        </div>
-      </div>
 
-      <div className="flex-1 flex min-h-0 relative">
-        {/* Desktop Sidebar */}
-        {!isMobile && (
-          <div className="w-80 border-r border-border flex flex-col bg-card">
-            <SidebarContent 
-              filter={filter} 
-              setFilter={setFilter} 
-              isMobile={isMobile} 
-              setIsSidebarOpen={setIsSidebarOpen} 
-              conversations={conversations} 
-              selectedId={selectedId} 
-              setSelectedId={setSelectedId} 
-            />
-          </div>
-        )}
-
-        {/* Mobile Sidebar */}
-        {isMobile && (
-          <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
-            <SheetContent side="left" className="p-0 w-80">
+        <div className="bg-white rounded-2xl shadow-xl shadow-navy/5 border border-gray-100 overflow-hidden flex flex-col md:flex-row h-[800px]">
+          {/* Desktop Sidebar */}
+          {!isMobile && (
+            <div className="w-80 border-r border-border flex flex-col bg-card">
               <SidebarContent 
                 filter={filter} 
                 setFilter={setFilter} 
@@ -285,39 +253,94 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user, onLogout
                 selectedId={selectedId} 
                 setSelectedId={setSelectedId} 
               />
-            </SheetContent>
-          </Sheet>
-        )}
-
-        {/* Main content */}
-        <div className="flex-1 min-w-0">
-          {activeView === 'settings' ? (
-            <SystemPromptEditor />
-          ) : selectedConversation ? (
-            <DoctorChatView
-              conversation={selectedConversation}
-              messages={selectedMessages}
-              onUpdate={handleUpdate}
-              onRefresh={() => {
-                loadConversations();
-                if (selectedId) loadConversationMessages(selectedId);
-              }}
-            />
-          ) : (
-            <div className="h-full flex items-center justify-center text-muted-foreground">
-              <div className="text-center p-6">
-                <Stethoscope className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                <p className="text-sm">Select a patient to begin review</p>
-                {isMobile && (
-                  <Button variant="outline" size="sm" onClick={() => setIsSidebarOpen(true)} className="mt-4">
-                    View Patient List
-                  </Button>
-                )}
-              </div>
             </div>
           )}
+
+          {/* Mobile Sidebar Trigger */}
+          {isMobile && !isSidebarOpen && (
+            <div className="absolute top-20 left-4 z-30">
+              <Button variant="outline" size="icon" onClick={() => setIsSidebarOpen(true)} className="bg-white/80 backdrop-blur-sm shadow-md">
+                <Menu className="h-4 w-4 text-navy" />
+              </Button>
+            </div>
+          )}
+
+          {/* Mobile Sidebar Sheet */}
+          {isMobile && (
+            <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
+              <SheetContent side="left" className="p-0 w-80">
+                <SidebarContent 
+                  filter={filter} 
+                  setFilter={setFilter} 
+                  isMobile={isMobile} 
+                  setIsSidebarOpen={setIsSidebarOpen} 
+                  conversations={conversations} 
+                  selectedId={selectedId} 
+                  setSelectedId={setSelectedId} 
+                />
+              </SheetContent>
+            </Sheet>
+          )}
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col min-w-0 relative">
+            {/* Context Tab Bar */}
+            <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between z-20">
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setActiveView('patients')}
+                  className={cn("text-[10px] font-bold uppercase tracking-widest pb-1 transition-all", 
+                    activeView === 'patients' ? "text-navy border-b-2 border-navy" : "text-muted-foreground hover:text-navy")}
+                >
+                  Patient Review
+                </button>
+                <button 
+                  onClick={() => setActiveView('settings')}
+                  className={cn("text-[10px] font-bold uppercase tracking-widest pb-1 transition-all", 
+                    activeView === 'settings' ? "text-navy border-b-2 border-navy" : "text-muted-foreground hover:text-navy")}
+                >
+                  System Config
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {activeView === 'settings' ? (
+                <ScrollArea className="h-full bg-gray-50/30">
+                  <div className="p-6 max-w-4xl mx-auto">
+                    <SystemPromptEditor />
+                  </div>
+                </ScrollArea>
+              ) : selectedConversation ? (
+                <DoctorChatView
+                  conversation={selectedConversation}
+                  messages={selectedMessages}
+                  onUpdate={handleUpdate}
+                  onRefresh={() => {
+                    loadConversations();
+                    if (selectedId) loadConversationMessages(selectedId);
+                  }}
+                />
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground bg-gray-50/20">
+                  <div className="text-center p-6 space-y-4">
+                    <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                      <Stethoscope className="h-10 w-10 text-gray-300" />
+                    </div>
+                    <h3 className="text-lg font-bold text-navy uppercase tracking-tight">Select Patient Record</h3>
+                    <p className="text-sm max-w-xs mx-auto">Select a patient from the registry to begin clinical assessment and AI draft generation.</p>
+                    {isMobile && (
+                      <Button variant="outline" onClick={() => setIsSidebarOpen(true)} className="mt-4 border-navy text-navy font-bold uppercase text-xs">
+                        Open Patient List
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 };

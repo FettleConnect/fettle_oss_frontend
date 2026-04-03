@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BASE_URL } from '@/base_url';
 import { useToast } from '@/hooks/use-toast';
-import { Mail, Loader2, Chrome, Stethoscope } from 'lucide-react';
+import { Mail, Loader2, HeartPulse } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 
 const API_BASE = BASE_URL;
@@ -89,47 +89,49 @@ const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
-      <Card className="w-full max-w-md shadow-2xl border-none rounded-2xl overflow-hidden">
-        <div className="bg-primary p-6 text-primary-foreground text-center space-y-2">
-          <div className="mx-auto w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-2 backdrop-blur-sm">
-            <Stethoscope className="h-8 w-8 text-white" />
+    <div className="min-h-[80vh] flex items-center justify-center bg-gray-50/50 p-4 py-20">
+      <Card className="w-full max-w-md shadow-2xl shadow-navy/10 border-gray-100 rounded-3xl overflow-hidden">
+        <div className="bg-navy p-8 text-white text-center space-y-4">
+          <div className="mx-auto w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-2 shadow-lg">
+            <HeartPulse className="h-8 w-8 text-navy" />
           </div>
-          <CardTitle className="text-3xl font-extrabold tracking-tight">Fettle OSS</CardTitle>
-          <CardDescription className="text-blue-100/80 font-medium">
-            AI-Powered Dermatology Assistant
-          </CardDescription>
+          <div>
+            <CardTitle className="text-2xl font-bold tracking-tight uppercase">Patient Access</CardTitle>
+            <CardDescription className="text-accent-blue font-bold text-[10px] uppercase tracking-widest mt-1 opacity-90">
+              Online Skin Specialist Portal
+            </CardDescription>
+          </div>
         </div>
         
         <CardContent className="p-8 space-y-8 bg-white">
           {/* Magic Link Section */}
-          <form onSubmit={handleMagicLinkLogin} className="space-y-4">
+          <form onSubmit={handleMagicLinkLogin} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-700 font-semibold">Email Address</Label>
+              <Label htmlFor="email" className="text-navy font-bold uppercase text-[10px] tracking-widest ml-1">Email Address</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Mail className="absolute left-4 top-3.5 h-4 w-4 text-gray-400" />
                 <Input
                   id="email"
                   type="email"
-                  placeholder="name@example.com"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="pl-10 h-11 border-gray-200 focus:ring-primary focus:border-primary"
+                  className="pl-11 h-12 border-gray-200 rounded-xl focus:ring-navy focus:border-navy"
                 />
               </div>
             </div>
             <Button 
               type="submit" 
-              className="w-full h-11 text-base font-bold shadow-lg hover:shadow-xl transition-all" 
+              className="w-full h-12 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest rounded-xl shadow-lg shadow-navy/20 transition-all" 
               disabled={isMagicLinkLoading || isGoogleLoading}
             >
               {isMagicLinkLoading ? (
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
-                <Mail className="h-5 w-5 mr-2" />
+                <Mail className="h-4 w-4 mr-2" />
               )}
-              Send Magic Link
+              Get Magic Link
             </Button>
           </form>
 
@@ -137,18 +139,18 @@ const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t border-gray-100" />
             </div>
-            <div className="relative flex justify-center text-xs uppercase tracking-widest">
-              <span className="bg-white px-4 text-gray-400 font-bold">Or</span>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-widest">
+              <span className="bg-white px-4 text-gray-400 font-bold italic">Corporate Authentication</span>
             </div>
           </div>
 
           <div className="flex justify-center flex-col space-y-4">
             {isGoogleLoading ? (
               <div className="flex flex-col items-center py-2">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <Loader2 className="h-8 w-8 animate-spin text-navy" />
               </div>
             ) : (
-              <div className="w-full flex justify-center">
+              <div className="w-full flex justify-center scale-105">
                 <GoogleLogin
                   onSuccess={handleGoogleSuccess}
                   onError={() => {
@@ -160,7 +162,7 @@ const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
                   }}
                   useOneTap
                   theme="filled_blue"
-                  shape="rectangular"
+                  shape="pill"
                   size="large"
                   width="350"
                 />
@@ -168,9 +170,9 @@ const GoogleLoginPage: React.FC<GoogleLoginPageProps> = ({ onLogin }) => {
             )}
           </div>
 
-          <div className="text-center space-y-4">
-            <p className="text-[10px] text-gray-400 leading-relaxed max-w-[280px] mx-auto">
-              By signing in, you agree to our <a href="#" className="underline hover:text-primary">Terms of Service</a> and <a href="#" className="underline hover:text-primary">Privacy Policy</a>.
+          <div className="text-center pt-2">
+            <p className="text-[10px] text-gray-400 leading-relaxed max-w-[280px] mx-auto font-medium uppercase tracking-tight">
+              By entering, you accept our <a href="#" className="text-navy font-bold underline decoration-accent-blue/30">Terms</a> and <a href="#" className="text-navy font-bold underline decoration-accent-blue/30">Privacy Standards</a>.
             </p>
           </div>
         </CardContent>

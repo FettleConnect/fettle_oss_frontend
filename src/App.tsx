@@ -14,6 +14,8 @@ import { BASE_URL } from "@/base_url";
 import { PayPalScriptProvider } from "@paypal/react-paypal-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { Header } from "@/components/ui/Header";
+import { Footer } from "@/components/ui/Footer";
 
 const queryClient = new QueryClient();
 
@@ -22,6 +24,18 @@ interface User {
   name: string;
   email?: string;
 }
+
+const Layout = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <div className="flex flex-col min-h-screen">
+      <Header />
+      <main className="flex-1">
+        {children}
+      </main>
+      <Footer />
+    </div>
+  );
+};
 
 // Patient Route Component - handles authToken
 const PatientRoute = () => {
@@ -75,8 +89,6 @@ const PatientRoute = () => {
                         userEmail?.split('@')[0] || 'User';
         
         try {
-          // Sync with your custom backend
-          // We use the auth/google/ endpoint as it handles user creation/lookup
           const response = await axios.post(`${BASE_URL}/auth/google/`, {
             token: session.access_token, 
             is_magic_link: true,
@@ -99,7 +111,6 @@ const PatientRoute = () => {
             description: "Failed to sync with the server. Please try logging in again.",
             variant: "destructive"
           });
-          // Clear local state if sync fails
           localStorage.removeItem('authToken');
           setUser(null);
         }
@@ -120,7 +131,7 @@ const PatientRoute = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[60vh] flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
       </div>
     );
@@ -181,7 +192,7 @@ const DoctorRoute = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[60vh] flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
       </div>
     );
@@ -202,11 +213,13 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<PatientRoute />} />
-              <Route path="/doctor-login" element={<DoctorRoute />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <Layout>
+              <Routes>
+                <Route path="/" element={<PatientRoute />} />
+                <Route path="/doctor-login" element={<DoctorRoute />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Layout>
           </BrowserRouter>
           <Toaster />
           <Sonner />

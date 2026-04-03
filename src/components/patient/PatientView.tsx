@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, Plus, ChevronLeft, MessageSquare, Clock } from 'lucide-react';
+import { RefreshCw, Clock, MessageSquare } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
@@ -43,8 +43,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
-  const [privacyFlagged, setPrivacyFlagged] = useState(false);
-  const [consentAcknowledged, setConsentAcknowledged] = useState(false);
 
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
@@ -113,8 +111,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setMessages([]);
         setMode('general_education');
         setActiveThreadId(data.thread_id);
-        setPrivacyFlagged(false);
-        setConsentAcknowledged(false);
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
@@ -216,8 +212,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card">
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="font-bold text-base flex items-center gap-2"><Clock className="h-4 w-4" />History</h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(false)}>
+        <h2 className="font-bold text-base flex items-center gap-2 text-navy"><Clock className="h-4 w-4" />History</h2>
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => setShowHistory(false)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
       </div>
@@ -227,11 +223,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             <button key={item.id}
               onClick={() => { fetchChatHistory(item.id); if (isMobile) setShowHistory(false); }}
               className={cn('w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
-                activeThreadId === item.id ? 'bg-accent border border-primary/20' : 'transparent')}
+                activeThreadId === item.id ? 'bg-accent border border-navy/10' : 'transparent')}
             >
-              <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-primary transition-colors" />
+              <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-accent-blue transition-colors" />
               <div className="flex-1 overflow-hidden">
-                <p className="font-bold truncate">{item.name}</p>
+                <p className="font-bold truncate text-navy">{item.name}</p>
                 <p className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleDateString()}</p>
               </div>
             </button>
@@ -244,58 +240,95 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   );
 
   return (
-    <div className="h-screen flex bg-background overflow-hidden">
-      {!isMobile && showHistory && (
-        <div className="w-72 border-r border-border bg-card flex flex-col"><SidebarContent /></div>
-      )}
-      {isMobile && (
-        <Sheet open={showHistory} onOpenChange={setShowHistory}>
-          <SheetContent side="left" className="p-0 w-72"><SidebarContent /></SheetContent>
-        </Sheet>
-      )}
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="bg-card border-b border-border px-3 md:px-4 py-2 flex items-center justify-between z-20">
-          <div className="flex items-center gap-2 md:gap-3">
-            {!showHistory && (
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowHistory(true)}>
-                <Clock className="h-4 w-4" />
+    <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh] flex items-center">
+      <div className="container mx-auto max-w-6xl">
+        <div className="text-center mb-12 space-y-4">
+          <h1 className="text-4xl md:text-5xl font-bold text-navy tracking-tight">Affordable Expert Skin Insights</h1>
+          <p className="text-gray-600 text-lg max-w-3xl mx-auto leading-relaxed">
+            Receive educational skin health insights from a UK Consultant Dermatologist — similar to a private consultation, 
+            but at a fraction of the typical cost. Starting from just $49.
+          </p>
+          <div className="flex items-center justify-center gap-2 text-accent-blue font-bold text-sm">
+            <a href="#" className="underline underline-offset-4 hover:text-navy transition-colors">view pricing</a>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-xl shadow-navy/5 border border-gray-100 overflow-hidden flex flex-col md:flex-row h-[700px]">
+          {/* Desktop Sidebar */}
+          {!isMobile && showHistory && (
+            <div className="w-72 border-r border-border bg-card flex flex-col"><SidebarContent /></div>
+          )}
+          
+          {/* Mobile Sidebar Trigger */}
+          {isMobile && (
+            <div className="absolute top-4 left-4 z-30">
+              <Button variant="outline" size="icon" onClick={() => setShowHistory(true)} className="bg-white/80 backdrop-blur-sm">
+                <Clock className="h-4 w-4 text-navy" />
               </Button>
-            )}
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-              fetchChatHistory();
-              fetchConsultationHistory();
-              toast({ title: 'Syncing…', description: 'Updating consultation data.' });
-            }}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <p className="text-[10px] md:text-xs text-muted-foreground truncate max-w-[120px] md:max-w-none">
-                <span className="font-bold">Logged in:</span>{' '}
-                <span className="font-medium text-foreground">{user?.email}</span>
-              </p>
+            </div>
+          )}
+
+          {/* Mobile Sidebar Sheet */}
+          {isMobile && (
+            <Sheet open={showHistory} onOpenChange={setShowHistory}>
+              <SheetContent side="left" className="p-0 w-72"><SidebarContent /></SheetContent>
+            </Sheet>
+          )}
+
+          <div className="flex-1 flex flex-col min-w-0 relative">
+            {/* Utility Bar */}
+            <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between z-20">
+              <div className="flex items-center gap-2">
+                {!showHistory && !isMobile && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => setShowHistory(true)}>
+                    <Clock className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => {
+                  fetchChatHistory();
+                  fetchConsultationHistory();
+                  toast({ title: 'Syncing…', description: 'Updating consultation data.' });
+                }}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold hidden sm:block">
+                  Logged in: <span className="text-navy">{user?.email}</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={onLogout} className="h-8 text-navy font-bold text-xs uppercase tracking-wider">
+                  Switch Account
+                </Button>
+              </div>
+            </div>
+
+            {/* Chat Container */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ChatContainer
+                messages={transformedMessages}
+                streamingContent=""
+                onSendMessage={handleSendMessage}
+                isLoading={isLoading}
+                mode={mode}
+                showDisclaimer={messages.length === 0}
+                onQuickReply={handleSendMessage}
+                intakeComplete={intakeComplete}
+                onNewConsultation={handleNewConsultation}
+              />
             </div>
           </div>
-          <div className="flex gap-1.5 md:gap-2">
-            <Button variant="ghost" size="sm" className="h-8 md:h-10 text-[10px] md:text-sm" onClick={onLogout}>
-              <LogOut className="h-4 w-4 md:mr-1.5" />
-              <span className="font-bold">Logout</span>
-            </Button>
+        </div>
+
+        {/* Medical Disclaimer Note */}
+        <div className="mt-8 text-center">
+          <div className="inline-block bg-[#fdf5e6] px-6 py-3 rounded-lg border border-[#f5deb3]/50 max-w-2xl">
+            <p className="text-xs text-gray-700 italic">
+              <span className="font-bold uppercase not-italic mr-2">Service Disclaimer:</span>
+              This is an advisory-only dermatology service. No prescriptions are issued. Consult a local doctor for in-person evaluation if required.
+            </p>
           </div>
         </div>
-        <div className="flex-1 min-h-0">
-          <ChatContainer
-            messages={transformedMessages}
-            streamingContent=""
-            onSendMessage={handleSendMessage}
-            isLoading={isLoading}
-            mode={mode}
-            showDisclaimer={messages.length === 0}
-            onQuickReply={handleSendMessage}
-            intakeComplete={intakeComplete}
-            onNewConsultation={handleNewConsultation}
-          />
-        </div>
       </div>
-    </div>
+    </section>
   );
 };

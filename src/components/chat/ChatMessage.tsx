@@ -23,16 +23,16 @@ interface MarkdownProps {
 }
 
 const MarkdownP = ({ children }: MarkdownProps) => <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>;
-const MarkdownStrong = ({ children }: MarkdownProps) => <strong className="font-bold">{children}</strong>;
-const MarkdownUl = ({ children }: MarkdownProps) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
-const MarkdownOl = ({ children }: MarkdownProps) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
+const MarkdownStrong = ({ children }: MarkdownProps) => <strong className="font-bold text-navy">{children}</strong>;
+const MarkdownUl = ({ children }: MarkdownProps) => <ul className="list-disc pl-4 mb-2 space-y-1 text-gray-700">{children}</ul>;
+const MarkdownOl = ({ children }: MarkdownProps) => <ol className="list-decimal pl-4 mb-2 space-y-1 text-gray-700">{children}</ol>;
 const MarkdownLi = ({ children }: MarkdownProps) => <li className="text-sm leading-relaxed">{children}</li>;
 const MarkdownA = ({ href, children }: MarkdownProps) => (
   <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
-    className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 font-medium cursor-pointer transition-colors"
+    className="text-accent-blue underline underline-offset-2 hover:text-navy font-bold cursor-pointer transition-colors"
   >{children}</a>
 );
 
@@ -81,7 +81,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
 
   const linkifyUrls = (text: string): string => {
-    // Simple URL regex without unnecessary escapes
     return text.replace(/(?<!\]\()(https?:\/\/[^\s)\]]+)/g, (url) => `[${url}](${url})`);
   };
 
@@ -107,7 +106,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         return `**${trimmed}**`;
       }
       
-      if (/^(\d+\.\s+)?[A-Z][A-Za-z\s/()\-]+:?\s*$/.test(trimmed)) return `**${trimmed}**`;
+      if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) return `**${trimmed}**`;
       
       return line;
     }).join('\n');
@@ -115,36 +114,36 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const getRoleLabel = () => {
     if (message.senderName) return message.senderName;
-    if (isPatient) return 'You';
-    if (isDoctor) return 'Doctor';
-    if (isSystem) return 'System Notification';
-    return 'AI Educational Assistant';
+    if (isPatient) return 'Patient';
+    if (isDoctor) return 'Dermatologist';
+    if (isSystem) return 'Notification';
+    return 'Dermatological AI';
   };
 
   const getRoleIcon = () => {
-    if (isPatient) return <User className="h-4 w-4" />; 
-    if (isDoctor) return <Stethoscope className="h-4 w-4" />; 
-    return <Bot className="h-4 w-4" />; 
+    if (isPatient) return <User className="h-3 w-3" />;
+    if (isDoctor) return <Stethoscope className="h-3 w-3" />;
+    return <Bot className="h-3 w-3" />;
   };
 
   const getBubbleColors = () => {
-    if (isPatient) return 'bg-muted text-foreground';
-    if (isDoctor) return 'bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-100';
-    if (isSystem) return 'bg-blue-50 text-blue-900 border border-blue-100 dark:bg-blue-900/20 dark:text-blue-100 dark:border-blue-900/30';
-    return 'bg-primary/10 text-foreground';
+    if (isPatient) return 'bg-white border border-gray-200 text-gray-800 shadow-sm';
+    if (isDoctor) return 'bg-navy text-white shadow-lg shadow-navy/20';
+    if (isSystem) return 'bg-[#fdf5e6] text-gray-700 border border-[#f5deb3]/50';
+    return 'bg-accent-blue/10 border border-accent-blue/20 text-gray-800';
   };
 
   const getLabelColors = () => {
-    if (isPatient) return 'text-muted-foreground';
-    if (isDoctor) return 'text-green-700 dark:text-green-300';
-    if (isSystem) return 'text-blue-700 dark:text-blue-300';
-    return 'text-primary';
+    if (isPatient) return 'text-gray-500';
+    if (isDoctor) return 'text-navy font-bold uppercase tracking-widest';
+    if (isSystem) return 'text-amber-700 font-bold uppercase tracking-widest';
+    return 'text-accent-blue font-bold uppercase tracking-widest';
   };
 
   if (isSystem) {
     return (
-      <div className="flex flex-col items-center gap-2 w-full my-4">
-        <div className={cn('rounded-lg px-6 py-3 text-sm text-center font-medium max-w-[90%]', getBubbleColors())}>
+      <div className="flex flex-col items-center gap-2 w-full my-6">
+        <div className={cn('rounded-full px-6 py-2 text-[10px] text-center font-bold uppercase tracking-widest max-w-[90%]', getBubbleColors())}>
           {message.content}
         </div>
       </div>
@@ -164,37 +163,51 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   return (
     <>
-      <div className={cn('flex flex-col gap-1 max-w-[85%]', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}> 
-        <div className={cn('flex items-center gap-1.5 text-xs font-medium', getLabelColors())}>
-          {getRoleIcon()}<span>{getRoleLabel()}</span>
+      <div className={cn('flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
+        <div className={cn('flex items-center gap-2 text-[10px]', getLabelColors())}>
+          <div className={cn("p-1 rounded-md", isDoctor ? "bg-navy text-white" : (isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500"))}>
+            {getRoleIcon()}
+          </div>
+          <span>{getRoleLabel()}</span>
         </div>
-        <div className={cn('rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-none', getBubbleColors(), isPatient ? 'rounded-br-md' : 'rounded-bl-md')}> 
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
+        <div className={cn('rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm', getBubbleColors(), isPatient ? 'rounded-tr-none' : 'rounded-tl-none')}>          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
-            <div className={cn('grid gap-2 mt-3', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
+            <div className={cn('grid gap-3 mt-4', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
               {images.map((url, idx) => (
-                <img key={idx} src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)} 
-                  className="w-full h-auto object-cover max-h-64 rounded-lg border border-black/10 cursor-pointer hover:opacity-90 transition-opacity" />
+                <div key={idx} className="group relative overflow-hidden rounded-xl border border-black/5 aspect-square">
+                  <img src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)}
+                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex items-center justify-center">
+                    <div className="bg-white/90 p-2 rounded-full text-navy shadow-lg">
+                      <ChevronRight className="h-4 w-4" />
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}
-          {isStreaming && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />} 
+          {isStreaming && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />}
         </div>
-        <span className="text-xs text-muted-foreground">{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        <span className="text-[10px] text-gray-400 font-medium px-1 uppercase tracking-tighter">
+          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
       </div>
       {lightboxOpen && images.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center" onClick={closeLightbox}>
-          <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
-            <button onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)} className="text-white bg-white/10 hover:bg-white/25 rounded-full p-2 transition-colors"><Download className="h-5 w-5" /></button>
-            <button onClick={closeLightbox} className="text-white bg-white/10 hover:bg-red-500/70 rounded-full p-2 transition-colors"><X className="h-5 w-5" /></button>
+        <div className="fixed inset-0 z-[100] bg-navy/95 backdrop-blur-md flex items-center justify-center p-4" onClick={closeLightbox}>
+          <div className="absolute top-6 right-6 flex gap-3" onClick={e => e.stopPropagation()}>
+            <Button variant="ghost" size="icon" onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)} className="text-white hover:bg-white/10 rounded-full h-12 w-12"><Download className="h-6 w-6" /></Button>
+            <Button variant="ghost" size="icon" onClick={closeLightbox} className="text-white hover:bg-red-500/20 rounded-full h-12 w-12"><X className="h-6 w-6" /></Button>
           </div>
-          <img src={images[lightboxIndex]} alt={`Clinical image ${lightboxIndex + 1}`} onClick={e => e.stopPropagation()} className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl" />
+          <img src={images[lightboxIndex]} alt={`Clinical image ${lightboxIndex + 1}`} onClick={e => e.stopPropagation()} className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl border border-white/10" />
           {images.length > 1 && (
             <>
-              <button onClick={e => { e.stopPropagation(); prevImage(); }} className="absolute left-4 top-1/2 -translate-y-1/2 text-white bg-black/40 hover:bg-black/70 rounded-full p-2 transition-colors"><ChevronLeft className="h-6 w-6" /></button>
-              <button onClick={e => { e.stopPropagation(); nextImage(); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-white bg-black/40 hover:bg-black/70 rounded-full p-2 transition-colors"><ChevronRight className="h-6 w-6" /></button>
+              <button onClick={e => { e.stopPropagation(); prevImage(); }} className="absolute left-6 top-1/2 -translate-y-1/2 text-white bg-white/5 hover:bg-white/15 backdrop-blur-sm rounded-full p-4 transition-all"><ChevronLeft className="h-8 w-8" /></button>
+              <button onClick={e => { e.stopPropagation(); nextImage(); }} className="absolute right-6 top-1/2 -translate-y-1/2 text-white bg-white/5 hover:bg-white/15 backdrop-blur-sm rounded-full p-4 transition-all"><ChevronRight className="h-8 w-8" /></button>
             </>
           )}
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full text-white text-xs font-bold uppercase tracking-widest">
+            Image {lightboxIndex + 1} of {images.length}
+          </div>
         </div>
       )}
     </>
