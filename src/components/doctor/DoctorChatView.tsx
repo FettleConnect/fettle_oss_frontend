@@ -43,8 +43,9 @@ const SECTION_TITLES = [
   'Close Differentials',
   'Morphologic Justification',
   'Educational Treatment Framework',
-  'Investigations Commonly Considered',
-  'References',
+  'Typical Course and Prognosis',
+  'When In-Person Evaluation Is Considered',
+  'Educational References',
 ];
 
 const DEFAULT_ASSESSMENT_TEMPLATE = `Most Consistent With
@@ -53,23 +54,29 @@ Preliminary clinical impression based on available intake data suggests a dermat
 
 Close Differentials
 
-Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.
+Related dermatologic conditions may present with overlapping features.
 
 Morphologic Justification
 
-Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.
+Assessment is based on provided history and available images.
 
 Educational Treatment Framework
 
-General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.
+General care includes barrier support, avoidance of irritants, and standard dermatologic approaches.
 
-Investigations Commonly Considered
+Typical Course and Prognosis
 
-Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.
+Course varies depending on the condition and may fluctuate over time.
 
-References
+When In-Person Evaluation Is Considered
 
-Standard dermatology clinical references and guidelines.
+If the condition is worsening, atypical, or not improving.
+
+Educational References
+
+DermNet NZ
+British Association of Dermatologists
+Medscape
 
 You're welcome to ask follow-up questions.`;
 
@@ -132,15 +139,17 @@ function generateFallbackContent(section: string): string {
     case 'Most Consistent With':
       return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
     case 'Close Differentials':
-      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
+      return 'Related dermatologic conditions may present with overlapping features.';
     case 'Morphologic Justification':
-      return 'Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.';
+      return 'Assessment is based on provided history and available images.';
     case 'Educational Treatment Framework':
-      return 'General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.';
-    case 'Investigations Commonly Considered':
-      return 'Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.';
-    case 'References':
-      return 'Standard dermatology clinical references and guidelines.';
+      return 'General care includes barrier support, avoidance of irritants, and standard dermatologic approaches.';
+    case 'Typical Course and Prognosis':
+      return 'Course varies depending on the condition and may fluctuate over time.';
+    case 'When In-Person Evaluation Is Considered':
+      return 'In-person evaluation is recommended if symptoms worsen, remain unclear, or do not improve as expected.';
+    case 'Educational References':
+      return 'DermNet NZ\nBritish Association of Dermatologists\nMedscape';
     default:
       return 'Clinical details not available.';
   }
@@ -165,22 +174,39 @@ function parseStructuredSections(text: string): Record<string, string> {
     buffer = [];
   };
 
-  const legacyMap: Record<string, string> = {
+  const headingMap: Record<string, string> = {
     diagnosis: 'Most Consistent With',
     'most consistent with': 'Most Consistent With',
+    'primary likely diagnosis': 'Most Consistent With',
+
     'differential diagnoses': 'Close Differentials',
+    'differential diagnoses (ranked)': 'Close Differentials',
     'close differentials': 'Close Differentials',
     differentials: 'Close Differentials',
+
     'technical justification': 'Morphologic Justification',
     'morphologic justification': 'Morphologic Justification',
     justification: 'Morphologic Justification',
+    'key morphologic / clinical features': 'Morphologic Justification',
+
     'prescription regimen': 'Educational Treatment Framework',
     'educational treatment framework': 'Educational Treatment Framework',
     'treatment framework': 'Educational Treatment Framework',
-    investigations: 'Investigations Commonly Considered',
-    'investigations commonly considered': 'Investigations Commonly Considered',
-    'educational references': 'References',
-    references: 'References',
+
+    'typical course and prognosis': 'Typical Course and Prognosis',
+    prognosis: 'Typical Course and Prognosis',
+
+    'when in-person evaluation is considered': 'When In-Person Evaluation Is Considered',
+    'in-person evaluation': 'When In-Person Evaluation Is Considered',
+    'red flags': 'When In-Person Evaluation Is Considered',
+    'red flags (if any)': 'When In-Person Evaluation Is Considered',
+
+    'educational references': 'Educational References',
+    references: 'Educational References',
+    'suggested investigations': 'Educational References',
+    'suggested investigations (if relevant)': 'Educational References',
+    investigations: 'Educational References',
+    'investigations commonly considered': 'Educational References',
   };
 
   for (const rawLine of lines) {
@@ -195,13 +221,31 @@ function parseStructuredSections(text: string): Record<string, string> {
     let matchedTitle: string | null = null;
     let inlineBody = '';
 
-    for (const candidate of Object.keys(legacyMap)) {
-      const regex = new RegExp(`^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`, 'i');
+    for (const candidate of Object.keys(headingMap)) {
+      const regex = new RegExp(
+        `^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
+        'i'
+      );
       const match = normalizedLine.match(regex);
       if (match) {
-        matchedTitle = legacyMap[candidate];
+        matchedTitle = headingMap[candidate];
         inlineBody = (match[1] || '').trim();
         break;
+      }
+    }
+
+    if (!matchedTitle) {
+      for (const title of SECTION_TITLES) {
+        const regex = new RegExp(
+          `^(?:\\d+\\.\\s*)?${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
+          'i'
+        );
+        const match = normalizedLine.match(regex);
+        if (match) {
+          matchedTitle = title;
+          inlineBody = (match[1] || '').trim();
+          break;
+        }
       }
     }
 
@@ -341,13 +385,15 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [messages]);
 
   const handleApplyDraft = () => {
-    if (conversation.draftResponse) {
-      setPatientMessage(conversation.draftResponse);
-      toast({
-        title: 'Draft Applied',
-        description: 'AI-generated draft has been loaded into the editor.',
-      });
-    }
+    if (!conversation.draftResponse) return;
+
+    const fullDraft = ensureCompleteStructuredAssessment(conversation.draftResponse);
+    setPatientMessage(fullDraft);
+
+    toast({
+      title: 'Draft Applied',
+      description: 'Full structured response applied to editor.',
+    });
   };
 
   const handleImageSelect = useCallback(
