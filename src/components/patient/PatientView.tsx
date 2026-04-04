@@ -148,6 +148,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     if (isSendingRef.current || isLoading) return;
     isSendingRef.current = true;
 
+    // ─────────────────────────────────────────────────────────
+    // DEFER — patient clicked "Go Back" from the consent screen.
+    // Resets mode to general_education locally without calling
+    // the backend or adding any message to the chat history.
+    // ─────────────────────────────────────────────────────────
+    if (content === 'DEFER') {
+      setMode('general_education');
+      isSendingRef.current = false;
+      return;
+    }
+
     const rawImages = sanitizeImages(images);
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -181,7 +192,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       if (data.mode) setMode(data.mode as ConversationMode);
 
-      if (data.result) {
+      // Only add AI message if backend returned actual content
+      if (data.result && data.result.trim()) {
         setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result }]);
       }
     } catch (e) {
