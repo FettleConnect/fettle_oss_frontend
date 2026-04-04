@@ -211,10 +211,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   intakeComplete = false,
   onNewConsultation,
 }) => {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages, streamingContent, isLoading]);
 
   const modeInfo = useMemo(() => {
@@ -316,7 +318,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      <ScrollArea className="flex-1 p-4 bg-gray-50/30">
+      <div 
+        ref={scrollRef}
+        className="flex-1 p-4 bg-gray-50/30 overflow-y-auto overflow-x-hidden"
+      >
         <div className="space-y-6 max-w-4xl mx-auto">
           {messages.map((message, index) => {
             // Only AI messages get option buttons, and only on the last AI message
@@ -346,9 +351,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <span>Dermatological Assistant is thinking</span>
             </div>
           )}
-          <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {showConsentConfirm && onQuickReply && (
         <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">

@@ -4,6 +4,7 @@ import { DoctorChatView } from './DoctorChatView';
 import { SystemPromptEditor } from './SystemPromptEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { RefreshCw, Menu, X, Users, Settings, Stethoscope } from 'lucide-react';
 import { Conversation, Message } from '@/types/dermatology';
 import { BASE_URL } from '@/base_url';
