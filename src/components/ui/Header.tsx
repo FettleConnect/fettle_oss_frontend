@@ -20,7 +20,8 @@ export const Header: React.FC = () => {
   return (
     <header className="bg-white border-b border-gray-100 z-50">
       <div className="container mx-auto px-4 md:px-6 py-4 flex items-center justify-between">
-        {/* Logo Section */}
+
+        {/* Logo — stays on current page (React Router) */}
         <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
           <div className="bg-navy p-2 rounded-lg text-white">
             <HeartPulse className="h-6 w-6" />
@@ -35,19 +36,23 @@ export const Header: React.FC = () => {
           </div>
         </Link>
 
-        {/* Desktop Nav */}
+        {/* Desktop Nav — all links open in new tab */}
         <nav className="hidden lg:flex items-center gap-6">
           {navLinks.map((link) => (
             <a
               key={link.name}
               href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-navy font-bold text-xs tracking-wider hover:text-accent-blue transition-colors"
             >
               {link.name}
             </a>
           ))}
-          <a 
+          <a
             href="https://www.onlineskinspecialist.com/cases/ask-a-question/"
+            target="_blank"
+            rel="noopener noreferrer"
             className="btn-primary-atilli text-[10px] px-4 py-2"
           >
             SUBMIT YOUR CASE +
@@ -55,7 +60,7 @@ export const Header: React.FC = () => {
         </nav>
 
         {/* Mobile Menu Button */}
-        <button 
+        <button
           className="lg:hidden text-navy"
           onClick={() => setIsMenuOpen(!isMenuOpen)}
         >
@@ -63,21 +68,25 @@ export const Header: React.FC = () => {
         </button>
       </div>
 
-      {/* Mobile Nav */}
+      {/* Mobile Nav — all links open in new tab */}
       {isMenuOpen && (
         <nav className="lg:hidden bg-white border-t border-gray-100 p-4 flex flex-col gap-4">
           {navLinks.map((link) => (
             <a
               key={link.name}
               href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-navy font-bold text-sm tracking-wider hover:text-accent-blue transition-colors"
               onClick={() => setIsMenuOpen(false)}
             >
               {link.name}
             </a>
           ))}
-          <a 
+          <a
             href="https://www.onlineskinspecialist.com/cases/ask-a-question/"
+            target="_blank"
+            rel="noopener noreferrer"
             className="btn-primary-atilli text-center"
             onClick={() => setIsMenuOpen(false)}
           >
