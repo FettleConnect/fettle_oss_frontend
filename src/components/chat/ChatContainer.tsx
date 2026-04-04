@@ -368,10 +368,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <Button
               variant="outline"
               className="flex-1 h-11 border-gray-200 text-navy font-bold uppercase text-xs tracking-widest"
-              onClick={() => onQuickReply('No')}
+              onClick={() => onQuickReply('DEFER')}
               disabled={isLoading}
             >
-              <ArrowLeft className="h-4 w-4 mr-2" /> Defer
+              <ArrowLeft className="h-4 w-4 mr-2" /> Go Back
             </Button>
             <Button
               className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
@@ -392,31 +392,20 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <Stethoscope className="h-4 w-4 text-navy" />
             </div>
             <div>
-              <p className="text-sm font-bold text-navy tracking-tight">Ready for a specialist review?</p>
+              <p className="text-sm font-bold text-navy tracking-tight">Would you like a specialist review?</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Get a full dermatologist-reviewed assessment including diagnosis, treatment framework, and personalised insights.
+                Get a full dermatologist-reviewed assessment including diagnosis, treatment framework, and personalised insights. Click below to proceed.
               </p>
             </div>
           </div>
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1 h-11 border-navy/20 text-navy font-bold uppercase text-xs tracking-widest hover:bg-navy/5"
-              onClick={() => onQuickReply?.('YES')}
-              disabled={isLoading}
-            >
-              <Stethoscope className="h-3.5 w-3.5 mr-2" />
-              Dermatologist Review
-            </Button>
-            <Button
-              className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
-              onClick={() => onQuickReply?.('YES')}
-              disabled={isLoading}
-            >
-              <CheckCircle className="h-3.5 w-3.5 mr-2" />
-              Confirm Payment
-            </Button>
-          </div>
+          <Button
+            className="w-full h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
+            onClick={() => onQuickReply?.('YES')}
+            disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Go to Dermatologist Review <ChevronRight className="h-4 w-4 ml-2" />
+          </Button>
         </div>
       )}
 
@@ -429,29 +418,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <div>
               <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Consultation Threshold Reached</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                You have received the maximum allowed free insights. Proceed to a full specialist review by Dr. Attili.
+                You have received the maximum allowed free insights. Click below to proceed to a full specialist review by Dr. Attili.
               </p>
             </div>
           </div>
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1 h-12 border-navy/20 text-navy font-bold uppercase text-xs tracking-widest hover:bg-navy/5"
-              onClick={() => onQuickReply?.('YES')}
-              disabled={isLoading}
-            >
-              <Stethoscope className="h-3.5 w-3.5 mr-2" />
-              Dermatologist Review
-            </Button>
-            <Button
-              className="flex-1 h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
-              onClick={() => onQuickReply?.('YES')}
-              disabled={isLoading}
-            >
-              <CheckCircle className="h-3.5 w-3.5 mr-2" />
-              Confirm Payment <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
+          <Button
+            className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
+            onClick={() => onQuickReply?.('YES')}
+            disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Go to Dermatologist Review <ChevronRight className="h-4 w-4 ml-2" />
+          </Button>
         </div>
       )}
 
