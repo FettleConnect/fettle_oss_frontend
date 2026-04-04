@@ -42,6 +42,21 @@ const MarkdownA = ({ href, children }: MarkdownProps) => (
   >{children}</a>
 );
 
+
+// Doctor avatar — shows photo with graceful fallback to stethoscope icon
+const DoctorAvatar: React.FC = () => {
+  const [imgFailed, setImgFailed] = React.useState(false);
+  if (imgFailed) return <Stethoscope className="h-3.5 w-3.5 text-white" />;
+  return (
+    <img
+      src="/doctor-photo.jpg"
+      alt="Dr. Sasi Kiran Attili"
+      className="w-6 h-6 rounded-full object-cover object-top"
+      onError={() => setImgFailed(true)}
+    />
+  );
+};
+
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
   const isPatient = message.role === 'patient';
   const isDoctor = message.role === 'doctor';
@@ -130,23 +145,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const getRoleIcon = () => {
     if (isPatient) return <User className="h-3 w-3" />;
-    if (isDoctor) return (
-      <img
-        src="/doctor-photo.jpg"
-        alt="Dr. Sasi Kiran Attili"
-        className="h-5 w-5 rounded-full object-cover"
-        onError={(e) => {
-          const target = e.currentTarget as HTMLImageElement;
-          target.style.display = 'none';
-          const parent = target.parentElement;
-          if (parent) {
-            const icon = document.createElement('span');
-            icon.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M22 12h-4l-3 9L9 3l-3 9H2\"/></svg>';
-            parent.appendChild(icon);
-          }
-        }}
-      />
-    );
+    if (isDoctor) return <DoctorAvatar />;
     return <Bot className="h-3 w-3" />;
   };
 
@@ -196,8 +195,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       <div className={cn('flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
         <div className={cn('flex items-center gap-2 text-[10px]', getLabelColors())}>
           <div className={cn(
-            isDoctor ? "rounded-full overflow-hidden border-2 border-navy/20" : "p-1 rounded-md",
-            isDoctor ? "bg-transparent" : (isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500")
+            "overflow-hidden flex items-center justify-center",
+            isDoctor
+              ? "rounded-full w-6 h-6 border border-navy/20"
+              : "p-1 rounded-md",
+            !isDoctor && (isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500")
           )}>
             {getRoleIcon()}
           </div>
