@@ -211,12 +211,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   intakeComplete = false,
   onNewConsultation,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent, isLoading]);
 
   const modeInfo = useMemo(() => {
@@ -245,6 +243,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const aiReplyCount = messages.filter(m => m.role === 'ai').length;
   const freeTierExhausted = mode === 'general_education' && aiReplyCount >= 3;
   const hideInput = showConsentConfirm || freeTierExhausted;
+  const showNextStepCTA = mode === 'general_education' && aiReplyCount >= 1;
 
   const pinnedNote = useMemo(() => {
     if (mode === 'general_education') {
@@ -318,10 +317,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      <div 
-        ref={scrollRef}
-        className="flex-1 p-4 bg-gray-50/30 overflow-y-auto overflow-x-hidden"
-      >
+      <ScrollArea className="flex-1 p-4 bg-gray-50/30">
         <div className="space-y-6 max-w-4xl mx-auto">
           {messages.map((message, index) => {
             // Only AI messages get option buttons, and only on the last AI message
@@ -351,8 +347,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <span>Dermatological Assistant is thinking</span>
             </div>
           )}
+          <div ref={bottomRef} />
         </div>
-      </div>
+      </ScrollArea>
 
       {showConsentConfirm && onQuickReply && (
         <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
@@ -387,6 +384,42 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
+
+      {showNextStepCTA && !freeTierExhausted && (
+        <div className="border-t border-gray-100 bg-gradient-to-b from-white to-[#f8f9fc] p-5 space-y-3 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.08)]">
+          <div className="flex items-start gap-3">
+            <div className="bg-navy/10 p-2 rounded-full shrink-0">
+              <Stethoscope className="h-4 w-4 text-navy" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-navy tracking-tight">Ready for a specialist review?</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Get a full dermatologist-reviewed assessment including diagnosis, treatment framework, and personalised insights.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1 h-11 border-navy/20 text-navy font-bold uppercase text-xs tracking-widest hover:bg-navy/5"
+              onClick={() => onQuickReply?.('YES')}
+              disabled={isLoading}
+            >
+              <Stethoscope className="h-3.5 w-3.5 mr-2" />
+              Dermatologist Review
+            </Button>
+            <Button
+              className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
+              onClick={() => onQuickReply?.('YES')}
+              disabled={isLoading}
+            >
+              <CheckCircle className="h-3.5 w-3.5 mr-2" />
+              Confirm Payment
+            </Button>
+          </div>
+        </div>
+      )}
+
       {freeTierExhausted && (
         <div className="border-t border-gray-100 bg-gradient-to-b from-white to-gray-50 p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
           <div className="flex items-start gap-3">
@@ -396,17 +429,29 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <div>
               <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Consultation Threshold Reached</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                You have received the maximum allowed free insights. Please upgrade to a full review by Dr. Attili to continue.
+                You have received the maximum allowed free insights. Proceed to a full specialist review by Dr. Attili.
               </p>
             </div>
           </div>
-          <Button
-            className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
-            onClick={() => onQuickReply?.('YES')}
-            disabled={isLoading}
-          >
-            Upgrade to Specialist Review <ChevronRight className="h-4 w-4 ml-2" />
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1 h-12 border-navy/20 text-navy font-bold uppercase text-xs tracking-widest hover:bg-navy/5"
+              onClick={() => onQuickReply?.('YES')}
+              disabled={isLoading}
+            >
+              <Stethoscope className="h-3.5 w-3.5 mr-2" />
+              Dermatologist Review
+            </Button>
+            <Button
+              className="flex-1 h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
+              onClick={() => onQuickReply?.('YES')}
+              disabled={isLoading}
+            >
+              <CheckCircle className="h-3.5 w-3.5 mr-2" />
+              Confirm Payment <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
         </div>
       )}
 
