@@ -82,23 +82,29 @@ Preliminary clinical impression based on available intake data suggests a dermat
 
 Close Differentials
 
-Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.
+Related dermatologic conditions may present with overlapping clinical features and require further evaluation.
 
 Morphologic Justification
 
-Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.
+Assessment is based on provided history and available images. Morphology suggests a localised dermatologic process requiring clinical correlation.
 
 Educational Treatment Framework
 
-General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.
+General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.
 
-Investigations Commonly Considered
+Typical Course and Prognosis
 
-Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.
+Course depends on the underlying condition and may vary. General improvement is expected with appropriate management over several weeks.
 
-References
+When In-Person Evaluation Is Considered
 
-Standard dermatology clinical references and guidelines.
+In-person evaluation is recommended if symptoms worsen, features are atypical, diagnosis is uncertain, or the condition does not respond as expected.
+
+Educational References
+
+DermNet NZ
+British Association of Dermatologists
+Medscape
 
 You're welcome to ask follow-up questions.`;
 
@@ -107,8 +113,9 @@ const SECTION_TITLES = [
   'Close Differentials',
   'Morphologic Justification',
   'Educational Treatment Framework',
-  'Investigations Commonly Considered',
-  'References',
+  'Typical Course and Prognosis',
+  'When In-Person Evaluation Is Considered',
+  'Educational References',
 ];
 
 function normalizeHeading(title: string): string {
@@ -150,15 +157,17 @@ function generateFallbackContent(section: string): string {
     case 'Most Consistent With':
       return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
     case 'Close Differentials':
-      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
+      return 'Related dermatologic conditions may present with overlapping clinical features and require further evaluation.';
     case 'Morphologic Justification':
-      return 'Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.';
+      return 'Assessment is based on provided history and available images. Morphology suggests a localised dermatologic process requiring clinical correlation.';
     case 'Educational Treatment Framework':
-      return 'General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.';
-    case 'Investigations Commonly Considered':
-      return 'Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.';
-    case 'References':
-      return 'Standard dermatology clinical references and guidelines.';
+      return 'General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.';
+    case 'Typical Course and Prognosis':
+      return 'Course depends on the underlying condition and may vary. General improvement is expected with appropriate management over several weeks.';
+    case 'When In-Person Evaluation Is Considered':
+      return 'In-person evaluation is recommended if symptoms worsen, features are atypical, diagnosis is uncertain, or the condition does not respond as expected.';
+    case 'Educational References':
+      return 'DermNet NZ\nBritish Association of Dermatologists\nMedscape';
     default:
       return 'Clinical details not available.';
   }
@@ -203,15 +212,15 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
 
   const mappings = [
     {
-      patterns: ['Diagnosis', 'Most Consistent With'],
+      patterns: ['Diagnosis', 'Most Consistent With', 'Primary Likely Diagnosis'],
       target: 'Most Consistent With',
     },
     {
-      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
+      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials', 'Differential Diagnoses (Ranked)'],
       target: 'Close Differentials',
     },
     {
-      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'],
+      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification', 'Key Morphologic / Clinical Features'],
       target: 'Morphologic Justification',
     },
     {
@@ -219,12 +228,16 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
       target: 'Educational Treatment Framework',
     },
     {
-      patterns: ['Investigations', 'Investigations Commonly Considered'],
-      target: 'Investigations Commonly Considered',
+      patterns: ['Typical Course and Prognosis', 'Prognosis', 'Course and Prognosis', 'Suggested Investigations', 'Suggested Investigations (if relevant)', 'Investigations Commonly Considered', 'Investigations'],
+      target: 'Typical Course and Prognosis',
+    },
+    {
+      patterns: ['When In-Person Evaluation Is Considered', 'In-Person Evaluation', 'Red Flags', 'Red Flags (if any)', 'Diagnostic Confidence'],
+      target: 'When In-Person Evaluation Is Considered',
     },
     {
       patterns: ['Educational References', 'References'],
-      target: 'References',
+      target: 'Educational References',
     },
   ];
 
@@ -289,7 +302,8 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
       body = generateFallbackContent(title);
     }
 
-    return `${title}\n\n${body}`.trim();
+    // Bold heading format: **Title** on its own line, then body
+    return `**${title}**\n\n${body}`.trim();
   }).join('\n\n');
 
   let finalText = cleanBody(normalized);
