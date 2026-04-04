@@ -7,6 +7,7 @@ import { BASE_URL } from "@/base_url";
 import { Loader2, Save, RotateCcw, ShieldAlert, BookOpen, ClipboardList, Microscope, FileText, ChevronRight, LayoutGrid } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 interface ModularPrompts {
   module1: string;
