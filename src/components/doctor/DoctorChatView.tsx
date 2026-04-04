@@ -664,19 +664,18 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   // ─────────────────────────────────────────────────────────
   const handleApplyAIContent = useCallback(
     (content: string) => {
+      // Fully replace the editor content with the AI response
       const normalized = normalizeAIContentToStructuredFormat(content);
-      const merged = mergeStructuredContent(patientMessage, normalized);
-
-      setPatientMessage(merged);
+      setPatientMessage(normalized);
 
       toast({
         title: 'Assessment Updated',
-        description: 'Structured AI content was applied to the editor.',
+        description: 'AI response applied to the Assessment editor.',
       });
 
       if (isMobile) setShowAI(false);
     },
-    [isMobile, patientMessage, toast]
+    [isMobile, toast]
   );
 
   const canRespond =
