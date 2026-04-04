@@ -193,18 +193,30 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   return (
     <>
       <div className={cn('flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
-        <div className={cn('flex items-center gap-2 text-[10px]', getLabelColors())}>
-          <div className={cn(
-            "overflow-hidden flex items-center justify-center",
-            isDoctor
-              ? "rounded-full w-6 h-6 border border-navy/20"
-              : "p-1 rounded-md",
-            !isDoctor && (isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500")
-          )}>
-            {getRoleIcon()}
+        {isDoctor ? (
+          <a
+            href="https://www.onlineskinspecialist.com/consultant-dermatologist/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn('flex items-center gap-2 text-[10px] hover:opacity-75 transition-opacity cursor-pointer', getLabelColors())}
+          >
+            <div className="overflow-hidden flex items-center justify-center rounded-full w-6 h-6 border border-navy/20">
+              {getRoleIcon()}
+            </div>
+            <span>{getRoleLabel()}</span>
+          </a>
+        ) : (
+          <div className={cn('flex items-center gap-2 text-[10px]', getLabelColors())}>
+            <div className={cn(
+              "overflow-hidden flex items-center justify-center",
+              "p-1 rounded-md",
+              isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500"
+            )}>
+              {getRoleIcon()}
+            </div>
+            <span>{getRoleLabel()}</span>
           </div>
-          <span>{getRoleLabel()}</span>
-        </div>
+        )}
         <div className={cn('rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm', getBubbleColors(), isPatient ? 'rounded-tr-none' : 'rounded-tl-none')}>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
