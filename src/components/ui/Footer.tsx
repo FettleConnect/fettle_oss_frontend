@@ -82,8 +82,9 @@ export const Footer: React.FC = () => {
       {/* Copyright Bar */}
       <div className="container mx-auto mt-12 pt-6 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] text-gray-400 uppercase tracking-widest font-bold">
         <p>Copyright © 2024 Online Skin Specialist. All rights reserved.</p>
-        <p>Powered by <a href="https://sanchaninfo.com/" target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:text-white transition-colors">Sanchan Info Solutions.</a></p>
+        <p>Powered by <a href="https://www.letsfettle.com/" target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:text-white transition-colors">Fettle.</a></p>
       </div>
+
     </footer>
   );
 };
