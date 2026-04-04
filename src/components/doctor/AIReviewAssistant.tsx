@@ -23,8 +23,9 @@ const SECTION_TITLES = [
   'Close Differentials',
   'Morphologic Justification',
   'Educational Treatment Framework',
-  'Investigations Commonly Considered',
-  'References',
+  'Typical Course and Prognosis',
+  'When In-Person Evaluation Is Considered',
+  'Educational References',
 ];
 
 const FINAL_LINE = "You're welcome to ask follow-up questions.";
@@ -41,9 +42,11 @@ Morphologic Justification
 
 Educational Treatment Framework
 
-Investigations Commonly Considered
+Typical Course and Prognosis
 
-References
+When In-Person Evaluation Is Considered
+
+Educational References
 
 Rules:
 - Use exactly the section titles above in exactly the same order.
@@ -76,15 +79,17 @@ function generateFallbackContent(section: string): string {
     case 'Most Consistent With':
       return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
     case 'Close Differentials':
-      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
+      return 'Related dermatologic conditions may present with overlapping clinical features and require further evaluation.';
     case 'Morphologic Justification':
-      return 'Assessment is based on the provided history and any available images. Morphology suggests a localized dermatologic process requiring clinical correlation.';
+      return 'Assessment is based on the provided history and any available images. Morphology suggests a localised dermatologic process requiring clinical correlation.';
     case 'Educational Treatment Framework':
       return 'General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.';
-    case 'Investigations Commonly Considered':
-      return 'Further evaluation may include dermatologic examination, bedside tests, laboratory workup, or biopsy if clinically indicated.';
-    case 'References':
-      return 'Standard dermatology educational references and clinical guidelines.';
+    case 'Typical Course and Prognosis':
+      return 'Course depends on the underlying condition and may vary. General improvement is expected with appropriate management over several weeks.';
+    case 'When In-Person Evaluation Is Considered':
+      return 'In-person evaluation is recommended if symptoms worsen, features are atypical, diagnosis is uncertain, or the condition does not respond as expected.';
+    case 'Educational References':
+      return 'DermNet NZ\nBritish Association of Dermatologists\nMedscape';
     default:
       return 'Clinical details are limited from the currently available information.';
   }
@@ -179,7 +184,8 @@ function buildStructuredOutput(sections: Record<string, string>): string {
   const content = SECTION_TITLES.map(title => {
     const key = normalizeHeading(title);
     const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
-    return `${title}\n\n${body}`.trim();
+    // Bold heading so it renders clearly in markdown
+    return `**${title}**\n\n${body}`.trim();
   }).join('\n\n');
 
   const cleaned = cleanBody(content);
