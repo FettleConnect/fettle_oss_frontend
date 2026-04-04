@@ -1,8 +1,7 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Message, ConversationMode, DISCLAIMER } from '@/types/dermatology';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -211,11 +210,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   intakeComplete = false,
   onNewConsultation,
 }) => {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, isLoading]);
+  // Auto-scrolling disabled as per user request.
+  // Users will now scroll manually.
 
   const modeInfo = useMemo(() => {
     switch (mode) {
@@ -281,8 +277,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="border-b border-gray-100 bg-white px-4 py-3 flex items-center justify-between shadow-sm z-10">
+    <div className="flex flex-col h-full bg-white relative overflow-hidden">
+      <div className="border-b border-gray-100 bg-white px-4 py-3 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-navy" />
           <h2 className="font-bold text-navy uppercase tracking-widest text-xs">Consultation Channel</h2>
@@ -299,7 +295,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       </div>
 
       {pinnedNote && (
-        <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+        <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 flex-shrink-0 animate-in fade-in slide-in-from-top-1 duration-300">
           <Info className="h-3.5 w-3.5 text-navy flex-shrink-0 mt-0.5" />
           <p className="text-[11px] text-navy font-bold uppercase tracking-tight leading-relaxed">{pinnedNote}</p>
         </div>
@@ -317,8 +313,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-      <ScrollArea className="flex-1 p-4 bg-gray-50/30">
-        <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Messages Viewport - Strictly manual scrolling */}
+      <div className="flex-1 p-4 bg-gray-50/30 overflow-y-auto overflow-x-hidden">
+        <div className="space-y-6 max-w-4xl mx-auto pb-4">
           {messages.map((message, index) => {
             // Only AI messages get option buttons, and only on the last AI message
             if (message.role === 'ai') {
@@ -344,17 +341,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 <span className="w-1.5 h-1.5 bg-navy/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-1.5 h-1.5 bg-navy/30 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
-              <span>Dermatological Assistant is thinking</span>
+              <span>Expert Assistant is analyzing</span>
             </div>
           )}
-          <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {showConsentConfirm && onQuickReply && (
-        <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
+        <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
           <div className="flex items-start gap-3 text-navy">
-            <div className="bg-navy/10 p-2 rounded-full">
+            <div className="bg-navy/10 p-2 rounded-full flex-shrink-0">
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
@@ -386,7 +382,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
 
       {showNextStepCTA && !freeTierExhausted && (
-        <div className="border-t border-gray-100 bg-gradient-to-b from-white to-[#f8f9fc] p-5 space-y-3 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.08)]">
+        <div className="border-t border-gray-100 bg-gradient-to-b from-white to-[#f8f9fc] p-5 space-y-3 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.08)] flex-shrink-0 relative z-10">
           <div className="flex items-start gap-3">
             <div className="bg-navy/10 p-2 rounded-full shrink-0">
               <Stethoscope className="h-4 w-4 text-navy" />
@@ -410,15 +406,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       )}
 
       {freeTierExhausted && (
-        <div className="border-t border-gray-100 bg-gradient-to-b from-white to-gray-50 p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
+        <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
           <div className="flex items-start gap-3">
-            <div className="bg-accent-blue/10 p-2 rounded-full">
+            <div className="bg-accent-blue/10 p-2 rounded-full flex-shrink-0">
               <Stethoscope className="h-5 w-5 text-accent-blue" />
             </div>
             <div>
-              <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Consultation Threshold Reached</p>
+              <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Insight Limit Reached</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                You have received the maximum allowed free insights. Click below to proceed to a full specialist review by Dr. Attili.
+                Please upgrade to a specialist review by Dr. Attili to continue receiving expert assessments.
               </p>
             </div>
           </div>
@@ -434,7 +430,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       )}
 
       {mode === 'final_output' && onNewConsultation && (
-        <div className="border-t border-gray-100 bg-white p-6 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
+        <div className="border-t border-gray-100 bg-white p-6 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
           <Button
             className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-green-900/20"
             onClick={onNewConsultation}
@@ -445,12 +441,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       )}
 
       {!hideInput && (
-        <ChatInput
-          onSend={onSendMessage}
-          isLoading={isLoading}
-          mode={mode}
-          disabled={false}
-        />
+        <div className="flex-shrink-0 relative z-10">
+          <ChatInput
+            onSend={onSendMessage}
+            isLoading={isLoading}
+            mode={mode}
+            disabled={false}
+          />
+        </div>
       )}
     </div>
   );
