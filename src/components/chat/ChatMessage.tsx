@@ -92,7 +92,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Fix literal \n\n that may come from backend escaped strings
+    const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
+    const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = (isDoctor || isAI) ? linkifyUrls(normalized) : normalized;
 
     return withLinks.split('\n').map(line => {
@@ -121,14 +123,30 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const getRoleLabel = () => {
     if (message.senderName) return message.senderName;
     if (isPatient) return 'Patient';
-    if (isDoctor) return 'Dermatologist';
+    if (isDoctor) return 'Dr. Sasi Kiran Attili';
     if (isSystem) return 'Notification';
     return 'Dermatological AI';
   };
 
   const getRoleIcon = () => {
     if (isPatient) return <User className="h-3 w-3" />;
-    if (isDoctor) return <Stethoscope className="h-3 w-3" />;
+    if (isDoctor) return (
+      <img
+        src="/doctor-photo.jpg"
+        alt="Dr. Sasi Kiran Attili"
+        className="h-5 w-5 rounded-full object-cover"
+        onError={(e) => {
+          const target = e.currentTarget as HTMLImageElement;
+          target.style.display = 'none';
+          const parent = target.parentElement;
+          if (parent) {
+            const icon = document.createElement('span');
+            icon.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M22 12h-4l-3 9L9 3l-3 9H2\"/></svg>';
+            parent.appendChild(icon);
+          }
+        }}
+      />
+    );
     return <Bot className="h-3 w-3" />;
   };
 
@@ -156,7 +174,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     );
   }
 
-  const renderedContent = (isDoctor || isAI) ? formatContent(message.content) : message.content;
+  // Never show INTAKE_COMPLETE raw text to patient
+  const cleanContent = (message.content || '')
+    .replace(/^INTAKE_COMPLETE\s*/gm, '')
+    .replace(/Thank you for the information\.\s*\nINTAKE_COMPLETE/g, 'Thank you for the information.')
+    .trim();
+
+  const renderedContent = (isDoctor || isAI) ? formatContent(cleanContent) : cleanContent;
 
   const mdComponents = {
     p: MarkdownP,
@@ -171,7 +195,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     <>
       <div className={cn('flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
         <div className={cn('flex items-center gap-2 text-[10px]', getLabelColors())}>
-          <div className={cn("p-1 rounded-md", isDoctor ? "bg-navy text-white" : (isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500"))}>
+          <div className={cn(
+            isDoctor ? "rounded-full overflow-hidden border-2 border-navy/20" : "p-1 rounded-md",
+            isDoctor ? "bg-transparent" : (isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500")
+          )}>
             {getRoleIcon()}
           </div>
           <span>{getRoleLabel()}</span>
