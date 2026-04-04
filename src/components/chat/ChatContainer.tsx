@@ -1,11 +1,14 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Message, ConversationMode, DISCLAIMER } from '@/types/dermatology';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
+  RefreshCw,
   ArrowLeft,
   Info,
   CheckCircle,
@@ -14,8 +17,8 @@ import {
   Stethoscope,
   ChevronRight,
   MessageSquare,
+  PenLine,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface ChatContainerProps {
   messages: Message[];
@@ -29,6 +32,174 @@ interface ChatContainerProps {
   onNewConsultation?: () => void;
 }
 
+// ─────────────────────────────────────────────────────────
+// Parse [OPTIONS: A | B | C | Other] from AI message text
+// Returns { cleanText, options } where cleanText has the tag removed
+// ─────────────────────────────────────────────────────────
+function parseOptions(content: string): { cleanText: string; options: string[] } {
+  const regex = /\[OPTIONS:\s*([^\]]+)\]/i;
+  const match = content.match(regex);
+  if (!match) return { cleanText: content, options: [] };
+
+  const options = match[1]
+    .split('|')
+    .map(o => o.trim())
+    .filter(Boolean);
+
+  const cleanText = content.replace(regex, '').trim();
+  return { cleanText, options };
+}
+
+// ─────────────────────────────────────────────────────────
+// OptionButtons — renders the option pills + "Other" text box
+// ─────────────────────────────────────────────────────────
+interface OptionButtonsProps {
+  options: string[];
+  onSelect: (value: string) => void;
+  disabled: boolean;
+}
+
+const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabled }) => {
+  const [showOtherInput, setShowOtherInput] = useState(false);
+  const [otherText, setOtherText] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showOtherInput) inputRef.current?.focus();
+  }, [showOtherInput]);
+
+  const handleSelect = (option: string) => {
+    if (disabled || selected) return;
+    if (option.toLowerCase() === 'other') {
+      setShowOtherInput(true);
+      return;
+    }
+    setSelected(option);
+    onSelect(option);
+  };
+
+  const handleOtherSubmit = () => {
+    if (!otherText.trim() || disabled) return;
+    setSelected(otherText.trim());
+    setShowOtherInput(false);
+    onSelect(otherText.trim());
+  };
+
+  const handleOtherKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleOtherSubmit();
+    if (e.key === 'Escape') {
+      setShowOtherInput(false);
+      setOtherText('');
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-2">
+      {/* Option pills */}
+      <div className="flex flex-wrap gap-2">
+        {options.map(option => {
+          const isOther = option.toLowerCase() === 'other';
+          const isSelected = selected === option;
+          const isDisabled = disabled || (!!selected && selected !== option);
+
+          return (
+            <button
+              key={option}
+              onClick={() => handleSelect(option)}
+              disabled={isDisabled}
+              className={cn(
+                'px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border transition-all duration-150',
+                isSelected
+                  ? 'bg-navy text-white border-navy shadow-md'
+                  : isOther
+                  ? 'bg-white text-navy border-navy/30 hover:border-navy hover:bg-navy/5'
+                  : 'bg-white text-navy border-navy/20 hover:border-navy/60 hover:bg-navy/5',
+                isDisabled && !isSelected && 'opacity-40 cursor-not-allowed',
+                isOther && !isDisabled && 'flex items-center gap-1'
+              )}
+            >
+              {isOther && <PenLine className="h-3 w-3" />}
+              {option}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* "Other" inline text box */}
+      {showOtherInput && !selected && (
+        <div className="flex gap-2 items-center animate-in fade-in slide-in-from-top-1 duration-200">
+          <input
+            ref={inputRef}
+            type="text"
+            value={otherText}
+            onChange={e => setOtherText(e.target.value)}
+            onKeyDown={handleOtherKeyDown}
+            placeholder="Type your answer..."
+            className="flex-1 h-9 px-3 text-xs rounded-lg border border-navy/20 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy/20 bg-white text-navy placeholder:text-muted-foreground"
+          />
+          <Button
+            size="sm"
+            className="h-9 px-4 bg-navy hover:bg-navy/90 text-white text-xs font-bold uppercase tracking-wider"
+            onClick={handleOtherSubmit}
+            disabled={!otherText.trim()}
+          >
+            Send
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// MessageWithOptions — wraps ChatMessage and appends option buttons
+// if the AI message contains an [OPTIONS: ...] tag
+// ─────────────────────────────────────────────────────────
+interface MessageWithOptionsProps {
+  message: Message;
+  isLast: boolean;
+  onSelect: (value: string) => void;
+  isLoading: boolean;
+  alreadyAnswered: boolean;
+}
+
+const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
+  message,
+  isLast,
+  onSelect,
+  isLoading,
+  alreadyAnswered,
+}) => {
+  const { cleanText, options } = useMemo(
+    () => parseOptions(message.content),
+    [message.content]
+  );
+
+  // Render the message with the OPTIONS tag stripped from visible text
+  const cleanMessage = useMemo(
+    () => ({ ...message, content: cleanText }),
+    [message, cleanText]
+  );
+
+  const showOptions = options.length > 0 && isLast && !alreadyAnswered;
+
+  return (
+    <div>
+      <ChatMessage message={cleanMessage} />
+      {showOptions && (
+        <div className="ml-2 mt-1 max-w-[85%]">
+          <OptionButtons
+            options={options}
+            onSelect={onSelect}
+            disabled={isLoading}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ChatContainer: React.FC<ChatContainerProps> = ({
   messages,
   streamingContent,
@@ -40,10 +211,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   intakeComplete = false,
   onNewConsultation,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scrolling disabled as per user request.
-  // Users will now scroll manually.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingContent, isLoading]);
 
   const modeInfo = useMemo(() => {
     switch (mode) {
@@ -62,12 +234,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   }, [mode]);
 
+  const lastAiContent = useMemo(() => {
+    const aiMsgs = messages.filter(m => m.role === 'ai');
+    return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1].content.toLowerCase() : '';
+  }, [messages]);
+
   const showConsentConfirm = mode === 'consent_clarification';
-  
   const aiReplyCount = messages.filter(m => m.role === 'ai').length;
   const freeTierExhausted = mode === 'general_education' && aiReplyCount >= 3;
-
   const hideInput = showConsentConfirm || freeTierExhausted;
+  const showNextStepCTA = mode === 'general_education' && aiReplyCount >= 1;
 
   const pinnedNote = useMemo(() => {
     if (mode === 'general_education') {
@@ -82,66 +258,103 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     return null;
   }, [mode]);
 
+  // ─────────────────────────────────────────────────────────
+  // Determine the index of the last AI message so we only
+  // show option buttons on the most recent AI message
+  // ─────────────────────────────────────────────────────────
+  const lastAiMessageIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'ai') return i;
+    }
+    return -1;
+  }, [messages]);
+
+  // The patient has answered the last AI question if there is a
+  // user message after the last AI message
+  const patientAnsweredLast = useMemo(() => {
+    if (lastAiMessageIndex === -1) return true;
+    return messages.slice(lastAiMessageIndex + 1).some(m => m.role === 'patient' || m.role === 'user');
+  }, [messages, lastAiMessageIndex]);
+
+  const handleOptionSelect = (value: string) => {
+    onSendMessage(value);
+  };
+
   return (
-    <div className="flex flex-col h-full bg-white relative overflow-hidden">
-      {/* Container Header */}
-      <div className="border-b border-gray-100 bg-white px-4 py-3 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
+    <div className="flex flex-col h-full bg-white">
+      <div className="border-b border-gray-100 bg-white px-4 py-3 flex items-center justify-between shadow-sm z-10">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-navy" />
-          <h2 className="font-bold text-navy uppercase tracking-widest text-[10px]">Consultation Channel</h2>
+          <h2 className="font-bold text-navy uppercase tracking-widest text-xs">Consultation Channel</h2>
         </div>
-        <Badge className={cn("font-bold uppercase text-[9px] tracking-tighter px-2 py-0.5", modeInfo.variant === 'default' ? 'bg-navy' : '')} variant={modeInfo.variant}>
+        <Badge
+          className={cn(
+            'font-bold uppercase text-[10px] tracking-tighter px-2 py-0.5',
+            modeInfo.variant === 'default' ? 'bg-navy' : ''
+          )}
+          variant={modeInfo.variant}
+        >
           {modeInfo.label}
         </Badge>
       </div>
 
       {pinnedNote && (
-        <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 flex-shrink-0 animate-in fade-in slide-in-from-top-1 duration-300">
-          <Info className="h-3 w-3 text-navy flex-shrink-0 mt-0.5" />
-          <p className="text-[10px] text-navy font-bold uppercase tracking-tight leading-relaxed">{pinnedNote}</p>
+        <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+          <Info className="h-3.5 w-3.5 text-navy flex-shrink-0 mt-0.5" />
+          <p className="text-[11px] text-navy font-bold uppercase tracking-tight leading-relaxed">{pinnedNote}</p>
         </div>
       )}
 
       {showDisclaimer && (
         <div className="px-4 pt-4 pb-0 flex-shrink-0">
           <div className="bg-[#fdf5e6] border border-[#f5deb3]/50 rounded-xl p-4 shadow-sm">
-            <p className="text-[9px] text-gray-700 font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
+            <p className="text-[10px] text-gray-700 font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
               <AlertTriangle className="h-3 w-3 text-amber-600" />
               Service Disclosure
             </p>
-            <pre className="whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-gray-600 italic">{DISCLAIMER}</pre>
+            <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-gray-600 italic">{DISCLAIMER}</pre>
           </div>
         </div>
       )}
 
-      {/* Messages Viewport */}
-      <div 
-        ref={scrollRef}
-        className="flex-1 p-4 bg-gray-50/30 overflow-y-auto overflow-x-hidden scroll-smooth"
-      >
-        <div className="space-y-6 max-w-4xl mx-auto pb-4">
-          {messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
-          ))}
+      <ScrollArea className="flex-1 p-4 bg-gray-50/30">
+        <div className="space-y-6 max-w-4xl mx-auto">
+          {messages.map((message, index) => {
+            // Only AI messages get option buttons, and only on the last AI message
+            if (message.role === 'ai') {
+              const isLastAiMessage = index === lastAiMessageIndex;
+              return (
+                <MessageWithOptions
+                  key={message.id}
+                  message={message}
+                  isLast={isLastAiMessage}
+                  onSelect={handleOptionSelect}
+                  isLoading={isLoading}
+                  alreadyAnswered={patientAnsweredLast}
+                />
+              );
+            }
+            return <ChatMessage key={message.id} message={message} />;
+          })}
 
           {isLoading && (
-            <div className="flex items-center gap-3 text-navy font-bold text-[9px] uppercase tracking-widest ml-2">
+            <div className="flex items-center gap-3 text-navy font-bold text-[10px] uppercase tracking-widest ml-2">
               <div className="flex gap-1">
                 <span className="w-1.5 h-1.5 bg-navy rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <span className="w-1.5 h-1.5 bg-navy/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <span className="w-1.5 h-1.5 bg-navy/30 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
-              <span>Expert Assistant is analyzing</span>
+              <span>Dermatological Assistant is thinking</span>
             </div>
           )}
+          <div ref={bottomRef} />
         </div>
-      </div>
+      </ScrollArea>
 
-      {/* Conditional Overlays / Footer UI */}
       {showConsentConfirm && onQuickReply && (
-        <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
+        <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
           <div className="flex items-start gap-3 text-navy">
-            <div className="bg-navy/10 p-2 rounded-full flex-shrink-0">
+            <div className="bg-navy/10 p-2 rounded-full">
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
@@ -152,52 +365,92 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </div>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" className="flex-1 h-11 border-gray-200 text-navy font-bold uppercase text-xs tracking-widest" onClick={() => onQuickReply('No')} disabled={isLoading}>
-              <ArrowLeft className="h-4 w-4 mr-2" /> Defer
+            <Button
+              variant="outline"
+              className="flex-1 h-11 border-gray-200 text-navy font-bold uppercase text-xs tracking-widest"
+              onClick={() => onQuickReply('DEFER')}
+              disabled={isLoading}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" /> Go Back
             </Button>
-            <Button className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20" onClick={() => onQuickReply('CONFIRM')} disabled={isLoading}>
+            <Button
+              className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
+              onClick={() => onQuickReply('PAYNOW')}
+              disabled={isLoading}
+            >
               <CheckCircle className="h-4 w-4 mr-2" /> Confirm & Pay
             </Button>
           </div>
         </div>
       )}
 
-      {freeTierExhausted && (
-        <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
+
+      {showNextStepCTA && !freeTierExhausted && (
+        <div className="border-t border-gray-100 bg-gradient-to-b from-white to-[#f8f9fc] p-5 space-y-3 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.08)]">
           <div className="flex items-start gap-3">
-            <div className="bg-accent-blue/10 p-2 rounded-full flex-shrink-0">
-              <Stethoscope className="h-5 w-5 text-accent-blue" />
+            <div className="bg-navy/10 p-2 rounded-full shrink-0">
+              <Stethoscope className="h-4 w-4 text-navy" />
             </div>
             <div>
-              <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Insight Limit Reached</p>
+              <p className="text-sm font-bold text-navy tracking-tight">Would you like a specialist review?</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Please upgrade to a specialist review by Dr. Attili to continue receiving expert assessments.
+                Get a full dermatologist-reviewed assessment including diagnosis, treatment framework, and personalised insights. Click below to proceed.
               </p>
             </div>
           </div>
-          <Button className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20" onClick={() => onQuickReply?.('YES')} disabled={isLoading}>
-            Upgrade to Specialist Review <ChevronRight className="h-4 w-4 ml-2" />
+          <Button
+            className="w-full h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
+            onClick={() => onQuickReply?.('YES')}
+            disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Go to Dermatologist Review <ChevronRight className="h-4 w-4 ml-2" />
+          </Button>
+        </div>
+      )}
+
+      {freeTierExhausted && (
+        <div className="border-t border-gray-100 bg-gradient-to-b from-white to-gray-50 p-6 space-y-4 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
+          <div className="flex items-start gap-3">
+            <div className="bg-accent-blue/10 p-2 rounded-full">
+              <Stethoscope className="h-5 w-5 text-accent-blue" />
+            </div>
+            <div>
+              <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Consultation Threshold Reached</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                You have received the maximum allowed free insights. Click below to proceed to a full specialist review by Dr. Attili.
+              </p>
+            </div>
+          </div>
+          <Button
+            className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
+            onClick={() => onQuickReply?.('YES')}
+            disabled={isLoading}
+          >
+            <Stethoscope className="h-3.5 w-3.5 mr-2" />
+            Go to Dermatologist Review <ChevronRight className="h-4 w-4 ml-2" />
           </Button>
         </div>
       )}
 
       {mode === 'final_output' && onNewConsultation && (
-        <div className="border-t border-gray-100 bg-white p-6 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
-          <Button className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-green-900/20" onClick={onNewConsultation}>
+        <div className="border-t border-gray-100 bg-white p-6 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
+          <Button
+            className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-green-900/20"
+            onClick={onNewConsultation}
+          >
             <Plus className="h-4 w-4 mr-2" /> Start New Consultation
           </Button>
         </div>
       )}
 
       {!hideInput && (
-        <div className="flex-shrink-0 relative z-10">
-          <ChatInput
-            onSend={onSendMessage}
-            isLoading={isLoading}
-            mode={mode}
-            disabled={false}
-          />
-        </div>
+        <ChatInput
+          onSend={onSendMessage}
+          isLoading={isLoading}
+          mode={mode}
+          disabled={false}
+        />
       )}
     </div>
   );
