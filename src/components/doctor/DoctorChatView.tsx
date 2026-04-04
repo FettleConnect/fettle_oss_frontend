@@ -684,20 +684,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isCaseDone =
     caseCompleted || conversation.mode === 'general_education';
 
-  // CHANGED: pass prefillMessage and onPrefillConsumed to AIReviewAssistant
-  const ConsultationSidebar = () => (
-    <div className="h-full flex flex-col bg-card">
-      <AIReviewAssistant
-        onClose={() => setShowAI(false)}
-        conversationId={String(conversation.id)}
-        contextData={JSON.stringify(conversation.intakeData || {})}
-        onApplyContent={handleApplyAIContent}
-        editorContent={patientMessage}
-        prefillMessage={aiPrefillMessage}
-        onPrefillConsumed={() => setAiPrefillMessage('')}
-      />
-    </div>
-  );
+
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
@@ -950,18 +937,34 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           )}
         </div>
 
-        {/* Desktop AI sidebar */}
+        {/* Desktop AI sidebar — rendered directly to prevent remount on parent re-render */}
         {!isMobile && showAI && (
           <div className="w-96 border-l border-border bg-card flex flex-col">
-            <ConsultationSidebar />
+            <AIReviewAssistant
+              onClose={() => setShowAI(false)}
+              conversationId={String(conversation.id)}
+              contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
+              onApplyContent={handleApplyAIContent}
+              editorContent={patientMessage}
+              prefillMessage={aiPrefillMessage}
+              onPrefillConsumed={() => setAiPrefillMessage('')}
+            />
           </div>
         )}
 
-        {/* Mobile AI sheet */}
+        {/* Mobile AI sheet — rendered directly to prevent remount on parent re-render */}
         {isMobile && (
           <Sheet open={showAI} onOpenChange={setShowAI}>
             <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
-              <ConsultationSidebar />
+              <AIReviewAssistant
+                onClose={() => setShowAI(false)}
+                conversationId={String(conversation.id)}
+                contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
+                onApplyContent={handleApplyAIContent}
+                editorContent={patientMessage}
+                prefillMessage={aiPrefillMessage}
+                onPrefillConsumed={() => setAiPrefillMessage('')}
+              />
             </SheetContent>
           </Sheet>
         )}
