@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Clock, MessageSquare } from 'lucide-react';
+import { RefreshCw, Clock, MessageSquare, ChevronLeft } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';

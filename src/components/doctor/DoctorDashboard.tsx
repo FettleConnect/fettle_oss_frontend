@@ -10,6 +10,7 @@ import { BASE_URL } from '@/base_url';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { cn } from '@/lib/utils';
 
 interface User {
   role: 'doctor' | 'patient';
