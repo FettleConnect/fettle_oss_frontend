@@ -162,10 +162,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
 
     // ─────────────────────────────────────────────────────────
-    // YES — patient clicked "Go to Dermatologist Review".
-    // Show the PaymentPage overlay instead of sending to backend.
+    // PAYNOW — patient clicked "Confirm & Pay" on consent screen.
+    // Show PaymentPage overlay without sending to backend.
     // ─────────────────────────────────────────────────────────
-    if (content === 'YES') {
+    if (content === 'PAYNOW') {
       setShowPayment(true);
       isSendingRef.current = false;
       return;
