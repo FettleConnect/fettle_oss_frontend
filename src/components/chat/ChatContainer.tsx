@@ -375,7 +375,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </Button>
             <Button
               className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
-              onClick={() => onQuickReply('CONFIRM')}
+              onClick={() => onQuickReply('YES')}
               disabled={isLoading}
             >
               <CheckCircle className="h-4 w-4 mr-2" /> Confirm & Pay
