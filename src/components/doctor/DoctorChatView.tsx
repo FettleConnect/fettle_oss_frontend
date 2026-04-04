@@ -8,23 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
-  Send,
-  User,
-  RefreshCw,
-  ImagePlus,
-  X,
-  Bot,
-  Sparkles,
-  Plus,
-  CheckCircle,
-  Maximize2,
-  Minimize2,
-  AlertTriangle,
+  Send, User, RefreshCw, ImagePlus, X, Bot,
+  Sparkles, Plus, CheckCircle, Maximize2, Minimize2, AlertTriangle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 interface DoctorChatViewProps {
   conversation: Conversation;
@@ -33,61 +23,16 @@ interface DoctorChatViewProps {
   onRefresh: () => void;
 }
 
+// FIX: stable ID per image — deletion is by ID not array index
 interface SafeImage {
   dataUrl: string;
   id: string;
 }
 
-const SECTION_TITLES = [
-  'Most Consistent With',
-  'Close Differentials',
-  'Morphologic Justification',
-  'Educational Treatment Framework',
-  'Typical Course and Prognosis',
-  'When In-Person Evaluation Is Considered',
-  'Educational References',
-];
-
-const DEFAULT_ASSESSMENT_TEMPLATE = `Most Consistent With
-
-Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.
-
-Close Differentials
-
-Related dermatologic conditions may present with overlapping features.
-
-Morphologic Justification
-
-Assessment is based on provided history and available images.
-
-Educational Treatment Framework
-
-General care includes barrier support, avoidance of irritants, and standard dermatologic approaches.
-
-Typical Course and Prognosis
-
-Course varies depending on the condition and may fluctuate over time.
-
-When In-Person Evaluation Is Considered
-
-If the condition is worsening, atypical, or not improving.
-
-Educational References
-
-DermNet NZ
-British Association of Dermatologists
-Medscape
-
-You're welcome to ask follow-up questions.`;
-
-function cleanBody(text: string): string {
-  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function extractBase64(dataUrl: string): string {
-  return dataUrl.split(',')[1] ?? '';
-}
-
+// ─────────────────────────────────────────────────────────
+// Face + PII detection — runs BEFORE image enters state
+// CHANGED: now uses /api/openai-vision-check instead of Anthropic API directly
+// ─────────────────────────────────────────────────────────
 async function detectFaceOrPII(
   dataUrl: string
 ): Promise<{ blocked: boolean; reason: string }> {
@@ -118,7 +63,6 @@ async function detectFaceOrPII(
         reason: 'contains a face or personal identifying information',
       };
     }
-
     return { blocked: false, reason: '' };
   } catch (err) {
     console.warn('PII detection failed, allowing image:', err);
@@ -126,12 +70,79 @@ async function detectFaceOrPII(
   }
 }
 
+// REMOVED: extractMime — no longer needed after switching to OpenAI route
+
+function extractBase64(dataUrl: string): string {
+  return dataUrl.split(',')[1] ?? '';
+}
+
+const DEFAULT_ASSESSMENT_TEMPLATE = `Most Consistent With
+
+Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.
+
+Close Differentials
+
+Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.
+
+Morphologic Justification
+
+Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.
+
+Educational Treatment Framework
+
+General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.
+
+Investigations Commonly Considered
+
+Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.
+
+References
+
+Standard dermatology clinical references and guidelines.
+
+You're welcome to ask follow-up questions.`;
+
+const SECTION_TITLES = [
+  'Most Consistent With',
+  'Close Differentials',
+  'Morphologic Justification',
+  'Educational Treatment Framework',
+  'Investigations Commonly Considered',
+  'References',
+];
+
 function normalizeHeading(title: string): string {
   return title.trim().toLowerCase();
 }
 
-function stripMarkdownBold(value: string): string {
-  return value.replace(/\*\*/g, '').trim();
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cleanBody(text: string): string {
+  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function isPlaceholder(text: string): boolean {
+  const value = (text || '').trim().toLowerCase();
+  if (!value) return true;
+
+  const placeholders = [
+    'type here',
+    'enter response',
+    'write response',
+    'draft response',
+    'assessment',
+    'pending',
+    'tbd',
+    'todo',
+    'n/a',
+    'na',
+    '-',
+    '--',
+  ];
+
+  return placeholders.some((p) => value === p || value.includes(p));
 }
 
 function generateFallbackContent(section: string): string {
@@ -139,183 +150,228 @@ function generateFallbackContent(section: string): string {
     case 'Most Consistent With':
       return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
     case 'Close Differentials':
-      return 'Related dermatologic conditions may present with overlapping features.';
+      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
     case 'Morphologic Justification':
-      return 'Assessment is based on provided history and available images.';
+      return 'Assessment is based on provided history and available images. Morphology suggests a localized dermatologic process.';
     case 'Educational Treatment Framework':
-      return 'General care includes barrier support, avoidance of irritants, and standard dermatologic approaches.';
-    case 'Typical Course and Prognosis':
-      return 'Course varies depending on the condition and may fluctuate over time.';
-    case 'When In-Person Evaluation Is Considered':
-      return 'In-person evaluation is recommended if symptoms worsen, remain unclear, or do not improve as expected.';
-    case 'Educational References':
-      return 'DermNet NZ\nBritish Association of Dermatologists\nMedscape';
+      return 'General care includes maintaining hygiene, avoiding irritants, and considering topical therapies as clinically appropriate.';
+    case 'Investigations Commonly Considered':
+      return 'Further evaluation may include dermatoscopic examination, lab tests, or biopsy if clinically indicated.';
+    case 'References':
+      return 'Standard dermatology clinical references and guidelines.';
     default:
       return 'Clinical details not available.';
   }
 }
 
-function parseStructuredSections(text: string): Record<string, string> {
-  const cleaned = cleanBody(stripMarkdownBold(text));
+function extractStructuredSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
   if (!cleaned) return {};
 
-  const sections: Record<string, string> = {};
-  const lines = cleaned.split('\n');
+  const escaped = SECTION_TITLES.map(escapeRegex).join('|');
+  const regex = new RegExp(`(?:^|\\n)\\s*(${escaped})\\s*:?\\s*(?=\\n|$)`, 'gi');
 
-  let currentTitle: string | null = null;
-  let buffer: string[] = [];
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
 
-  const flush = () => {
-    if (!currentTitle) return;
-    const body = cleanBody(buffer.join('\n'));
-    if (body) {
-      sections[normalizeHeading(currentTitle)] = body;
-    }
-    buffer = [];
-  };
-
-  const headingMap: Record<string, string> = {
-    diagnosis: 'Most Consistent With',
-    'most consistent with': 'Most Consistent With',
-    'primary likely diagnosis': 'Most Consistent With',
-
-    'differential diagnoses': 'Close Differentials',
-    'differential diagnoses (ranked)': 'Close Differentials',
-    'close differentials': 'Close Differentials',
-    differentials: 'Close Differentials',
-
-    'technical justification': 'Morphologic Justification',
-    'morphologic justification': 'Morphologic Justification',
-    justification: 'Morphologic Justification',
-    'key morphologic / clinical features': 'Morphologic Justification',
-
-    'prescription regimen': 'Educational Treatment Framework',
-    'educational treatment framework': 'Educational Treatment Framework',
-    'treatment framework': 'Educational Treatment Framework',
-
-    'typical course and prognosis': 'Typical Course and Prognosis',
-    prognosis: 'Typical Course and Prognosis',
-
-    'when in-person evaluation is considered': 'When In-Person Evaluation Is Considered',
-    'in-person evaluation': 'When In-Person Evaluation Is Considered',
-    'red flags': 'When In-Person Evaluation Is Considered',
-    'red flags (if any)': 'When In-Person Evaluation Is Considered',
-
-    'educational references': 'Educational References',
-    references: 'Educational References',
-    'suggested investigations': 'Educational References',
-    'suggested investigations (if relevant)': 'Educational References',
-    investigations: 'Educational References',
-    'investigations commonly considered': 'Educational References',
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) {
-      if (currentTitle) buffer.push('');
-      continue;
-    }
-
-    const normalizedLine = stripMarkdownBold(line);
-
-    let matchedTitle: string | null = null;
-    let inlineBody = '';
-
-    for (const candidate of Object.keys(headingMap)) {
-      const regex = new RegExp(
-        `^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
-        'i'
-      );
-      const match = normalizedLine.match(regex);
-      if (match) {
-        matchedTitle = headingMap[candidate];
-        inlineBody = (match[1] || '').trim();
-        break;
-      }
-    }
-
-    if (!matchedTitle) {
-      for (const title of SECTION_TITLES) {
-        const regex = new RegExp(
-          `^(?:\\d+\\.\\s*)?${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
-          'i'
-        );
-        const match = normalizedLine.match(regex);
-        if (match) {
-          matchedTitle = title;
-          inlineBody = (match[1] || '').trim();
-          break;
-        }
-      }
-    }
-
-    if (matchedTitle) {
-      flush();
-      currentTitle = matchedTitle;
-      if (inlineBody) buffer.push(inlineBody);
-      continue;
-    }
-
-    if (currentTitle) {
-      buffer.push(rawLine);
-    }
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
   }
 
-  flush();
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
+  }
+
   return sections;
 }
 
-function ensureCompleteStructuredAssessment(rawText: string): string {
+function extractLegacyNumberedSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
+  if (!cleaned) return {};
+
+  const mappings = [
+    {
+      patterns: ['Diagnosis', 'Most Consistent With'],
+      target: 'Most Consistent With',
+    },
+    {
+      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'],
+      target: 'Close Differentials',
+    },
+    {
+      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'],
+      target: 'Morphologic Justification',
+    },
+    {
+      patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'],
+      target: 'Educational Treatment Framework',
+    },
+    {
+      patterns: ['Investigations', 'Investigations Commonly Considered'],
+      target: 'Investigations Commonly Considered',
+    },
+    {
+      patterns: ['Educational References', 'References'],
+      target: 'References',
+    },
+  ];
+
+  const sectionHeaders = mappings.flatMap((m) => m.patterns.map(escapeRegex)).join('|');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
+
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
+  }
+
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    const body = cleanBody(cleaned.slice(start, end));
+
+    const mapping = mappings.find((m) =>
+      m.patterns.some((p) => p.toLowerCase() === current.title.toLowerCase())
+    );
+
+    if (mapping && body) {
+      sections[normalizeHeading(mapping.target)] = body;
+    }
+  }
+
+  return sections;
+}
+
+function normalizeAIContentToStructuredFormat(rawText: string): string {
   const text = cleanBody(rawText);
 
-  if (!text || text.length < 20) {
+  if (!text || text.length < 30) {
     return DEFAULT_ASSESSMENT_TEMPLATE;
   }
 
-  let sections = parseStructuredSections(text);
+  let sections = extractStructuredSections(text);
 
   if (Object.keys(sections).length === 0) {
-    sections = {
-      [normalizeHeading('Most Consistent With')]: text,
-    };
+    sections = extractLegacyNumberedSections(text);
   }
 
-  const finalText = SECTION_TITLES.map((title) => {
+  const normalized = SECTION_TITLES.map((title) => {
     const key = normalizeHeading(title);
-    const body = cleanBody(sections[key] || generateFallbackContent(title));
-    return `${title}\n\n${body}`;
+    let body = cleanBody(sections[key] || '');
+
+    if (!body || isPlaceholder(body)) {
+      body = generateFallbackContent(title);
+    }
+
+    return `${title}\n\n${body}`.trim();
   }).join('\n\n');
 
-  const cleaned = cleanBody(finalText);
-  if (cleaned.toLowerCase().includes("you're welcome to ask follow-up questions.")) {
-    return cleaned;
+  let finalText = cleanBody(normalized);
+
+  if (!finalText) {
+    finalText = DEFAULT_ASSESSMENT_TEMPLATE;
   }
 
-  return `${cleaned}\n\nYou're welcome to ask follow-up questions.`;
+  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
+    finalText = `${finalText}\\n\\nYou're welcome to ask follow-up questions.`;
+  }
+
+  return finalText;
 }
 
+function extractSections(text: string): Record<string, string> {
+  const structured = extractStructuredSections(text);
+  if (Object.keys(structured).length > 0) return structured;
+
+  const legacy = extractLegacyNumberedSections(text);
+  if (Object.keys(legacy).length > 0) return legacy;
+
+  return {};
+}
+
+function mergeStructuredContent(existingText: string, aiText: string): string {
+  const normalizedExisting = normalizeAIContentToStructuredFormat(existingText);
+  const normalizedAI = normalizeAIContentToStructuredFormat(aiText);
+
+  const existingSections = extractSections(normalizedExisting);
+  const aiSections = extractSections(normalizedAI);
+
+  const mergedBlocks = SECTION_TITLES.map((title) => {
+    const key = normalizeHeading(title);
+    const existing = cleanBody(existingSections[key] ?? '');
+    const ai = cleanBody(aiSections[key] ?? '');
+
+    let finalBody: string;
+
+    if (ai && !isPlaceholder(ai)) {
+      // AI has meaningful content for this section — use it
+      finalBody = ai;
+    } else if (existing && !isPlaceholder(existing)) {
+      // AI did not address this section — keep existing
+      finalBody = existing;
+    } else {
+      // Neither has meaningful content — use fallback
+      finalBody = generateFallbackContent(title);
+    }
+
+    return `${title}\n\n${cleanBody(finalBody)}`.trim();
+  });
+
+  let finalText = mergedBlocks.join('\n\n').trim();
+
+  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
+    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
+  }
+
+  return cleanBody(finalText);
+}
+
+// ─────────────────────────────────────────────────────────
+// Intake parser
+// ─────────────────────────────────────────────────────────
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
-    (m) =>
+    m =>
       m.content &&
       m.content.includes('INTAKE COMPLETE') &&
       m.content.includes('Summary:')
   );
-
   if (!intakeMsg) return null;
-
   const text = intakeMsg.content;
-
   const extract = (label: string): string => {
     const regex = new RegExp(`${label}:\\s*([^\\n]*)`, 'i');
     const match = text.match(regex);
     return match ? match[1].trim() : '';
   };
-
   const allPatientImages: string[] = messages
-    .filter((m) => m.role === 'patient')
-    .flatMap((m) => m.images ?? []);
-
+    .filter(m => m.role === 'patient')
+    .flatMap(m => m.images ?? []);
   return {
     duration: extract('Duration'),
     symptoms: extract('Symptoms'),
@@ -327,6 +383,9 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   };
 }
 
+// ─────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
@@ -336,13 +395,20 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
-  const [patientMessage, setPatientMessage] = useState(conversation.draftResponse || '');
+  const [patientMessage, setPatientMessage] = useState(
+    conversation.draftResponse || ''
+  );
   const [isSending, setIsSending] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
+
+  // SafeImage[] with stable IDs
   const [images, setImages] = useState<SafeImage[]>([]);
   const [checkingImages, setCheckingImages] = useState(false);
+
   const [showAI, setShowAI] = useState(false);
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
+
+  // ADDED: state to prefill AI chat input from the assessment editor
   const [aiPrefillMessage, setAiPrefillMessage] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -352,30 +418,54 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [isMobile]);
 
   useEffect(() => {
-    setPatientMessage(conversation.draftResponse || '');
-    setImages([]);
-  }, [conversation.id, conversation.draftResponse]);
+    if (conversation.draftResponse && !patientMessage) {
+      setPatientMessage(conversation.draftResponse);
+    }
+  }, [conversation.draftResponse, conversation.id]);
 
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
   }, [conversation.id, conversation.mode]);
 
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
+    // Try legacy INTAKE COMPLETE message format
     const parsed = parseIntakeFromMessages(messages);
-    if (!parsed) return conversation.intakeData;
 
-    return {
-      ...(conversation.intakeData ?? parsed),
+    // New format — intake_data stored as structured JSON from backend
+    const raw = conversation.intakeData as any;
+
+    const merged: IntakeData = {
+      duration:
+        raw?.duration || parsed?.duration || '',
+      symptoms:
+        raw?.symptoms || parsed?.symptoms || '',
+      location:
+        raw?.location || parsed?.location || '',
+      medicationsTried:
+        raw?.medications_tried || raw?.medicationsTried || parsed?.medicationsTried || '',
+      priorDiagnoses:
+        raw?.prior_diagnoses || raw?.priorDiagnoses || parsed?.priorDiagnoses || '',
+      relevantHealthHistory:
+        raw?.relevant_health_history || raw?.relevantHealthHistory || parsed?.relevantHealthHistory || '',
       images:
-        parsed.images.length > 0
+        raw?.images?.length
+          ? raw.images
+          : parsed?.images?.length
           ? parsed.images
           : conversation.intakeData?.images ?? [],
     };
+
+    // Only show card if at least one field has real data
+    const hasData = Object.values(merged).some(v =>
+      typeof v === 'string' ? v.trim() !== '' : Array.isArray(v) ? v.length > 0 : false
+    );
+
+    return hasData ? merged : undefined;
   }, [conversation.intakeData, messages]);
 
   const visibleMessages = useMemo(() => {
     return messages.filter(
-      (m) =>
+      m =>
         !(
           m.content &&
           m.content.includes('INTAKE COMPLETE') &&
@@ -385,22 +475,25 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [messages]);
 
   const handleApplyDraft = () => {
-    if (!conversation.draftResponse) return;
-
-    const fullDraft = ensureCompleteStructuredAssessment(conversation.draftResponse);
-    setPatientMessage(fullDraft);
-
-    toast({
-      title: 'Draft Applied',
-      description: 'Full structured response applied to editor.',
-    });
+    if (conversation.draftResponse) {
+      setPatientMessage(conversation.draftResponse);
+      toast({
+        title: 'Draft Applied',
+        description: 'AI-generated draft has been loaded into the editor.',
+      });
+    }
   };
 
+  // ─────────────────────────────────────────────────────────
+  // Image select → read → detect → accept or reject
+  // Input value reset FIRST before any await
+  // ─────────────────────────────────────────────────────────
   const handleImageSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
 
+      // Reset immediately so re-selecting same file triggers onChange
       if (fileInputRef.current) fileInputRef.current.value = '';
 
       setCheckingImages(true);
@@ -411,12 +504,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
       await Promise.all(
         fileArray.map(
-          (file) =>
-            new Promise<void>((resolve) => {
+          file =>
+            new Promise<void>(resolve => {
               const reader = new FileReader();
-              reader.onload = async (ev) => {
+              reader.onload = async ev => {
                 const dataUrl = ev.target?.result as string;
-
                 if (!dataUrl) {
                   resolve();
                   return;
@@ -434,10 +526,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     id: `${Date.now()}-${Math.random()}`,
                   });
                 }
-
                 resolve();
               };
-
               reader.readAsDataURL(file);
             })
         )
@@ -446,7 +536,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       setCheckingImages(false);
 
       if (accepted.length > 0) {
-        setImages((prev) => [...prev, ...accepted]);
+        setImages(prev => [...prev, ...accepted]);
       }
 
       if (rejected.length > 0) {
@@ -461,7 +551,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 </p>
               ))}
               <p className="text-xs text-muted-foreground mt-2 border-t pt-2">
-                Please upload clinical photos only — no faces, names, or identifying information.
+                Please upload clinical photos only — no faces, names, or
+                identifying information.
               </p>
             </div>
           ),
@@ -473,8 +564,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     [toast]
   );
 
+  // Remove by stable ID — no index-shifting bugs
   const removeImage = useCallback((id: string) => {
-    setImages((prev) => prev.filter((img) => img.id !== id));
+    setImages(prev => prev.filter(img => img.id !== id));
   }, []);
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
@@ -482,16 +574,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const res = await fetch(dataUrl);
       return res.blob();
     }
-
     const [header, base64] = dataUrl.split(',');
     const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
-
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return new Blob([bytes], { type: mime });
   };
 
@@ -504,15 +591,14 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       });
       return;
     }
-
     setIsSending(true);
-
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
 
+      // Only images currently in safe state are sent
       for (let i = 0; i < images.length; i++) {
         const blob = await dataURLtoBlob(images[i].dataUrl);
         const ext = blob.type.split('/')[1] ?? 'jpg';
@@ -524,14 +610,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
-
       if (!response.ok) throw new Error('Failed to send message');
 
       setPatientMessage('');
-      setImages([]);
+      setImages([]); // Full clear after send
       setAssessmentExpanded(false);
       onUpdate();
-
       toast({
         title: 'Response Sent',
         description: 'Your response has been sent to the patient.',
@@ -550,7 +634,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleArchive = async () => {
     if (caseCompleted) return;
-
     try {
       const authToken = localStorage.getItem('DoctorToken');
       const response = await fetch(`${BASE_URL}/api/archive_consultation/`, {
@@ -561,7 +644,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         },
         body: JSON.stringify({ user_id: conversation.patient_id }),
       });
-
       if (response.ok) {
         setCaseCompleted(true);
         toast({
@@ -575,19 +657,26 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
+  // ─────────────────────────────────────────────────────────
+  // AI content goes DIRECTLY into the Assessment editor.
+  // Called automatically after every generate in AIReviewAssistant.
+  // No Regenerate / Sync / Apply button needed.
+  // ─────────────────────────────────────────────────────────
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const fullDraft = ensureCompleteStructuredAssessment(content);
-      setPatientMessage(fullDraft);
+      const normalized = normalizeAIContentToStructuredFormat(content);
+      const merged = mergeStructuredContent(patientMessage, normalized);
+
+      setPatientMessage(merged);
 
       toast({
         title: 'Assessment Updated',
-        description: 'The full AI draft replaced the entire Assessment & Response editor.',
+        description: 'Structured AI content was applied to the editor.',
       });
 
       if (isMobile) setShowAI(false);
     },
-    [isMobile, toast]
+    [isMobile, patientMessage, toast]
   );
 
   const canRespond =
@@ -596,15 +685,31 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isCaseDone =
     caseCompleted || conversation.mode === 'general_education';
 
+  // CHANGED: pass prefillMessage and onPrefillConsumed to AIReviewAssistant
+  const ConsultationSidebar = () => (
+    <div className="h-full flex flex-col bg-card">
+      <AIReviewAssistant
+        onClose={() => setShowAI(false)}
+        conversationId={String(conversation.id)}
+        contextData={JSON.stringify(conversation.intakeData || {})}
+        onApplyContent={handleApplyAIContent}
+        editorContent={patientMessage}
+        prefillMessage={aiPrefillMessage}
+        onPrefillConsumed={() => setAiPrefillMessage('')}
+      />
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
+
+      {/* Header */}
       <div className="border-b border-border bg-card px-4 md:px-6 py-3 md:py-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 md:gap-4">
             <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
               <User className="h-5 w-5 md:h-6 md:w-6 text-primary" />
             </div>
-
             <div className="min-w-0">
               <h3 className="font-bold text-sm md:text-lg leading-none mb-1 truncate">
                 {conversation.patientName}
@@ -614,7 +719,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2 md:gap-3">
             <Button
               variant="outline"
@@ -636,7 +740,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 {isCaseDone ? 'Case Completed' : 'Complete Case'}
               </span>
             </Button>
-
             <Button
               variant="ghost"
               size="sm"
@@ -646,7 +749,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               <RefreshCw className="h-3.5 w-3.5 md:mr-2" />
               <span className="hidden sm:inline">Sync</span>
             </Button>
-
             <Badge
               variant={
                 conversation.paymentStatus === 'paid' ? 'default' : 'secondary'
@@ -661,8 +763,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         </div>
       </div>
 
+      {/* Body */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0 w-full relative">
+
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
               {resolvedIntakeData && (
@@ -670,7 +774,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   <IntakeSummaryCard intakeData={resolvedIntakeData} />
                 </section>
               )}
-
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="h-px flex-1 bg-border" />
@@ -679,10 +782,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
-
                 {visibleMessages.length > 0 ? (
                   <div className="space-y-4">
-                    {visibleMessages.map((message) => (
+                    {visibleMessages.map(message => (
                       <ChatMessage key={message.id} message={message} />
                     ))}
                   </div>
@@ -695,6 +797,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </ScrollArea>
 
+          {/* Assessment & Response */}
           {canRespond && !isCompleted && (
             <div
               className={
@@ -704,12 +807,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               }
             >
               <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col space-y-3 md:space-y-4">
+
+                {/* Toolbar */}
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs md:text-sm font-semibold flex items-center gap-2">
                     <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary" />
                     Assessment & Response
                   </label>
-
                   <div className="flex gap-1.5 md:gap-2">
                     {conversation.draftResponse &&
                       patientMessage !== conversation.draftResponse && (
@@ -723,11 +827,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                           AI Draft
                         </Button>
                       )}
-
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setAssessmentExpanded((e) => !e)}
+                      onClick={() => setAssessmentExpanded(e => !e)}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
                     >
                       {assessmentExpanded ? (
@@ -743,13 +846,14 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       )}
                     </Button>
 
+                    {/* ADDED: Ask AI button — prefills AI chat with current editor content */}
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setAiPrefillMessage(
-                          'Please generate a full replacement Assessment & Response draft in the required structured format. Fill every section completely and keep all sections consistent.'
-                        );
+                        if (patientMessage.trim()) {
+                          setAiPrefillMessage(patientMessage.trim());
+                        }
                         setShowAI(true);
                       }}
                       className="h-7 md:h-8 px-2 md:px-3 gap-1 md:gap-2 text-[10px] md:text-xs"
@@ -770,9 +874,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </div>
                 </div>
 
+                {/* Image previews — stable id keys, remove by id */}
                 {images.length > 0 && (
                   <div className="flex gap-2 mb-2 flex-wrap bg-muted/30 p-2 rounded-lg border border-dashed">
-                    {images.map((img) => (
+                    {images.map(img => (
                       <div key={img.id} className="relative group">
                         <img
                           src={img.dataUrl}
@@ -793,7 +898,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
                 <Textarea
                   value={patientMessage}
-                  onChange={(e) => setPatientMessage(e.target.value)}
+                  onChange={e => setPatientMessage(e.target.value)}
                   placeholder="Write your professional assessment here..."
                   className={
                     assessmentExpanded
@@ -813,7 +918,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       onChange={handleImageSelect}
                       className="hidden"
                     />
-
                     <Button
                       type="button"
                       variant="outline"
@@ -827,12 +931,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                         {checkingImages ? 'Checking images…' : 'Attach Images'}
                       </span>
                     </Button>
-
                     <p className="hidden md:block text-[10px] text-muted-foreground">
                       Clinical photos only — no faces or personal information
                     </p>
                   </div>
-
                   <Button
                     onClick={handleSendToPatient}
                     disabled={isSending || !patientMessage.trim()}
@@ -843,43 +945,24 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     Send Response
                   </Button>
                 </div>
+
               </div>
             </div>
           )}
         </div>
 
-        <div
-          className={`w-96 border-l border-border bg-card flex-col ${
-            !isMobile && showAI ? 'flex' : 'hidden'
-          }`}
-        >
-          <div className="h-full flex flex-col bg-card">
-            <AIReviewAssistant
-              onClose={() => setShowAI(false)}
-              conversationId={String(conversation.id)}
-              contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
-              onApplyContent={handleApplyAIContent}
-              editorContent={patientMessage}
-              prefillMessage={aiPrefillMessage}
-              onPrefillConsumed={() => setAiPrefillMessage('')}
-            />
+        {/* Desktop AI sidebar */}
+        {!isMobile && showAI && (
+          <div className="w-96 border-l border-border bg-card flex flex-col">
+            <ConsultationSidebar />
           </div>
-        </div>
+        )}
 
+        {/* Mobile AI sheet */}
         {isMobile && (
           <Sheet open={showAI} onOpenChange={setShowAI}>
             <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
-              <div className="h-full flex flex-col bg-card">
-                <AIReviewAssistant
-                  onClose={() => setShowAI(false)}
-                  conversationId={String(conversation.id)}
-                  contextData={JSON.stringify(resolvedIntakeData || conversation.intakeData || {})}
-                  onApplyContent={handleApplyAIContent}
-                  editorContent={patientMessage}
-                  prefillMessage={aiPrefillMessage}
-                  onPrefillConsumed={() => setAiPrefillMessage('')}
-                />
-              </div>
+              <ConsultationSidebar />
             </SheetContent>
           </Sheet>
         )}
@@ -887,5 +970,3 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     </div>
   );
 };
-
-export default DoctorChatView;
