@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { PaymentPage } from '@/components/payment/PaymentPage';
 
 interface User {
   role: 'doctor' | 'patient';
@@ -43,6 +44,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
+  const [showPayment, setShowPayment] = useState(false);
 
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
@@ -159,6 +161,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       return;
     }
 
+    // ─────────────────────────────────────────────────────────
+    // YES — patient clicked "Go to Dermatologist Review".
+    // Show the PaymentPage overlay instead of sending to backend.
+    // ─────────────────────────────────────────────────────────
+    if (content === 'YES') {
+      setShowPayment(true);
+      isSendingRef.current = false;
+      return;
+    }
+
     const rawImages = sanitizeImages(images);
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -203,6 +215,51 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       setIsLoading(false);
       isSendingRef.current = false;
     }
+  };
+
+  const handlePaymentSuccess = async () => {
+    setShowPayment(false);
+
+    // ─────────────────────────────────────────────────────────
+    // After payment: send CONFIRM to backend to transition the
+    // thread from consent_clarification → post_payment_intake.
+    // Then fetch updated chat history so the UI shows intake mode.
+    // ─────────────────────────────────────────────────────────
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'CONFIRM');
+      formData.append('thread_id', activeThreadId || '');
+
+      const res = await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.mode) setMode(data.mode as ConversationMode);
+        if (data.result && data.result.trim()) {
+          setMessages(prev => [
+            ...prev,
+            { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result },
+          ]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to transition to intake:', e);
+    }
+
+    fetchConsultationHistory();
+    toast({
+      title: 'Payment Successful',
+      description: 'Please complete the intake questions to proceed.',
+    });
+  };
+
+  const handlePaymentCancel = () => {
+    setShowPayment(false);
   };
 
   const transformedMessages = messages.map(msg => {
@@ -250,6 +307,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       </ScrollArea>
     </div>
   );
+
+  // Show PaymentPage as a full overlay when patient clicks Go to Dermatologist Review
+  if (showPayment) {
+    return (
+      <section className="bg-gray-50 min-h-[80vh] flex items-center justify-center px-4">
+        <PaymentPage
+          onPaymentSuccess={handlePaymentSuccess}
+          onCancel={handlePaymentCancel}
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh] flex items-center">
