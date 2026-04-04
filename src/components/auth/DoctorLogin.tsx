@@ -78,7 +78,7 @@ export const DoctorLogin: React.FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" ...className="text-navy font-bold uppercase text-[10px] tracking-widest ml-1">Access Pin/Password</Label>
+              <Label htmlFor="password" className="text-navy font-bold uppercase text-[10px] tracking-widest ml-1">Access Pin/Password</Label>
               <Input
                 id="password"
                 type="password"
