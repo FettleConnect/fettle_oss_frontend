@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { BASE_URL } from "@/base_url";
-import { Loader2, Save, RotateCcw, ShieldAlert, BookOpen, ClipboardList, Microscope, FileText, ChevronRight, LayoutGrid } from "lucide-react";
+import { Loader2, Save, RotateCcw, ShieldAlert, BookOpen, ClipboardList, Microscope, FileText, ChevronRight, LayoutGrid, UserCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -23,6 +25,7 @@ export const SystemPromptEditor: React.FC = () => {
     module3: '',
     module4: '',
   });
+  const [doctorName, setDoctorName] = useState('Dr. Sasi Kiran Attili');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
@@ -38,7 +41,8 @@ export const SystemPromptEditor: React.FC = () => {
       });
       const data = await response.json();
       if (data.error === 0) {
-        // If it's a JSON string, parse it, otherwise try to use it as a fallback
+        if (data.doctor_name) setDoctorName(data.doctor_name);
+        
         try {
           const parsed = JSON.parse(data.prompt);
           setPrompts({
@@ -48,7 +52,6 @@ export const SystemPromptEditor: React.FC = () => {
             module4: parsed.module4 || '',
           });
         } catch (e) {
-          // Fallback if not JSON (legacy support)
           setPrompts({
             module1: data.prompt,
             module2: '',
@@ -80,21 +83,24 @@ export const SystemPromptEditor: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ prompt: JSON.stringify(prompts) }),
+        body: JSON.stringify({ 
+          prompt: JSON.stringify(prompts),
+          doctor_name: doctorName
+        }),
       });
       const data = await response.json();
       if (data.error === 0) {
         toast({
           title: "Configuration Saved",
-          description: "All 4 modules have been updated successfully.",
+          description: "All AI modules and clinician settings have been updated.",
         });
       } else {
-        throw new Error(data.errorMsg || 'Failed to save prompts');
+        throw new Error(data.errorMsg || 'Failed to save configuration');
       }
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to save the system prompts.",
+        description: error.message || "Failed to save the configuration.",
         variant: "destructive",
       });
     } finally {
@@ -151,7 +157,8 @@ export const SystemPromptEditor: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+    <div className="space-y-10 animate-in fade-in duration-500 pb-20">
+      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-accent-blue font-bold text-[10px] uppercase tracking-[0.2em]">
@@ -175,6 +182,35 @@ export const SystemPromptEditor: React.FC = () => {
         </div>
       </div>
 
+      {/* Global Clinician Settings */}
+      <Card className="border-none shadow-xl shadow-navy/5 bg-white overflow-hidden rounded-3xl">
+        <CardHeader className="bg-gray-50/50 border-b border-gray-100 py-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-navy p-2 rounded-lg text-white">
+              <UserCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-bold uppercase tracking-widest text-navy">Clinician Configuration</CardTitle>
+              <CardDescription className="text-[10px] font-bold text-gray-400 uppercase">Patient-facing identity settings</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-8">
+          <div className="max-w-md space-y-2">
+            <Label htmlFor="doctor-name" className="text-navy font-bold uppercase text-[10px] tracking-widest ml-1">Display Name (prefixed with Dr.)</Label>
+            <Input 
+              id="doctor-name"
+              value={doctorName}
+              onChange={(e) => setDoctorName(e.target.value)}
+              placeholder="Dr. Sasi Kiran Attili"
+              className="h-12 border-gray-200 rounded-xl focus:ring-navy focus:border-navy font-medium"
+            />
+            <p className="text-[10px] text-gray-400 italic ml-1">This name will be displayed to patients during the consultation.</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Modular AI Tabs */}
       <Tabs defaultValue="module1" className="w-full">
         <TabsList className="bg-gray-100/50 p-1.5 h-auto grid grid-cols-2 md:grid-cols-4 gap-2 rounded-2xl border border-gray-200 shadow-sm mb-8">
           {moduleConfigs.map(m => (
