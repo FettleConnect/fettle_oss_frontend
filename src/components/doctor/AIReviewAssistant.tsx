@@ -1,12 +1,13 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Send, X, ImagePlus, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Bot, Send, X, ImagePlus, AlertTriangle } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
 
+// CHANGED: added prefillMessage and onPrefillConsumed to props interface
 interface AIReviewAssistantProps {
   onClose: () => void;
   contextData: string;
@@ -17,34 +18,57 @@ interface AIReviewAssistantProps {
   onPrefillConsumed?: () => void;
 }
 
-type AssistantMessage = {
-  role: 'user' | 'ai';
-  content: string;
-  applyText?: string;
-};
-
 const SECTION_TITLES = [
   'Most Consistent With',
   'Close Differentials',
   'Morphologic Justification',
   'Educational Treatment Framework',
-  'Typical Course and Prognosis',
-  'When In-Person Evaluation Is Considered',
-  'Educational References',
+  'Investigations Commonly Considered',
+  'References',
 ];
 
 const FINAL_LINE = "You're welcome to ask follow-up questions.";
+
+const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist.
+
+Every response MUST use this exact section order and section titles exactly as written below:
+
+Most Consistent With
+
+Close Differentials
+
+Morphologic Justification
+
+Educational Treatment Framework
+
+Investigations Commonly Considered
+
+References
+
+Rules:
+- Use exactly the section titles above in exactly the same order.
+- Do not use numbered sections.
+- Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, or Plan.
+- Do not leave any section empty.
+- Do not output placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
+- If information is limited, write a brief safe clinical statement for that section instead of leaving it empty.
+- Keep the tone textbook-style and concise.
+- No dosing, frequency, or application instructions.
+- References should be educational sources only.
+- When a current draft is provided, make targeted edits only to the sections that need updating rather than rewriting the entire document from scratch.
+- End every response with exactly:
+You're welcome to ask follow-up questions.`;
 
 function cleanBody(text: string): string {
   return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function normalizeHeading(title: string): string {
-  return title.trim().toLowerCase();
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function stripMarkdownBold(value: string): string {
-  return value.replace(/\*\*/g, '').trim();
+function normalizeHeading(title: string): string {
+  return title.trim().toLowerCase();
 }
 
 function generateFallbackContent(section: string): string {
@@ -52,162 +76,118 @@ function generateFallbackContent(section: string): string {
     case 'Most Consistent With':
       return 'Preliminary clinical impression based on available intake data suggests a dermatologic condition requiring further clinical correlation.';
     case 'Close Differentials':
-      return 'Related dermatologic conditions may present with overlapping features.';
+      return 'Differential diagnoses may include inflammatory, infectious, or allergic dermatologic conditions depending on presentation.';
     case 'Morphologic Justification':
-      return 'Assessment is based on the provided history and any available images.';
+      return 'Assessment is based on the provided history and any available images. Morphology suggests a localized dermatologic process requiring clinical correlation.';
     case 'Educational Treatment Framework':
-      return 'General supportive care, avoidance of irritants, and standard dermatologic management may be considered in an educational context.';
-    case 'Typical Course and Prognosis':
-      return 'Course varies depending on the condition and may fluctuate over time.';
-    case 'When In-Person Evaluation Is Considered':
-      return 'In-person evaluation is considered if the condition is worsening, atypical, or not improving as expected.';
-    case 'Educational References':
-      return 'DermNet NZ\nBritish Association of Dermatologists\nMedscape';
+      return 'General supportive care, avoidance of irritants, and clinically appropriate dermatologic management may be considered after physician review.';
+    case 'Investigations Commonly Considered':
+      return 'Further evaluation may include dermatologic examination, bedside tests, laboratory workup, or biopsy if clinically indicated.';
+    case 'References':
+      return 'Standard dermatology educational references and clinical guidelines.';
     default:
       return 'Clinical details are limited from the currently available information.';
   }
 }
 
-function parseStructuredSections(text: string): Record<string, string> {
-  const cleaned = cleanBody(stripMarkdownBold(text));
+function extractStructuredSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
   if (!cleaned) return {};
 
-  const sections: Record<string, string> = {};
-  const lines = cleaned.split('\n');
+  const escaped = SECTION_TITLES.map(escapeRegex).join('|');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
 
-  let currentTitle: string | null = null;
-  let buffer: string[] = [];
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
 
-  const flush = () => {
-    if (!currentTitle) return;
-    const body = cleanBody(buffer.join('\n'));
-    if (body) {
-      sections[normalizeHeading(currentTitle)] = body;
-    }
-    buffer = [];
-  };
-
-  const headingMap: Record<string, string> = {
-    diagnosis: 'Most Consistent With',
-    'most consistent with': 'Most Consistent With',
-    'primary likely diagnosis': 'Most Consistent With',
-
-    'differential diagnoses': 'Close Differentials',
-    'differential diagnoses (ranked)': 'Close Differentials',
-    'close differentials': 'Close Differentials',
-    differentials: 'Close Differentials',
-
-    'technical justification': 'Morphologic Justification',
-    'morphologic justification': 'Morphologic Justification',
-    justification: 'Morphologic Justification',
-    'key morphologic / clinical features': 'Morphologic Justification',
-
-    'prescription regimen': 'Educational Treatment Framework',
-    'educational treatment framework': 'Educational Treatment Framework',
-    'treatment framework': 'Educational Treatment Framework',
-
-    'typical course and prognosis': 'Typical Course and Prognosis',
-    prognosis: 'Typical Course and Prognosis',
-
-    'when in-person evaluation is considered': 'When In-Person Evaluation Is Considered',
-    'in-person evaluation': 'When In-Person Evaluation Is Considered',
-    'red flags': 'When In-Person Evaluation Is Considered',
-    'red flags (if any)': 'When In-Person Evaluation Is Considered',
-
-    'educational references': 'Educational References',
-    references: 'Educational References',
-    'suggested investigations': 'Educational References',
-    'suggested investigations (if relevant)': 'Educational References',
-    investigations: 'Educational References',
-    'investigations commonly considered': 'Educational References',
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) {
-      if (currentTitle) buffer.push('');
-      continue;
-    }
-
-    const normalizedLine = stripMarkdownBold(line);
-
-    let matchedTitle: string | null = null;
-    let inlineBody = '';
-
-    for (const candidate of Object.keys(headingMap)) {
-      const regex = new RegExp(
-        `^(?:\\d+\\.\\s*)?${candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
-        'i'
-      );
-      const match = normalizedLine.match(regex);
-      if (match) {
-        matchedTitle = headingMap[candidate];
-        inlineBody = (match[1] || '').trim();
-        break;
-      }
-    }
-
-    if (!matchedTitle) {
-      for (const title of SECTION_TITLES) {
-        const regex = new RegExp(
-          `^(?:\\d+\\.\\s*)?${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:?\\s*(.*)$`,
-          'i'
-        );
-        const match = normalizedLine.match(regex);
-        if (match) {
-          matchedTitle = title;
-          inlineBody = (match[1] || '').trim();
-          break;
-        }
-      }
-    }
-
-    if (matchedTitle) {
-      flush();
-      currentTitle = matchedTitle;
-      if (inlineBody) buffer.push(inlineBody);
-      continue;
-    }
-
-    if (currentTitle) {
-      buffer.push(rawLine);
-    }
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
   }
 
-  flush();
+  if (matches.length === 0) return {};
+
+  const sections: Record<string, string> = {};
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    sections[normalizeHeading(current.title)] = cleanBody(cleaned.slice(start, end));
+  }
+
   return sections;
 }
 
-function buildStructuredOutput(
-  sections: Record<string, string>,
-  options?: {
-    fillMissing?: boolean;
-    boldHeadings?: boolean;
+function extractLegacyNumberedSections(text: string): Record<string, string> {
+  const cleaned = cleanBody(text);
+  if (!cleaned) return {};
+
+  const mappings = [
+    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
+    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
+    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
+    { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
+    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
+    { patterns: ['Educational References', 'References'], target: 'References' },
+  ];
+
+  const sectionHeaders = mappings.flatMap(m => m.patterns.map(escapeRegex)).join('|');
+  const regex = new RegExp(
+    `(?:^|\\n)\\s*(?:\\d+\\.\\s*)?(?:\\*\\*)?(${sectionHeaders})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`,
+    'gi'
+  );
+
+  const matches: Array<{ title: string; index: number; fullLength: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(cleaned)) !== null) {
+    matches.push({
+      title: match[1],
+      index: match.index,
+      fullLength: match[0].length,
+    });
   }
-): string {
-  const fillMissing = options?.fillMissing ?? true;
-  const boldHeadings = options?.boldHeadings ?? false;
 
-  const blocks: string[] = [];
+  if (matches.length === 0) return {};
 
-  for (const title of SECTION_TITLES) {
-    const key = normalizeHeading(title);
-    let body = cleanBody(sections[key] || '');
-
-    if (!body && fillMissing) {
-      body = generateFallbackContent(title);
+  const sections: Record<string, string> = {};
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const start = current.index + current.fullLength;
+    const end = next ? next.index : cleaned.length;
+    const body = cleanBody(cleaned.slice(start, end));
+    const mapping = mappings.find(m =>
+      m.patterns.some(p => p.toLowerCase() === current.title.toLowerCase())
+    );
+    if (mapping && body) {
+      sections[normalizeHeading(mapping.target)] = body;
     }
-
-    if (!body) continue;
-
-    const heading = boldHeadings ? `**${title}**` : title;
-    blocks.push(`${heading}\n\n${body}`.trim());
   }
 
-  const cleaned = cleanBody(blocks.join('\n\n'));
+  return sections;
+}
+
+function buildStructuredOutput(sections: Record<string, string>): string {
+  const content = SECTION_TITLES.map(title => {
+    const key = normalizeHeading(title);
+    const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
+    return `${title}\n\n${body}`.trim();
+  }).join('\n\n');
+
+  const cleaned = cleanBody(content);
   if (!cleaned) return '';
 
-  if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) return cleaned;
+  if (cleaned.toLowerCase().includes(FINAL_LINE.toLowerCase())) {
+    return cleaned;
+  }
   return `${cleaned}\n\n${FINAL_LINE}`;
 }
 
@@ -224,32 +204,24 @@ function stripDosingInfo(text: string): string {
     .trim();
 }
 
-function normaliseAIResponse(raw: string, boldHeadings = false): string {
+function normaliseAIResponse(raw: string): string {
   const text = cleanBody(raw);
-  if (!text || text.length < 20) {
-    return buildStructuredOutput({}, { fillMissing: true, boldHeadings });
-  }
+  if (!text || text.length < 30) return buildStructuredOutput({});
 
-  let sections = parseStructuredSections(text);
-
+  let sections = extractStructuredSections(text);
   if (Object.keys(sections).length === 0) {
-    sections = {
-      [normalizeHeading('Most Consistent With')]: text,
-    };
+    sections = extractLegacyNumberedSections(text);
+  }
+  if (Object.keys(sections).length === 0) {
+    sections = { [normalizeHeading('Most Consistent With')]: text };
   }
 
-  const stripped: Record<string, string> = {};
+  const strippedSections: Record<string, string> = {};
   for (const [key, body] of Object.entries(sections)) {
-    const cleaned = stripDosingInfo(body);
-    if (cleanBody(cleaned)) {
-      stripped[key] = cleaned;
-    }
+    strippedSections[key] = stripDosingInfo(body);
   }
 
-  return buildStructuredOutput(stripped, {
-    fillMissing: true,
-    boldHeadings,
-  });
+  return buildStructuredOutput(strippedSections);
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -261,6 +233,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// Uses the Next.js backend route — API key never exposed to client
 async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
   const response = await fetch('/api/openai-vision-check', {
     method: 'POST',
@@ -273,7 +246,8 @@ async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
   });
 
   const data = await response.json();
-  return data.result?.trim().toUpperCase() === 'YES';
+  const answer = data.result?.trim().toUpperCase();
+  return answer === 'YES';
 }
 
 const AIReviewAssistantLink = (props: any) => (
@@ -285,6 +259,7 @@ const AIReviewAssistantLink = (props: any) => (
   />
 );
 
+// CHANGED: destructure new prefillMessage and onPrefillConsumed props
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
@@ -294,88 +269,34 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   prefillMessage,
   onPrefillConsumed,
 }) => {
-  const [messages, setMessages] = useState<AssistantMessage[]>([
+  const [messages, setMessages] = useState<
+    { role: 'user' | 'ai'; content: string }[]
+  >([
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. Type your instruction below, for example:\n\n- Regenerate the full draft\n- Strengthen all sections\n- Update the diagnosis and differentials\n- Improve morphologic justification\n- Replace the whole Assessment & Response with a more complete version\n\nUse the **Apply to editor** button under any response to replace the full Assessment & Response draft.",
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nUse the Apply to editor button under any response to merge it into the Assessment editor.",
     },
   ]);
 
-  const storageKey = useMemo(
-    () => `ai-review-assistant-input:${conversationId || 'default'}`,
-    [conversationId]
-  );
-
-  const getSavedDraft = useCallback((): string => {
-    try {
-      return sessionStorage.getItem(storageKey) || '';
-    } catch {
-      return '';
-    }
-  }, [storageKey]);
-
-  const [input, setInput] = useState<string>(() => {
-    try {
-      return sessionStorage.getItem(storageKey) || '';
-    } catch {
-      return '';
-    }
-  });
-
+  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
   const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const lastAppliedPrefillRef = useRef<string>('');
-  const didRestoreRef = useRef(false);
 
+  // ADDED: when the doctor clicks "Ask AI" in the editor toolbar,
+  // prefillMessage is set by DoctorChatView and consumed here.
+  // It populates the input box so the doctor can review before sending.
   useEffect(() => {
-    try {
-      sessionStorage.setItem(storageKey, input);
-    } catch {
-      // ignore storage errors
+    if (prefillMessage && prefillMessage.trim()) {
+      setInput(prefillMessage.trim());
+      onPrefillConsumed?.();
     }
-  }, [input, storageKey]);
+  }, [prefillMessage]);
 
-  useEffect(() => {
-    if (didRestoreRef.current) return;
-    didRestoreRef.current = true;
-
-    const savedDraft = getSavedDraft();
-    if (savedDraft.trim()) {
-      setInput(savedDraft);
-      requestAnimationFrame(() => inputRef.current?.focus());
-      return;
-    }
-
-    const trimmedPrefill = prefillMessage?.trim() || '';
-    if (!trimmedPrefill) return;
-
-    lastAppliedPrefillRef.current = trimmedPrefill;
-    setInput(trimmedPrefill);
-    onPrefillConsumed?.();
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [getSavedDraft, prefillMessage, onPrefillConsumed]);
-
-  useEffect(() => {
-    const trimmedPrefill = prefillMessage?.trim() || '';
-    if (!trimmedPrefill) return;
-    if (lastAppliedPrefillRef.current === trimmedPrefill) return;
-
-    setInput((currentInput) => {
-      if (currentInput.trim()) return currentInput;
-      lastAppliedPrefillRef.current = trimmedPrefill;
-      return trimmedPrefill;
-    });
-
-    onPrefillConsumed?.();
-  }, [prefillMessage, onPrefillConsumed]);
-
+  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -386,19 +307,17 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     if (!file) return;
 
     setImageError(null);
-
     try {
       const base64 = await fileToBase64(file);
       const blocked = await containsFaceOrPII(base64);
-
       if (blocked) {
         setImageError(
-          'This image appears to contain a face or personal identifying information and cannot be uploaded.'
+          'This image appears to contain a face or personal identifying information and cannot be uploaded. Please remove personal details and try again.'
         );
         return;
       }
-
-      setPendingImage({ file, previewUrl: URL.createObjectURL(file) });
+      const previewUrl = URL.createObjectURL(file);
+      setPendingImage({ file, previewUrl });
     } catch {
       setImageError('Image check failed. Please try again.');
     }
@@ -410,27 +329,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     setImageError(null);
   }, [pendingImage]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInput(e.target.value);
-  };
-
-  const clearStoredDraft = useCallback(() => {
-    try {
-      sessionStorage.removeItem(storageKey);
-    } catch {
-      // ignore storage errors
-    }
-  }, [storageKey]);
-
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMsg = input.trim();
-    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
-    clearStoredDraft();
     setIsLoading(true);
-    setAppliedIndex(null);
 
     const imageToClear = pendingImage;
     setPendingImage(null);
@@ -440,9 +345,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
-      formData.append('question', userMsg);
+
+      // Build full question with context embedded —
+      // backend receives patient intake + current draft + doctor's question
+      // all inside the question field so no backend changes are required
+      formData.append(
+        'question',
+        `${STRUCTURED_FORMAT_PROMPT}\n\nPatient intake context:\n${contextData}\n\nCurrent editor draft:\n${editorContent || 'No draft yet.'}\n\nDoctor's request:\n${userMsg}`
+      );
+
+      // Also send as separate fields for backends that prefer to read them individually
       formData.append('currentDraft', editorContent || '');
-      formData.append('contextData', contextData || '');
+      formData.append('contextData', contextData);
 
       if (imageToClear?.file) {
         formData.append('image', imageToClear.file);
@@ -454,73 +368,34 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         body: formData,
       });
 
+      if (!response.ok) throw new Error('Failed to get AI response');
+
       const data = await response.json();
-
-      if (!response.ok || data?.error === 1) {
-        throw new Error(data?.errorMsg || 'Failed to get AI response');
-      }
-
       const rawAiContent: string =
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
-      const plainApplyText = normaliseAIResponse(rawAiContent, false);
-      const displayText = normaliseAIResponse(rawAiContent, true);
+      const aiContent = normaliseAIResponse(rawAiContent) || buildStructuredOutput({});
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'ai',
-          content: displayText,
-          applyText: plainApplyText,
-        },
-      ]);
-    } catch (error: any) {
+      setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
+    } catch (error) {
       console.error('Error consulting AI:', error);
-
-      const fallbackPlain = normaliseAIResponse(
-        error?.message || 'I encountered an error. Please try again.',
-        false
-      );
-
-      const fallbackDisplay = normaliseAIResponse(
-        error?.message || 'I encountered an error. Please try again.',
-        true
-      );
-
-      setMessages((prev) => [
+      setMessages(prev => [
         ...prev,
         {
           role: 'ai',
-          content: fallbackDisplay,
-          applyText: fallbackPlain,
+          content:
+            'I encountered an error. Please ensure the backend is running and try again.',
         },
       ]);
     } finally {
       setIsLoading(false);
       if (imageToClear) URL.revokeObjectURL(imageToClear.previewUrl);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  };
-
-  const handleApply = useCallback(
-    (message: AssistantMessage, index: number) => {
-      if (!onApplyContent) return;
-      onApplyContent(message.applyText || stripMarkdownBold(message.content));
-      setAppliedIndex(index);
-    },
-    [onApplyContent]
-  );
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
   return (
     <Card className="h-full flex flex-col border-none shadow-none rounded-none">
-      <CardHeader className="py-3 px-4 border-b bg-primary/5 flex flex-row items-center justify-between shrink-0">
+      <CardHeader className="py-3 px-4 border-b bg-primary/5 flex flex-row items-center justify-between">
         <CardTitle className="text-sm flex items-center gap-2 text-primary">
           <Bot className="h-4 w-4" />
           AI Consultation
@@ -530,65 +405,56 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         </Button>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col p-0 overflow-hidden min-h-0">
+      <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4">
-            {messages.map((m, i) => {
-              const messageIndex = i;
-              const messageRole = m.role;
-
-              return (
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={`flex flex-col ${
+                  m.role === 'user' ? 'items-end' : 'items-start'
+                }`}
+              >
                 <div
-                  key={messageIndex}
-                  className={`flex flex-col ${messageRole === 'user' ? 'items-end' : 'items-start'}`}
+                  className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                    m.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
                 >
-                  <div
-                    className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
-                      messageRole === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-foreground'
-                    }`}
-                  >
-                    {messageRole === 'ai' ? (
-                      <div
-                        className="prose prose-sm dark:prose-invert max-w-none
-                          [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
-                          [&_strong]:font-bold
-                          [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                          [&_ol]:pl-4 [&_ol]:mb-2
-                          [&_a]:text-blue-600 [&_a]:underline break-words"
-                      >
-                        <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
-                          {m.content}
-                        </ReactMarkdown>
-                      </div>
-                    ) : (
-                      <div className="whitespace-pre-wrap">{m.content}</div>
-                    )}
+                  {m.role === 'ai' ? (
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none
+                        [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
+                        [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
+                        [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
+                        [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
+                        [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
+                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
+                        [&_a]:text-blue-600 [&_a]:underline break-words"
+                    >
+                      <ReactMarkdown components={{ a: AIReviewAssistantLink }}>{m.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{m.content}</div>
+                  )}
 
-                    {messageRole === 'ai' && messageIndex > 0 && onApplyContent && (
-                      <div className="mt-2 pt-2 border-t border-border/50">
-                        {appliedIndex === messageIndex ? (
-                          <span className="flex items-center gap-1 text-[10px] text-green-600 font-medium">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Applied to editor
-                          </span>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-[10px] px-2 border-primary/30 text-primary hover:bg-primary/5"
-                            onClick={() => handleApply(m, messageIndex)}
-                          >
-                            Apply to editor
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  {/* Apply to editor button — only shown under AI messages after the first */}
+                  {m.role === 'ai' && i > 0 && onApplyContent && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px] px-2"
+                        onClick={() => onApplyContent(m.content)}
+                      >
+                        Apply to editor
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              );
-            })}
+              </div>
+            ))}
 
             {isLoading && (
               <div className="flex justify-start">
@@ -599,12 +465,11 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                 </div>
               </div>
             )}
-
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
 
-        <div className="p-3 border-t bg-background space-y-2 shrink-0">
+        <div className="p-3 border-t bg-background space-y-2">
           {imageError && (
             <div className="flex items-start gap-1.5 text-[11px] text-destructive bg-destructive/10 rounded px-2 py-1.5">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -634,7 +499,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             </div>
           )}
 
-          <div className="flex gap-2">
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -642,41 +513,34 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
               className="hidden"
               onChange={handleImageSelect}
             />
-
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="shrink-0"
+              className="h-9 w-9 shrink-0"
               disabled={isLoading}
               onClick={() => fileInputRef.current?.click()}
             >
               <ImagePlus className="h-4 w-4" />
             </Button>
-
             <Input
-              ref={inputRef}
               value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your instruction, e.g. regenerate the full draft"
-              className="flex-1"
+              onChange={e => setInput(e.target.value)}
+              placeholder="Ask for diagnosis, plan..."
+              className="flex-1 h-9 text-xs"
               disabled={isLoading}
             />
-
             <Button
-              onClick={handleSend}
-              disabled={isLoading || !input.trim()}
+              type="submit"
               size="icon"
-              className="shrink-0"
+              className="h-9 w-9"
+              disabled={isLoading || !input.trim()}
             >
               <Send className="h-4 w-4" />
             </Button>
-          </div>
+          </form>
         </div>
       </CardContent>
     </Card>
   );
 };
-
-export default AIReviewAssistant;
