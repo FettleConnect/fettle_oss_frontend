@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Message, ConversationMode, DISCLAIMER } from '@/types/dermatology';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -17,6 +17,7 @@ import {
   Stethoscope,
   ChevronRight,
   MessageSquare,
+  PenLine,
 } from 'lucide-react';
 
 interface ChatContainerProps {
@@ -30,6 +31,174 @@ interface ChatContainerProps {
   intakeComplete?: boolean;
   onNewConsultation?: () => void;
 }
+
+// ─────────────────────────────────────────────────────────
+// Parse [OPTIONS: A | B | C | Other] from AI message text
+// Returns { cleanText, options } where cleanText has the tag removed
+// ─────────────────────────────────────────────────────────
+function parseOptions(content: string): { cleanText: string; options: string[] } {
+  const regex = /\[OPTIONS:\s*([^\]]+)\]/i;
+  const match = content.match(regex);
+  if (!match) return { cleanText: content, options: [] };
+
+  const options = match[1]
+    .split('|')
+    .map(o => o.trim())
+    .filter(Boolean);
+
+  const cleanText = content.replace(regex, '').trim();
+  return { cleanText, options };
+}
+
+// ─────────────────────────────────────────────────────────
+// OptionButtons — renders the option pills + "Other" text box
+// ─────────────────────────────────────────────────────────
+interface OptionButtonsProps {
+  options: string[];
+  onSelect: (value: string) => void;
+  disabled: boolean;
+}
+
+const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabled }) => {
+  const [showOtherInput, setShowOtherInput] = useState(false);
+  const [otherText, setOtherText] = useState('');
+  const [selected, setSelected] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showOtherInput) inputRef.current?.focus();
+  }, [showOtherInput]);
+
+  const handleSelect = (option: string) => {
+    if (disabled || selected) return;
+    if (option.toLowerCase() === 'other') {
+      setShowOtherInput(true);
+      return;
+    }
+    setSelected(option);
+    onSelect(option);
+  };
+
+  const handleOtherSubmit = () => {
+    if (!otherText.trim() || disabled) return;
+    setSelected(otherText.trim());
+    setShowOtherInput(false);
+    onSelect(otherText.trim());
+  };
+
+  const handleOtherKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleOtherSubmit();
+    if (e.key === 'Escape') {
+      setShowOtherInput(false);
+      setOtherText('');
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-2">
+      {/* Option pills */}
+      <div className="flex flex-wrap gap-2">
+        {options.map(option => {
+          const isOther = option.toLowerCase() === 'other';
+          const isSelected = selected === option;
+          const isDisabled = disabled || (!!selected && selected !== option);
+
+          return (
+            <button
+              key={option}
+              onClick={() => handleSelect(option)}
+              disabled={isDisabled}
+              className={cn(
+                'px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border transition-all duration-150',
+                isSelected
+                  ? 'bg-navy text-white border-navy shadow-md'
+                  : isOther
+                  ? 'bg-white text-navy border-navy/30 hover:border-navy hover:bg-navy/5'
+                  : 'bg-white text-navy border-navy/20 hover:border-navy/60 hover:bg-navy/5',
+                isDisabled && !isSelected && 'opacity-40 cursor-not-allowed',
+                isOther && !isDisabled && 'flex items-center gap-1'
+              )}
+            >
+              {isOther && <PenLine className="h-3 w-3" />}
+              {option}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* "Other" inline text box */}
+      {showOtherInput && !selected && (
+        <div className="flex gap-2 items-center animate-in fade-in slide-in-from-top-1 duration-200">
+          <input
+            ref={inputRef}
+            type="text"
+            value={otherText}
+            onChange={e => setOtherText(e.target.value)}
+            onKeyDown={handleOtherKeyDown}
+            placeholder="Type your answer..."
+            className="flex-1 h-9 px-3 text-xs rounded-lg border border-navy/20 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy/20 bg-white text-navy placeholder:text-muted-foreground"
+          />
+          <Button
+            size="sm"
+            className="h-9 px-4 bg-navy hover:bg-navy/90 text-white text-xs font-bold uppercase tracking-wider"
+            onClick={handleOtherSubmit}
+            disabled={!otherText.trim()}
+          >
+            Send
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// MessageWithOptions — wraps ChatMessage and appends option buttons
+// if the AI message contains an [OPTIONS: ...] tag
+// ─────────────────────────────────────────────────────────
+interface MessageWithOptionsProps {
+  message: Message;
+  isLast: boolean;
+  onSelect: (value: string) => void;
+  isLoading: boolean;
+  alreadyAnswered: boolean;
+}
+
+const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
+  message,
+  isLast,
+  onSelect,
+  isLoading,
+  alreadyAnswered,
+}) => {
+  const { cleanText, options } = useMemo(
+    () => parseOptions(message.content),
+    [message.content]
+  );
+
+  // Render the message with the OPTIONS tag stripped from visible text
+  const cleanMessage = useMemo(
+    () => ({ ...message, content: cleanText }),
+    [message, cleanText]
+  );
+
+  const showOptions = options.length > 0 && isLast && !alreadyAnswered;
+
+  return (
+    <div>
+      <ChatMessage message={cleanMessage} />
+      {showOptions && (
+        <div className="ml-2 mt-1 max-w-[85%]">
+          <OptionButtons
+            options={options}
+            onSelect={onSelect}
+            disabled={isLoading}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
   messages,
@@ -71,10 +240,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [messages]);
 
   const showConsentConfirm = mode === 'consent_clarification';
-  
   const aiReplyCount = messages.filter(m => m.role === 'ai').length;
   const freeTierExhausted = mode === 'general_education' && aiReplyCount >= 3;
-
   const hideInput = showConsentConfirm || freeTierExhausted;
 
   const pinnedNote = useMemo(() => {
@@ -90,6 +257,28 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     return null;
   }, [mode]);
 
+  // ─────────────────────────────────────────────────────────
+  // Determine the index of the last AI message so we only
+  // show option buttons on the most recent AI message
+  // ─────────────────────────────────────────────────────────
+  const lastAiMessageIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'ai') return i;
+    }
+    return -1;
+  }, [messages]);
+
+  // The patient has answered the last AI question if there is a
+  // user message after the last AI message
+  const patientAnsweredLast = useMemo(() => {
+    if (lastAiMessageIndex === -1) return true;
+    return messages.slice(lastAiMessageIndex + 1).some(m => m.role === 'patient' || m.role === 'user');
+  }, [messages, lastAiMessageIndex]);
+
+  const handleOptionSelect = (value: string) => {
+    onSendMessage(value);
+  };
+
   return (
     <div className="flex flex-col h-full bg-white">
       <div className="border-b border-gray-100 bg-white px-4 py-3 flex items-center justify-between shadow-sm z-10">
@@ -97,7 +286,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           <MessageSquare className="h-4 w-4 text-navy" />
           <h2 className="font-bold text-navy uppercase tracking-widest text-xs">Consultation Channel</h2>
         </div>
-        <Badge className={cn("font-bold uppercase text-[10px] tracking-tighter px-2 py-0.5", modeInfo.variant === 'default' ? 'bg-navy' : '')} variant={modeInfo.variant}>
+        <Badge
+          className={cn(
+            'font-bold uppercase text-[10px] tracking-tighter px-2 py-0.5',
+            modeInfo.variant === 'default' ? 'bg-navy' : ''
+          )}
+          variant={modeInfo.variant}
+        >
           {modeInfo.label}
         </Badge>
       </div>
@@ -123,9 +318,23 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       <ScrollArea className="flex-1 p-4 bg-gray-50/30">
         <div className="space-y-6 max-w-4xl mx-auto">
-          {messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
-          ))}
+          {messages.map((message, index) => {
+            // Only AI messages get option buttons, and only on the last AI message
+            if (message.role === 'ai') {
+              const isLastAiMessage = index === lastAiMessageIndex;
+              return (
+                <MessageWithOptions
+                  key={message.id}
+                  message={message}
+                  isLast={isLastAiMessage}
+                  onSelect={handleOptionSelect}
+                  isLoading={isLoading}
+                  alreadyAnswered={patientAnsweredLast}
+                />
+              );
+            }
+            return <ChatMessage key={message.id} message={message} />;
+          })}
 
           {isLoading && (
             <div className="flex items-center gap-3 text-navy font-bold text-[10px] uppercase tracking-widest ml-2">
@@ -155,10 +364,19 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             </div>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" className="flex-1 h-11 border-gray-200 text-navy font-bold uppercase text-xs tracking-widest" onClick={() => onQuickReply('No')} disabled={isLoading}>
+            <Button
+              variant="outline"
+              className="flex-1 h-11 border-gray-200 text-navy font-bold uppercase text-xs tracking-widest"
+              onClick={() => onQuickReply('No')}
+              disabled={isLoading}
+            >
               <ArrowLeft className="h-4 w-4 mr-2" /> Defer
             </Button>
-            <Button className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20" onClick={() => onQuickReply('CONFIRM')} disabled={isLoading}>
+            <Button
+              className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
+              onClick={() => onQuickReply('CONFIRM')}
+              disabled={isLoading}
+            >
               <CheckCircle className="h-4 w-4 mr-2" /> Confirm & Pay
             </Button>
           </div>
@@ -178,7 +396,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               </p>
             </div>
           </div>
-          <Button className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20" onClick={() => onQuickReply?.('YES')} disabled={isLoading}>
+          <Button
+            className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
+            onClick={() => onQuickReply?.('YES')}
+            disabled={isLoading}
+          >
             Upgrade to Specialist Review <ChevronRight className="h-4 w-4 ml-2" />
           </Button>
         </div>
@@ -186,7 +408,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {mode === 'final_output' && onNewConsultation && (
         <div className="border-t border-gray-100 bg-white p-6 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
-          <Button className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-green-900/20" onClick={onNewConsultation}>
+          <Button
+            className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-green-900/20"
+            onClick={onNewConsultation}
+          >
             <Plus className="h-4 w-4 mr-2" /> Start New Consultation
           </Button>
         </div>
