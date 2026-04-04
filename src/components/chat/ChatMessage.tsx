@@ -23,16 +23,22 @@ interface MarkdownProps {
 }
 
 const MarkdownP = ({ children }: MarkdownProps) => <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>;
-const MarkdownStrong = ({ children }: MarkdownProps) => <strong className="font-bold text-navy">{children}</strong>;
-const MarkdownUl = ({ children }: MarkdownProps) => <ul className="list-disc pl-4 mb-2 space-y-1 text-gray-700">{children}</ul>;
-const MarkdownOl = ({ children }: MarkdownProps) => <ol className="list-decimal pl-4 mb-2 space-y-1 text-gray-700">{children}</ol>;
+
+// FIXED: removed hardcoded text-navy — now inherits parent bubble text color
+// so headings are visible on both dark (navy) and light (white/blue) backgrounds
+const MarkdownStrong = ({ children }: MarkdownProps) => (
+  <strong className="font-bold">{children}</strong>
+);
+
+const MarkdownUl = ({ children }: MarkdownProps) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
+const MarkdownOl = ({ children }: MarkdownProps) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
 const MarkdownLi = ({ children }: MarkdownProps) => <li className="text-sm leading-relaxed">{children}</li>;
 const MarkdownA = ({ href, children }: MarkdownProps) => (
   <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
-    className="text-accent-blue underline underline-offset-2 hover:text-navy font-bold cursor-pointer transition-colors"
+    className="underline underline-offset-2 font-bold cursor-pointer transition-colors opacity-80 hover:opacity-100"
   >{children}</a>
 );
 
@@ -88,26 +94,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     if (!text) return '';
     const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = (isDoctor || isAI) ? linkifyUrls(normalized) : normalized;
-    
+
     return withLinks.split('\n').map(line => {
       const trimmed = line.trim();
       if (trimmed.length < 2) return line;
       if (trimmed.startsWith('**')) return line;
-      
-      const isHeader = SECTION_TITLES.some(title => 
-        trimmed.toLowerCase() === title.toLowerCase() || 
+
+      const isHeader = SECTION_TITLES.some(title =>
+        trimmed.toLowerCase() === title.toLowerCase() ||
         trimmed.toLowerCase().startsWith(title.toLowerCase() + ':')
       );
-      
+
       if (isHeader) {
         if (trimmed.includes(':')) {
           return trimmed.replace(/^([^:]+:)/, '**$1**');
         }
         return `**${trimmed}**`;
       }
-      
+
       if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) return `**${trimmed}**`;
-      
+
       return line;
     }).join('\n');
   };
@@ -170,7 +176,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           </div>
           <span>{getRoleLabel()}</span>
         </div>
-        <div className={cn('rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm', getBubbleColors(), isPatient ? 'rounded-tr-none' : 'rounded-tl-none')}>          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
+        <div className={cn('rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm', getBubbleColors(), isPatient ? 'rounded-tr-none' : 'rounded-tl-none')}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
           {images.length > 0 && (
             <div className={cn('grid gap-3 mt-4', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
               {images.map((url, idx) => (
@@ -195,8 +202,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       {lightboxOpen && images.length > 0 && (
         <div className="fixed inset-0 z-[100] bg-navy/95 backdrop-blur-md flex items-center justify-center p-4" onClick={closeLightbox}>
           <div className="absolute top-6 right-6 flex gap-3" onClick={e => e.stopPropagation()}>
-            <Button variant="ghost" size="icon" onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)} className="text-white hover:bg-white/10 rounded-full h-12 w-12"><Download className="h-6 w-6" /></Button>
-            <Button variant="ghost" size="icon" onClick={closeLightbox} className="text-white hover:bg-red-500/20 rounded-full h-12 w-12"><X className="h-6 w-6" /></Button>
+            <button onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)} className="text-white hover:bg-white/10 rounded-full h-12 w-12 flex items-center justify-center"><Download className="h-6 w-6" /></button>
+            <button onClick={closeLightbox} className="text-white hover:bg-red-500/20 rounded-full h-12 w-12 flex items-center justify-center"><X className="h-6 w-6" /></button>
           </div>
           <img src={images[lightboxIndex]} alt={`Clinical image ${lightboxIndex + 1}`} onClick={e => e.stopPropagation()} className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl border border-white/10" />
           {images.length > 1 && (
