@@ -281,7 +281,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nInvestigations Commonly Considered\n\nReferences\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nUse the Apply to editor button under any response to merge it into the Assessment editor.",
+        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nTypical Course and Prognosis\n\nWhen In-Person Evaluation Is Considered\n\nEducational References\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nUse the Apply to editor button under any response to replace the Assessment editor content.",
     },
   ]);
 
