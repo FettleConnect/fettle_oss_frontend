@@ -16,16 +16,19 @@ interface User {
   name: string;
   email?: string;
 }
+
 interface PatientViewProps {
   user: User;
   onLogout: () => void;
 }
+
 interface ChatMessage {
   id: string;
   role: string;
   content: string;
   images?: string[];
 }
+
 interface ConsultationHistoryItem {
   id: string;
   name: string;
@@ -49,21 +52,47 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
 
+  const EDUCATIONAL_MESSAGE_LIMIT = 3;
+
+  const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
+    return chatMessages.filter((msg) => {
+      const isAi = msg.role === 'ai' || msg.role === 'AI';
+      const content = typeof msg.content === 'string' ? msg.content : '';
+      return isAi && !content.includes('Messages left in free educational mode:');
+    }).length;
+  }, []);
+
+  const appendMessagesLeftText = useCallback(
+    (aiText: string, currentMessages: ChatMessage[], responseMode?: string) => {
+      if (responseMode !== 'general_education') return aiText;
+
+      const aiReplyCountSoFar = getEducationAiReplyCount(currentMessages);
+      const remaining = Math.max(0, EDUCATIONAL_MESSAGE_LIMIT - (aiReplyCountSoFar + 1));
+
+      return `${aiText}\n\nMessages left in free educational mode: ${remaining}/${EDUCATIONAL_MESSAGE_LIMIT}`;
+    },
+    [getEducationAiReplyCount]
+  );
+
   const lastAiMessage = useMemo(() => {
-    const aiMsgs = messages.filter(m => m.role === 'ai' || m.role === 'AI');
+    const aiMsgs = messages.filter((m) => m.role === 'ai' || m.role === 'AI');
     return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1] : null;
   }, [messages]);
 
   const currentIntakeStep = useMemo(() => {
     if (mode !== 'post_payment_intake') return null;
     const content = lastAiMessage?.content.toLowerCase() || '';
-    if (content.includes('relevant medical reports') || content.includes('medical reports')) return 'report_image';
+    if (content.includes('relevant medical reports') || content.includes('medical reports')) {
+      return 'report_image';
+    }
     if (
       content.includes('upload clear images') ||
       content.includes('image of the skin condition') ||
       content.includes('affected area') ||
       content.includes('multiple angles')
-    ) return 'skin_image';
+    ) {
+      return 'skin_image';
+    }
     return 'text_questions';
   }, [mode, lastAiMessage]);
 
@@ -71,7 +100,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const res = await fetch(`${BASE_URL}/api/consultation_list/`, {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
       });
       if (res.ok) {
         const data = await res.json();
@@ -87,17 +119,33 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
       const url = new URL(`${BASE_URL}/api/chat_history/`);
-      if (threadId) url.searchParams.append('thread_id', threadId);
+      if (threadId) {
+        url.searchParams.append('thread_id', threadId);
+      }
+
       const res = await fetch(url.toString(), {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
       });
-      if (!res.ok) throw new Error('Failed to fetch chat history');
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch chat history');
+      }
+
       const data = await res.json();
+
       if (!data.error && data.conv && Array.isArray(data.conv)) {
         setMessages(data.conv);
-        if (data.mode) setMode(data.mode as ConversationMode);
+        if (data.mode) {
+          setMode(data.mode as ConversationMode);
+        }
       }
-      if (data.thread_id) setActiveThreadId(data.thread_id);
+
+      if (data.thread_id) {
+        setActiveThreadId(data.thread_id);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -114,10 +162,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
+
       const res = await fetch(`${BASE_URL}/api/archive_consultation/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
       });
+
       if (res.ok) {
         const data = await res.json();
         setMessages([]);
@@ -125,7 +178,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setActiveThreadId(data.thread_id);
         fetchConsultationHistory();
         fetchChatHistory(data.thread_id);
-        toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
+        toast({
+          title: 'New Consultation Started',
+          description: 'Your previous chat has been saved to history.',
+        });
       }
     } catch (e) {
       console.error(e);
@@ -135,17 +191,22 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   };
 
   const sanitizeImages = (imgs?: string[]) =>
-    (imgs ?? []).filter(img => typeof img === 'string' && img.trim().length > 10);
+    (imgs ?? []).filter((img) => typeof img === 'string' && img.trim().length > 10);
 
   const dataURLtoBlob = async (dataUrl: string): Promise<Blob> => {
     if (dataUrl.startsWith('blob:') || dataUrl.startsWith('http')) {
       return (await fetch(dataUrl)).blob();
     }
+
     const [header, base64] = dataUrl.split(',');
     const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
     return new Blob([bytes], { type: mime });
   };
 
@@ -200,7 +261,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       images: rawImages.length ? rawImages : undefined,
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
     try {
@@ -217,27 +278,41 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
         body: formData,
       });
 
-      if (!res.ok) throw new Error('Failed to send message');
+      if (!res.ok) {
+        throw new Error('Failed to send message');
+      }
+
       const data = await res.json();
 
-      if (data.mode) setMode(data.mode as ConversationMode);
+      if (data.mode) {
+        setMode(data.mode as ConversationMode);
+      }
 
       if (data.result && data.result.trim()) {
-        setMessages(prev => [
-          ...prev,
-          { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result }
-        ]);
+        setMessages((prev) => {
+          const updatedContent = appendMessagesLeftText(data.result, prev, data.mode);
+          return [
+            ...prev,
+            {
+              id: `ai-${Date.now()}`,
+              role: data.role || 'ai',
+              content: updatedContent,
+            },
+          ];
+        });
       }
     } catch (e) {
       console.error(e);
       toast({
         title: 'Error',
         description: 'Failed to send message. Please try again.',
-        variant: 'destructive'
+        variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
@@ -256,18 +331,31 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
         body: formData,
       });
 
       if (res.ok) {
         const data = await res.json();
-        if (data.mode) setMode(data.mode as ConversationMode);
+
+        if (data.mode) {
+          setMode(data.mode as ConversationMode);
+        }
+
         if (data.result && data.result.trim()) {
-          setMessages(prev => [
-            ...prev,
-            { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result },
-          ]);
+          setMessages((prev) => {
+            const updatedContent = appendMessagesLeftText(data.result, prev, data.mode);
+            return [
+              ...prev,
+              {
+                id: `ai-${Date.now()}`,
+                role: data.role || 'ai',
+                content: updatedContent,
+              },
+            ];
+          });
         }
       }
     } catch (e) {
@@ -285,11 +373,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setShowPayment(false);
   };
 
-  const transformedMessages = messages.map(msg => {
+  const transformedMessages = messages.map((msg) => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
+
     if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
     else if (msg.role === 'doctor') role = 'doctor';
     else if (msg.role === 'system') role = 'system';
+
     return {
       id: msg.id,
       role,
@@ -308,31 +398,41 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           <Clock className="h-4 w-4" />
           History
         </h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => setShowHistory(false)}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-navy"
+          onClick={() => setShowHistory(false)}
+        >
           <ChevronLeft className="h-4 w-4" />
         </Button>
       </div>
+
       <ScrollArea className="flex-1 p-2">
         <div className="space-y-2">
-          {history.length > 0 ? history.map(item => (
-            <button
-              key={item.id}
-              onClick={() => {
-                fetchChatHistory(item.id);
-                if (isMobile) setShowHistory(false);
-              }}
-              className={cn(
-                'w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
-                activeThreadId === item.id ? 'bg-accent border border-navy/10' : 'transparent'
-              )}
-            >
-              <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-accent-blue transition-colors" />
-              <div className="flex-1 overflow-hidden">
-                <p className="font-bold truncate text-navy">{item.name}</p>
-                <p className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleDateString()}</p>
-              </div>
-            </button>
-          )) : (
+          {history.length > 0 ? (
+            history.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  fetchChatHistory(item.id);
+                  if (isMobile) setShowHistory(false);
+                }}
+                className={cn(
+                  'w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
+                  activeThreadId === item.id ? 'bg-accent border border-navy/10' : 'transparent'
+                )}
+              >
+                <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-accent-blue transition-colors" />
+                <div className="flex-1 overflow-hidden">
+                  <p className="font-bold truncate text-navy">{item.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(item.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              </button>
+            ))
+          ) : (
             <div className="text-center py-8 text-muted-foreground text-xs italic">
               No previous consultations found.
             </div>
@@ -345,10 +445,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   if (showPayment) {
     return (
       <section className="bg-gray-50 min-h-[80vh] flex items-center justify-center px-4">
-        <PaymentPage
-          onPaymentSuccess={handlePaymentSuccess}
-          onCancel={handlePaymentCancel}
-        />
+        <PaymentPage onPaymentSuccess={handlePaymentSuccess} onCancel={handlePaymentCancel} />
       </section>
     );
   }
@@ -361,11 +458,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             Affordable Expert Skin Insights
           </h1>
           <p className="text-gray-600 text-lg max-w-3xl mx-auto leading-relaxed">
-            Receive educational skin health insights from a UK Consultant Dermatologist — similar to a private consultation,
-            but at a fraction of the typical cost. Starting from just $49.
+            Receive educational skin health insights from a UK Consultant Dermatologist — similar to a private
+            consultation, but at a fraction of the typical cost. Starting from just $49.
           </p>
           <div className="flex items-center justify-center gap-2 text-accent-blue font-bold text-sm">
-            <a href="#" className="underline underline-offset-4 hover:text-navy transition-colors">view pricing</a>
+            <a href="#" className="underline underline-offset-4 hover:text-navy transition-colors">
+              view pricing
+            </a>
           </div>
         </div>
 
@@ -378,7 +477,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
           {isMobile && (
             <div className="absolute top-4 left-4 z-30">
-              <Button variant="outline" size="icon" onClick={() => setShowHistory(true)} className="bg-white/80 backdrop-blur-sm">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setShowHistory(true)}
+                className="bg-white/80 backdrop-blur-sm"
+              >
                 <Clock className="h-4 w-4 text-navy" />
               </Button>
             </div>
@@ -396,10 +500,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between z-20">
               <div className="flex items-center gap-2">
                 {!showHistory && !isMobile && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => setShowHistory(true)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-navy"
+                    onClick={() => setShowHistory(true)}
+                  >
                     <Clock className="h-4 w-4" />
                   </Button>
                 )}
+
                 <Button
                   variant="ghost"
                   size="icon"
@@ -412,10 +522,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                 >
                   <RefreshCw className="h-4 w-4" />
                 </Button>
+
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold hidden sm:block">
                   Logged in: <span className="text-navy">{user?.email}</span>
                 </div>
               </div>
+
               <div className="flex gap-2">
                 <Button
                   variant="ghost"
@@ -448,7 +560,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           <div className="inline-block bg-[#fdf5e6] px-6 py-3 rounded-lg border border-[#f5deb3]/50 max-w-2xl">
             <p className="text-xs text-gray-700 italic">
               <span className="font-bold uppercase not-italic mr-2">Service Disclaimer:</span>
-              This is an advisory-only dermatology service. No prescriptions are issued. Consult a local doctor for in-person evaluation if required.
+              This is an advisory-only dermatology service. No prescriptions are issued. Consult a local doctor for
+              in-person evaluation if required.
             </p>
           </div>
         </div>
