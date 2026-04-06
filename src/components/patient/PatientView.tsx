@@ -57,8 +57,13 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const currentIntakeStep = useMemo(() => {
     if (mode !== 'post_payment_intake') return null;
     const content = lastAiMessage?.content.toLowerCase() || '';
-    if (content.includes('upload clear images') || content.includes('image of the skin condition')) return 'skin_image';
-    if (content.includes('relevant medical reports')) return 'report_image';
+    if (content.includes('relevant medical reports') || content.includes('medical reports')) return 'report_image';
+    if (
+      content.includes('upload clear images') ||
+      content.includes('image of the skin condition') ||
+      content.includes('affected area') ||
+      content.includes('multiple angles')
+    ) return 'skin_image';
     return 'text_questions';
   }, [mode, lastAiMessage]);
 
@@ -72,7 +77,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const data = await res.json();
         setHistory(data.history || []);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
   const fetchChatHistory = useCallback(async (threadId?: string) => {
@@ -91,8 +98,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         if (data.mode) setMode(data.mode as ConversationMode);
       }
       if (data.thread_id) setActiveThreadId(data.thread_id);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -117,8 +127,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         fetchChatHistory(data.thread_id);
         toast({ title: 'New Consultation Started', description: 'Your previous chat has been saved to history.' });
       }
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const sanitizeImages = (imgs?: string[]) =>
@@ -142,29 +155,30 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const blob = await dataURLtoBlob(imgs[i]);
         const ext = blob.type.split('/')[1] ?? 'jpg';
         formData.append('image', blob, `image_${i + 1}.${ext}`);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     }
+  };
+
+  const resolveStepForSubmission = (hasImages: boolean): string => {
+    if (!hasImages) return '';
+    if (mode !== 'post_payment_intake') return 'skin_image';
+    if (currentIntakeStep === 'report_image') return 'report_image';
+    if (currentIntakeStep === 'skin_image') return 'skin_image';
+    return 'skin_image';
   };
 
   const handleSendMessage = async (content: string, images?: string[]) => {
     if (isSendingRef.current || isLoading) return;
     isSendingRef.current = true;
 
-    // ─────────────────────────────────────────────────────────
-    // DEFER — patient clicked "Go Back" from the consent screen.
-    // Resets mode to general_education locally without calling
-    // the backend or adding any message to the chat history.
-    // ─────────────────────────────────────────────────────────
     if (content === 'DEFER') {
       setMode('general_education');
       isSendingRef.current = false;
       return;
     }
 
-    // ─────────────────────────────────────────────────────────
-    // PAYNOW — patient clicked "Confirm & Pay" on consent screen.
-    // Show PaymentPage overlay without sending to backend.
-    // ─────────────────────────────────────────────────────────
     if (content === 'PAYNOW') {
       setShowPayment(true);
       isSendingRef.current = false;
@@ -172,10 +186,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
 
     const rawImages = sanitizeImages(images);
+    const trimmedContent = content?.trim?.() || '';
+
+    if (!trimmedContent && rawImages.length === 0) {
+      isSendingRef.current = false;
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content,
+      content: trimmedContent,
       images: rawImages.length ? rawImages : undefined,
     };
 
@@ -185,17 +206,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', content);
+      formData.append('question', trimmedContent);
       formData.append('thread_id', activeThreadId || '');
-      
-      if (rawImages.length && currentIntakeStep) {
-        formData.append('step', currentIntakeStep);
+
+      if (rawImages.length) {
+        const resolvedStep = resolveStepForSubmission(true);
+        formData.append('step', resolvedStep);
         await appendImagesToFormData(formData, rawImages);
       }
 
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
 
@@ -204,13 +226,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       if (data.mode) setMode(data.mode as ConversationMode);
 
-      // Only add AI message if backend returned actual content
       if (data.result && data.result.trim()) {
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result }]);
+        setMessages(prev => [
+          ...prev,
+          { id: `ai-${Date.now()}`, role: data.role || 'ai', content: data.result }
+        ]);
       }
     } catch (e) {
       console.error(e);
-      toast({ title: 'Error', description: 'Failed to send message. Please try again.', variant: 'destructive' });
+      toast({
+        title: 'Error',
+        description: 'Failed to send message. Please try again.',
+        variant: 'destructive'
+      });
     } finally {
       setIsLoading(false);
       isSendingRef.current = false;
@@ -220,11 +248,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handlePaymentSuccess = async () => {
     setShowPayment(false);
 
-    // ─────────────────────────────────────────────────────────
-    // After payment: send CONFIRM to backend to transition the
-    // thread from consent_clarification → post_payment_intake.
-    // Then fetch updated chat history so the UI shows intake mode.
-    // ─────────────────────────────────────────────────────────
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
@@ -281,7 +304,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card">
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="font-bold text-base flex items-center gap-2 text-navy"><Clock className="h-4 w-4" />History</h2>
+        <h2 className="font-bold text-base flex items-center gap-2 text-navy">
+          <Clock className="h-4 w-4" />
+          History
+        </h2>
         <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => setShowHistory(false)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -289,10 +315,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       <ScrollArea className="flex-1 p-2">
         <div className="space-y-2">
           {history.length > 0 ? history.map(item => (
-            <button key={item.id}
-              onClick={() => { fetchChatHistory(item.id); if (isMobile) setShowHistory(false); }}
-              className={cn('w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
-                activeThreadId === item.id ? 'bg-accent border border-navy/10' : 'transparent')}
+            <button
+              key={item.id}
+              onClick={() => {
+                fetchChatHistory(item.id);
+                if (isMobile) setShowHistory(false);
+              }}
+              className={cn(
+                'w-full text-left p-3 rounded-lg text-sm transition-colors flex items-start gap-3 hover:bg-accent group',
+                activeThreadId === item.id ? 'bg-accent border border-navy/10' : 'transparent'
+              )}
             >
               <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-accent-blue transition-colors" />
               <div className="flex-1 overflow-hidden">
@@ -301,14 +333,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
               </div>
             </button>
           )) : (
-            <div className="text-center py-8 text-muted-foreground text-xs italic">No previous consultations found.</div>
+            <div className="text-center py-8 text-muted-foreground text-xs italic">
+              No previous consultations found.
+            </div>
           )}
         </div>
       </ScrollArea>
     </div>
   );
 
-  // Show PaymentPage as a full overlay when patient clicks Go to Dermatologist Review
   if (showPayment) {
     return (
       <section className="bg-gray-50 min-h-[80vh] flex items-center justify-center px-4">
@@ -324,9 +357,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh] flex items-center">
       <div className="container mx-auto max-w-6xl">
         <div className="text-center mb-12 space-y-4">
-          <h1 className="text-4xl md:text-5xl font-bold text-navy tracking-tight">Affordable Expert Skin Insights</h1>
+          <h1 className="text-4xl md:text-5xl font-bold text-navy tracking-tight">
+            Affordable Expert Skin Insights
+          </h1>
           <p className="text-gray-600 text-lg max-w-3xl mx-auto leading-relaxed">
-            Receive educational skin health insights from a UK Consultant Dermatologist — similar to a private consultation, 
+            Receive educational skin health insights from a UK Consultant Dermatologist — similar to a private consultation,
             but at a fraction of the typical cost. Starting from just $49.
           </p>
           <div className="flex items-center justify-center gap-2 text-accent-blue font-bold text-sm">
@@ -335,12 +370,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl shadow-navy/5 border border-gray-100 overflow-hidden flex flex-col md:flex-row h-[700px]">
-          {/* Desktop Sidebar */}
           {!isMobile && showHistory && (
-            <div className="w-72 border-r border-border bg-card flex flex-col"><SidebarContent /></div>
+            <div className="w-72 border-r border-border bg-card flex flex-col">
+              <SidebarContent />
+            </div>
           )}
-          
-          {/* Mobile Sidebar Trigger */}
+
           {isMobile && (
             <div className="absolute top-4 left-4 z-30">
               <Button variant="outline" size="icon" onClick={() => setShowHistory(true)} className="bg-white/80 backdrop-blur-sm">
@@ -349,15 +384,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </div>
           )}
 
-          {/* Mobile Sidebar Sheet */}
           {isMobile && (
             <Sheet open={showHistory} onOpenChange={setShowHistory}>
-              <SheetContent side="left" className="p-0 w-72"><SidebarContent /></SheetContent>
+              <SheetContent side="left" className="p-0 w-72">
+                <SidebarContent />
+              </SheetContent>
             </Sheet>
           )}
 
           <div className="flex-1 flex flex-col min-w-0 relative">
-            {/* Utility Bar */}
             <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between z-20">
               <div className="flex items-center gap-2">
                 {!showHistory && !isMobile && (
@@ -365,11 +400,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                     <Clock className="h-4 w-4" />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-navy" onClick={() => {
-                  fetchChatHistory();
-                  fetchConsultationHistory();
-                  toast({ title: 'Syncing…', description: 'Updating consultation data.' });
-                }}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-navy"
+                  onClick={() => {
+                    fetchChatHistory();
+                    fetchConsultationHistory();
+                    toast({ title: 'Syncing…', description: 'Updating consultation data.' });
+                  }}
+                >
                   <RefreshCw className="h-4 w-4" />
                 </Button>
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold hidden sm:block">
@@ -377,13 +417,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={onLogout} className="h-8 text-navy font-bold text-xs uppercase tracking-wider">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onLogout}
+                  className="h-8 text-navy font-bold text-xs uppercase tracking-wider"
+                >
                   Switch Account
                 </Button>
               </div>
             </div>
 
-            {/* Chat Container */}
             <div className="flex-1 min-h-0 overflow-hidden">
               <ChatContainer
                 messages={transformedMessages}
@@ -400,7 +444,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           </div>
         </div>
 
-        {/* Medical Disclaimer Note */}
         <div className="mt-8 text-center">
           <div className="inline-block bg-[#fdf5e6] px-6 py-3 rounded-lg border border-[#f5deb3]/50 max-w-2xl">
             <p className="text-xs text-gray-700 italic">
