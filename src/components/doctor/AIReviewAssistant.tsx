@@ -7,7 +7,6 @@ import { Bot, Send, X, ImagePlus, AlertTriangle } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
 
-// CHANGED: added prefillMessage and onPrefillConsumed to props interface
 interface AIReviewAssistantProps {
   onClose: () => void;
   contextData: string;
@@ -32,7 +31,9 @@ const FINAL_LINE = "You're welcome to ask follow-up questions.";
 
 const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist.
 
-Every response MUST use this exact section order and section titles exactly as written below:
+Every response MUST be a COMPLETE updated draft.
+
+Use this exact section order and titles:
 
 Most Consistent With
 
@@ -49,16 +50,19 @@ When In-Person Evaluation Is Considered
 Educational References
 
 Rules:
+- ALWAYS rewrite ALL sections completely.
+- NEVER return partial edits.
+- NEVER preserve previous text.
+- ALWAYS reflect the latest instruction from the doctor.
 - Use exactly the section titles above in exactly the same order.
 - Do not use numbered sections.
-- Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, or Plan.
+- Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, Plan, Red Flags, or Suggested Investigations.
 - Do not leave any section empty.
 - Do not output placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
 - If information is limited, write a brief safe clinical statement for that section instead of leaving it empty.
 - Keep the tone textbook-style and concise.
-- No dosing, frequency, or application instructions.
+- No dosing, frequency, duration, or application instructions.
 - References should be educational sources only.
-- When a current draft is provided, make targeted edits only to the sections that need updating rather than rewriting the entire document from scratch.
 - End every response with exactly:
 You're welcome to ask follow-up questions.`;
 
@@ -135,12 +139,13 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const mappings = [
-    { patterns: ['Diagnosis', 'Most Consistent With'], target: 'Most Consistent With' },
-    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials'], target: 'Close Differentials' },
-    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification'], target: 'Morphologic Justification' },
+    { patterns: ['Diagnosis', 'Most Consistent With', 'Primary Likely Diagnosis'], target: 'Most Consistent With' },
+    { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials', 'Differential Diagnoses (Ranked)'], target: 'Close Differentials' },
+    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification', 'Key Morphologic / Clinical Features'], target: 'Morphologic Justification' },
     { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
-    { patterns: ['Investigations', 'Investigations Commonly Considered'], target: 'Investigations Commonly Considered' },
-    { patterns: ['Educational References', 'References'], target: 'References' },
+    { patterns: ['Typical Course and Prognosis', 'Prognosis', 'Course and Prognosis', 'Suggested Investigations', 'Investigations Commonly Considered', 'Investigations'], target: 'Typical Course and Prognosis' },
+    { patterns: ['When In-Person Evaluation Is Considered', 'In-Person Evaluation', 'Red Flags', 'Diagnostic Confidence'], target: 'When In-Person Evaluation Is Considered' },
+    { patterns: ['Educational References', 'References'], target: 'Educational References' },
   ];
 
   const sectionHeaders = mappings.flatMap(m => m.patterns.map(escapeRegex)).join('|');
@@ -184,7 +189,6 @@ function buildStructuredOutput(sections: Record<string, string>): string {
   const content = SECTION_TITLES.map(title => {
     const key = normalizeHeading(title);
     const body = cleanBody(sections[key] || '') || generateFallbackContent(title);
-    // Bold heading so it renders clearly in markdown
     return `**${title}**\n\n${body}`.trim();
   }).join('\n\n');
 
@@ -239,7 +243,6 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-// Uses the Next.js backend route — API key never exposed to client
 async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
   const response = await fetch('/api/openai-vision-check', {
     method: 'POST',
@@ -265,7 +268,6 @@ const AIReviewAssistantLink = (props: any) => (
   />
 );
 
-// CHANGED: destructure new prefillMessage and onPrefillConsumed props
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
@@ -275,13 +277,11 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   prefillMessage,
   onPrefillConsumed,
 }) => {
-  const [messages, setMessages] = useState<
-    { role: 'user' | 'ai'; content: string }[]
-  >([
+  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. How can I help you refine the diagnosis or treatment plan?\n\nEvery response I generate will follow this format exactly:\n\nMost Consistent With\n\nClose Differentials\n\nMorphologic Justification\n\nEducational Treatment Framework\n\nTypical Course and Prognosis\n\nWhen In-Person Evaluation Is Considered\n\nEducational References\n\nEnd line:\nYou're welcome to ask follow-up questions.\n\nUse the Apply to editor button under any response to replace the Assessment editor content.",
+        "I'm ready to assist with this case. I have the patient's intake data. Ask me to revise the assessment, including changing the diagnosis if needed. Every response will be a complete updated draft in the required section format. Use Apply to editor to replace the Assessment editor content.",
     },
   ]);
 
@@ -292,17 +292,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // ADDED: when the doctor clicks "Ask AI" in the editor toolbar,
-  // prefillMessage is set by DoctorChatView and consumed here.
-  // It populates the input box so the doctor can review before sending.
   useEffect(() => {
     if (prefillMessage && prefillMessage.trim()) {
       setInput(prefillMessage.trim());
       onPrefillConsumed?.();
     }
-  }, [prefillMessage]);
+  }, [prefillMessage, onPrefillConsumed]);
 
-  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -351,16 +347,8 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', conversationId);
-
-      // Build full question with context embedded —
-      // backend receives patient intake + current draft + doctor's question
-      // all inside the question field so no backend changes are required
-      formData.append(
-        'question',
-        `${STRUCTURED_FORMAT_PROMPT}\n\nPatient intake context:\n${contextData}\n\nCurrent editor draft:\n${editorContent || 'No draft yet.'}\n\nDoctor's request:\n${userMsg}`
-      );
-
-      // Also send as separate fields for backends that prefer to read them individually
+      formData.append('question', userMsg);
+      formData.append('systemPrompt', STRUCTURED_FORMAT_PROMPT);
       formData.append('currentDraft', editorContent || '');
       formData.append('contextData', contextData);
 
@@ -381,7 +369,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
       const aiContent = normaliseAIResponse(rawAiContent) || buildStructuredOutput({});
-
       setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
     } catch (error) {
       console.error('Error consulting AI:', error);
@@ -389,8 +376,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         ...prev,
         {
           role: 'ai',
-          content:
-            'I encountered an error. Please ensure the backend is running and try again.',
+          content: 'I encountered an error. Please ensure the backend is running and try again.',
         },
       ]);
     } finally {
@@ -417,9 +403,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={`flex flex-col ${
-                  m.role === 'user' ? 'items-end' : 'items-start'
-                }`}
+                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
                   className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
@@ -439,13 +423,14 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                         [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
                         [&_a]:text-blue-600 [&_a]:underline break-words"
                     >
-                      <ReactMarkdown components={{ a: AIReviewAssistantLink }}>{m.content}</ReactMarkdown>
+                      <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
+                        {m.content}
+                      </ReactMarkdown>
                     </div>
                   ) : (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   )}
 
-                  {/* Apply to editor button — only shown under AI messages after the first */}
                   {m.role === 'ai' && i > 0 && onApplyContent && (
                     <div className="mt-2 pt-2 border-t border-border/50">
                       <Button
