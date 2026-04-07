@@ -120,7 +120,12 @@ function escapeRegex(value: string): string {
 }
 
 function cleanBody(text: string): string {
-  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  return (text || '')
+    .replace(/\r/g, '')
+    .replace(/^\s*\((?:if any|if relevant|ranked)\)\s*:?\s*$/gim, '')
+    .replace(/\s*\((?:if any|if relevant|ranked)\)\s*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function isPlaceholder(text: string): boolean {
@@ -209,11 +214,11 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
       target: 'Most Consistent With',
     },
     {
-      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials', 'Differential Diagnoses (Ranked)'],
+      patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials', 'Differential Diagnoses Ranked'],
       target: 'Close Differentials',
     },
     {
-      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification', 'Key Morphologic / Clinical Features'],
+      patterns: ['Technical Justification', 'Morphologic Justification', 'Justification', 'Key Morphologic / Clinical Features', 'Key Morphologic Features'],
       target: 'Morphologic Justification',
     },
     {
@@ -221,11 +226,11 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
       target: 'Educational Treatment Framework',
     },
     {
-      patterns: ['Typical Course and Prognosis', 'Prognosis', 'Course and Prognosis', 'Suggested Investigations', 'Suggested Investigations (if relevant)', 'Investigations Commonly Considered', 'Investigations'],
+      patterns: ['Typical Course and Prognosis', 'Prognosis', 'Course and Prognosis', 'Suggested Investigations', 'Suggested Investigations Relevant', 'Investigations Commonly Considered', 'Investigations'],
       target: 'Typical Course and Prognosis',
     },
     {
-      patterns: ['When In-Person Evaluation Is Considered', 'In-Person Evaluation', 'Red Flags', 'Red Flags (if any)', 'Diagnostic Confidence'],
+      patterns: ['When In-Person Evaluation Is Considered', 'In-Person Evaluation', 'Red Flags', 'Red Flags Any', 'Diagnostic Confidence'],
       target: 'When In-Person Evaluation Is Considered',
     },
     {
