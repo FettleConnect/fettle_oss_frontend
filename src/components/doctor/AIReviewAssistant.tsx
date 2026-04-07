@@ -29,45 +29,13 @@ const SECTION_TITLES = [
 
 const FINAL_LINE = "You're welcome to ask follow-up questions.";
 
-const STRUCTURED_FORMAT_PROMPT = `You are assisting a dermatologist.
-
-Every response MUST be a COMPLETE updated draft.
-
-Use this exact section order and titles:
-
-Most Consistent With
-
-Close Differentials
-
-Morphologic Justification
-
-Educational Treatment Framework
-
-Typical Course and Prognosis
-
-When In-Person Evaluation Is Considered
-
-Educational References
-
-Rules:
-- ALWAYS rewrite ALL sections completely.
-- NEVER return partial edits.
-- NEVER preserve previous text.
-- ALWAYS reflect the latest instruction from the doctor.
-- Use exactly the section titles above in exactly the same order.
-- Do not use numbered sections.
-- Do not use headings such as Diagnosis, Differential Diagnoses, Technical Justification, Prescription Regimen, Plan, Red Flags, or Suggested Investigations.
-- Do not leave any section empty.
-- Do not output placeholders such as "N/A", "pending", "TBD", or blank lines under a heading.
-- If information is limited, write a brief safe clinical statement for that section instead of leaving it empty.
-- Keep the tone textbook-style and concise.
-- No dosing, frequency, duration, or application instructions.
-- References should be educational sources only.
-- End every response with exactly:
-You're welcome to ask follow-up questions.`;
-
 function cleanBody(text: string): string {
-  return (text || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  return (text || '')
+    .replace(/\r/g, '')
+    .replace(/^\s*\((?:if any|if relevant|ranked)\)\s*:?\s*$/gim, '')
+    .replace(/\s*\((?:if any|if relevant|ranked)\)\s*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function escapeRegex(value: string): string {
@@ -141,7 +109,7 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
   const mappings = [
     { patterns: ['Diagnosis', 'Most Consistent With', 'Primary Likely Diagnosis'], target: 'Most Consistent With' },
     { patterns: ['Differential Diagnoses', 'Close Differentials', 'Differentials', 'Differential Diagnoses (Ranked)'], target: 'Close Differentials' },
-    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification', 'Key Morphologic / Clinical Features'], target: 'Morphologic Justification' },
+    { patterns: ['Technical Justification', 'Morphologic Justification', 'Justification', 'Key Morphologic / Clinical Features', 'Key Morphologic Features'], target: 'Morphologic Justification' },
     { patterns: ['Prescription Regimen', 'Educational Treatment Framework', 'Treatment Framework'], target: 'Educational Treatment Framework' },
     { patterns: ['Typical Course and Prognosis', 'Prognosis', 'Course and Prognosis', 'Suggested Investigations', 'Investigations Commonly Considered', 'Investigations'], target: 'Typical Course and Prognosis' },
     { patterns: ['When In-Person Evaluation Is Considered', 'In-Person Evaluation', 'Red Flags', 'Diagnostic Confidence'], target: 'When In-Person Evaluation Is Considered' },
@@ -174,9 +142,11 @@ function extractLegacyNumberedSections(text: string): Record<string, string> {
     const start = current.index + current.fullLength;
     const end = next ? next.index : cleaned.length;
     const body = cleanBody(cleaned.slice(start, end));
+
     const mapping = mappings.find(m =>
       m.patterns.some(p => p.toLowerCase() === current.title.toLowerCase())
     );
+
     if (mapping && body) {
       sections[normalizeHeading(mapping.target)] = body;
     }
@@ -214,7 +184,7 @@ function stripDosingInfo(text: string): string {
     .trim();
 }
 
-function normaliseAIResponse(raw: string): string {
+function normaliseDraftResponse(raw: string): string {
   const text = cleanBody(raw);
   if (!text || text.length < 30) return buildStructuredOutput({});
 
@@ -254,6 +224,8 @@ async function containsFaceOrPII(imageBase64: string): Promise<boolean> {
     }),
   });
 
+  if (!response.ok) return false;
+
   const data = await response.json();
   const answer = data.result?.trim().toUpperCase();
   return answer === 'YES';
@@ -268,6 +240,12 @@ const AIReviewAssistantLink = (props: any) => (
   />
 );
 
+type AssistantMessage = {
+  role: 'user' | 'ai';
+  content: string;
+  draftContent?: string;
+};
+
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
@@ -277,11 +255,11 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   prefillMessage,
   onPrefillConsumed,
 }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([
+  const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       role: 'ai',
       content:
-        "I'm ready to assist with this case. I have the patient's intake data. Ask me to revise the assessment, including changing the diagnosis if needed. Every response will be a complete updated draft in the required section format. Use Apply to editor to replace the Assessment editor content.",
+        "I'm ready to assist with this case. Ask follow-up questions, request changes, or ask me to revise the assessment. I will reply conversationally. Use Apply to editor when you want the full updated draft inserted into the Assessment editor.",
     },
   ]);
 
@@ -309,15 +287,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     if (!file) return;
 
     setImageError(null);
+
     try {
       const base64 = await fileToBase64(file);
       const blocked = await containsFaceOrPII(base64);
+
       if (blocked) {
         setImageError(
           'This image appears to contain a face or personal identifying information and cannot be uploaded. Please remove personal details and try again.'
         );
         return;
       }
+
       const previewUrl = URL.createObjectURL(file);
       setPendingImage({ file, previewUrl });
     } catch {
@@ -348,7 +329,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const formData = new FormData();
       formData.append('id', conversationId);
       formData.append('question', userMsg);
-      formData.append('systemPrompt', STRUCTURED_FORMAT_PROMPT);
       formData.append('currentDraft', editorContent || '');
       formData.append('contextData', contextData);
 
@@ -362,14 +342,28 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Failed to get AI response');
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
 
       const data = await response.json();
-      const rawAiContent: string =
-        data.result?.trim() || data.response?.trim() || data.message?.trim() || '';
 
-      const aiContent = normaliseAIResponse(rawAiContent) || buildStructuredOutput({});
-      setMessages(prev => [...prev, { role: 'ai', content: aiContent }]);
+      const conversationalReply =
+        cleanBody(data.reply || data.result || data.response || data.message || '') ||
+        'I updated my recommendation based on your instruction.';
+
+      const structuredDraft = normaliseDraftResponse(
+        data.draft_result || data.draft || conversationalReply
+      );
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'ai',
+          content: conversationalReply,
+          draftContent: structuredDraft,
+        },
+      ]);
     } catch (error) {
       console.error('Error consulting AI:', error);
       setMessages(prev => [
@@ -415,12 +409,8 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                   {m.role === 'ai' ? (
                     <div
                       className="prose prose-sm dark:prose-invert max-w-none
-                        [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1
-                        [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1
-                        [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1
                         [&_p]:mb-2 [&_p:last-child]:mb-0 [&_p]:leading-relaxed
-                        [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5
-                        [&_ol]:pl-4 [&_ol]:mb-2 [&_strong]:font-semibold
+                        [&_strong]:font-semibold
                         [&_a]:text-blue-600 [&_a]:underline break-words"
                     >
                       <ReactMarkdown components={{ a: AIReviewAssistantLink }}>
@@ -437,7 +427,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                         variant="outline"
                         size="sm"
                         className="h-7 text-[10px] px-2"
-                        onClick={() => onApplyContent(m.content)}
+                        onClick={() => onApplyContent(m.draftContent || normaliseDraftResponse(m.content))}
                       >
                         Apply to editor
                       </Button>
@@ -456,6 +446,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                 </div>
               </div>
             )}
+
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
@@ -484,52 +475,46 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                   <X className="h-2.5 w-2.5" />
                 </button>
               </div>
-              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
-                {pendingImage.file.name}
-              </span>
+              <p className="text-xs text-muted-foreground">Image attached for AI review</p>
             </div>
           )}
 
-          <form
-            onSubmit={e => {
-              e.preventDefault();
-              handleSend();
-            }}
-            className="flex gap-2"
-          >
+          <div className="flex gap-2">
             <input
-              ref={fileInputRef}
               type="file"
               accept="image/*"
+              ref={fileInputRef}
               className="hidden"
               onChange={handleImageSelect}
             />
+
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="h-9 w-9 shrink-0"
-              disabled={isLoading}
               onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
             >
               <ImagePlus className="h-4 w-4" />
             </Button>
+
             <Input
               value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Ask for diagnosis, plan..."
-              className="flex-1 h-9 text-xs"
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask AI to explain, revise, shorten, or change the draft..."
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               disabled={isLoading}
             />
-            <Button
-              type="submit"
-              size="icon"
-              className="h-9 w-9"
-              disabled={isLoading || !input.trim()}
-            >
+
+            <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
               <Send className="h-4 w-4" />
             </Button>
-          </form>
+          </div>
         </div>
       </CardContent>
     </Card>
