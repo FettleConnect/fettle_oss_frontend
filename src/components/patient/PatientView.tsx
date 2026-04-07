@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Clock, MessageSquare, ChevronLeft } from 'lucide-react';
+import { RefreshCw, Clock, MessageSquare, ChevronLeft, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
@@ -37,6 +37,33 @@ interface ConsultationHistoryItem {
   created_at: string;
 }
 
+const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
+  if (remaining <= 0) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 shadow-sm">
+        <CheckCircle2 className="h-4 w-4" />
+        Free AI replies finished
+      </div>
+    );
+  }
+
+  if (remaining === 1) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 shadow-sm">
+        <AlertCircle className="h-4 w-4" />
+        Last AI reply left
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm">
+      <Sparkles className="h-4 w-4" />
+      {remaining} AI replies left
+    </div>
+  );
+};
+
 export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -57,19 +84,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
     return chatMessages.filter((msg) => {
       const isAi = msg.role === 'ai' || msg.role === 'AI';
-      const content = typeof msg.content === 'string' ? msg.content : '';
-      return isAi && !content.includes('Messages left in free educational mode:');
+      return isAi;
     }).length;
   }, []);
 
-  const appendMessagesLeftText = useCallback(
-    (aiText: string, currentMessages: ChatMessage[], responseMode?: string) => {
-      if (responseMode !== 'general_education') return aiText;
-
-      const aiReplyCountSoFar = getEducationAiReplyCount(currentMessages);
-      const remaining = Math.max(0, EDUCATIONAL_MESSAGE_LIMIT - (aiReplyCountSoFar + 1));
-
-      return `${aiText}\n\nMessages left in free educational mode: ${remaining}/${EDUCATIONAL_MESSAGE_LIMIT}`;
+  const getRemainingEducationalMessages = useCallback(
+    (chatMessages: ChatMessage[]) => {
+      const aiReplyCount = getEducationAiReplyCount(chatMessages);
+      return Math.max(0, EDUCATIONAL_MESSAGE_LIMIT - aiReplyCount);
     },
     [getEducationAiReplyCount]
   );
@@ -78,6 +100,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     const aiMsgs = messages.filter((m) => m.role === 'ai' || m.role === 'AI');
     return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1] : null;
   }, [messages]);
+
+  const remainingMessages = useMemo(() => {
+    if (mode !== 'general_education') return null;
+    return getRemainingEducationalMessages(messages);
+  }, [messages, mode, getRemainingEducationalMessages]);
 
   const currentIntakeStep = useMemo(() => {
     if (mode !== 'post_payment_intake') return null;
@@ -295,17 +322,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       }
 
       if (data.result && data.result.trim()) {
-        setMessages((prev) => {
-          const updatedContent = appendMessagesLeftText(data.result, prev, data.mode);
-          return [
-            ...prev,
-            {
-              id: `ai-${Date.now()}`,
-              role: data.role || 'ai',
-              content: updatedContent,
-            },
-          ];
-        });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `ai-${Date.now()}`,
+            role: data.role || 'ai',
+            content: data.result,
+          },
+        ]);
       }
     } catch (e) {
       console.error(e);
@@ -345,17 +369,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         }
 
         if (data.result && data.result.trim()) {
-          setMessages((prev) => {
-            const updatedContent = appendMessagesLeftText(data.result, prev, data.mode);
-            return [
-              ...prev,
-              {
-                id: `ai-${Date.now()}`,
-                role: data.role || 'ai',
-                content: updatedContent,
-              },
-            ];
-          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `ai-${Date.now()}`,
+              role: data.role || 'ai',
+              content: data.result,
+            },
+          ]);
         }
       }
     } catch (e) {
@@ -539,6 +560,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                 </Button>
               </div>
             </div>
+
+            {remainingMessages !== null && (
+              <div className="px-4 pt-3 pb-1 bg-white border-b border-gray-100">
+                <AiMessagesLeftBadge remaining={remainingMessages} />
+              </div>
+            )}
 
             <div className="flex-1 min-h-0 overflow-hidden">
               <ChatContainer
