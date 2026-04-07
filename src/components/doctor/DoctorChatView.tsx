@@ -23,16 +23,11 @@ interface DoctorChatViewProps {
   onRefresh: () => void;
 }
 
-// FIX: stable ID per image — deletion is by ID not array index
 interface SafeImage {
   dataUrl: string;
   id: string;
 }
 
-// ─────────────────────────────────────────────────────────
-// Face + PII detection — runs BEFORE image enters state
-// CHANGED: now uses /api/openai-vision-check instead of Anthropic API directly
-// ─────────────────────────────────────────────────────────
 async function detectFaceOrPII(
   dataUrl: string
 ): Promise<{ blocked: boolean; reason: string }> {
@@ -69,8 +64,6 @@ async function detectFaceOrPII(
     return { blocked: false, reason: '' };
   }
 }
-
-// REMOVED: extractMime — no longer needed after switching to OpenAI route
 
 function extractBase64(dataUrl: string): string {
   return dataUrl.split(',')[1] ?? '';
@@ -178,7 +171,7 @@ function extractStructuredSections(text: string): Record<string, string> {
   if (!cleaned) return {};
 
   const escaped = SECTION_TITLES.map(escapeRegex).join('|');
-  const regex = new RegExp(`(?:^|\\n)\\s*(${escaped})\\s*:?\\s*(?=\\n|$)`, 'gi');
+  const regex = new RegExp(`(?:^|\\n)\\s*(?:\\*\\*)?(${escaped})(?:\\*\\*)?\\s*:?\\s*(?=\\n|$)`, 'gi');
 
   const matches: Array<{ title: string; index: number; fullLength: number }> = [];
   let match: RegExpExecArray | null;
@@ -302,7 +295,6 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
       body = generateFallbackContent(title);
     }
 
-    // Bold heading format: **Title** on its own line, then body
     return `**${title}**\n\n${body}`.trim();
   }).join('\n\n');
 
@@ -313,7 +305,7 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
   }
 
   if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
-    finalText = `${finalText}\\n\\nYou're welcome to ask follow-up questions.`;
+    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
   }
 
   return finalText;
@@ -330,45 +322,9 @@ function extractSections(text: string): Record<string, string> {
 }
 
 function mergeStructuredContent(existingText: string, aiText: string): string {
-  const normalizedExisting = normalizeAIContentToStructuredFormat(existingText);
-  const normalizedAI = normalizeAIContentToStructuredFormat(aiText);
-
-  const existingSections = extractSections(normalizedExisting);
-  const aiSections = extractSections(normalizedAI);
-
-  const mergedBlocks = SECTION_TITLES.map((title) => {
-    const key = normalizeHeading(title);
-    const existing = cleanBody(existingSections[key] ?? '');
-    const ai = cleanBody(aiSections[key] ?? '');
-
-    let finalBody: string;
-
-    if (ai && !isPlaceholder(ai)) {
-      // AI has meaningful content for this section — use it
-      finalBody = ai;
-    } else if (existing && !isPlaceholder(existing)) {
-      // AI did not address this section — keep existing
-      finalBody = existing;
-    } else {
-      // Neither has meaningful content — use fallback
-      finalBody = generateFallbackContent(title);
-    }
-
-    return `${title}\n\n${cleanBody(finalBody)}`.trim();
-  });
-
-  let finalText = mergedBlocks.join('\n\n').trim();
-
-  if (!finalText.toLowerCase().includes(`you're welcome to ask follow-up questions.`.toLowerCase())) {
-    finalText = `${finalText}\n\nYou're welcome to ask follow-up questions.`;
-  }
-
-  return cleanBody(finalText);
+  return normalizeAIContentToStructuredFormat(aiText);
 }
 
-// ─────────────────────────────────────────────────────────
-// Intake parser
-// ─────────────────────────────────────────────────────────
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
     m =>
@@ -397,9 +353,6 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   };
 }
 
-// ─────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
@@ -414,15 +367,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   );
   const [isSending, setIsSending] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
-
-  // SafeImage[] with stable IDs
   const [images, setImages] = useState<SafeImage[]>([]);
   const [checkingImages, setCheckingImages] = useState(false);
-
   const [showAI, setShowAI] = useState(false);
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
-
-  // ADDED: state to prefill AI chat input from the assessment editor
   const [aiPrefillMessage, setAiPrefillMessage] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -435,41 +383,29 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     if (conversation.draftResponse && !patientMessage) {
       setPatientMessage(conversation.draftResponse);
     }
-  }, [conversation.draftResponse, conversation.id]);
+  }, [conversation.draftResponse, conversation.id, patientMessage]);
 
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
   }, [conversation.id, conversation.mode]);
 
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
-    // Try legacy INTAKE COMPLETE message format
     const parsed = parseIntakeFromMessages(messages);
-
-    // New format — intake_data stored as structured JSON from backend
     const raw = conversation.intakeData as any;
 
     const merged: IntakeData = {
-      duration:
-        raw?.duration || parsed?.duration || '',
-      symptoms:
-        raw?.symptoms || parsed?.symptoms || '',
-      location:
-        raw?.location || parsed?.location || '',
+      duration: raw?.duration || parsed?.duration || '',
+      symptoms: raw?.symptoms || parsed?.symptoms || '',
+      location: raw?.location || parsed?.location || '',
       medicationsTried:
         raw?.medications_tried || raw?.medicationsTried || parsed?.medicationsTried || '',
       priorDiagnoses:
         raw?.prior_diagnoses || raw?.priorDiagnoses || parsed?.priorDiagnoses || '',
       relevantHealthHistory:
         raw?.relevant_health_history || raw?.relevantHealthHistory || parsed?.relevantHealthHistory || '',
-      images:
-        raw?.images?.length
-          ? raw.images
-          : parsed?.images?.length
-          ? parsed.images
-          : conversation.intakeData?.images ?? [],
+      images: Array.isArray(raw?.images) ? raw.images : [],
     };
 
-    // Only show card if at least one field has real data
     const hasData = Object.values(merged).some(v =>
       typeof v === 'string' ? v.trim() !== '' : Array.isArray(v) ? v.length > 0 : false
     );
@@ -498,16 +434,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // ─────────────────────────────────────────────────────────
-  // Image select → read → detect → accept or reject
-  // Input value reset FIRST before any await
-  // ─────────────────────────────────────────────────────────
   const handleImageSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (!files || files.length === 0) return;
 
-      // Reset immediately so re-selecting same file triggers onChange
       if (fileInputRef.current) fileInputRef.current.value = '';
 
       setCheckingImages(true);
@@ -578,7 +509,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     [toast]
   );
 
-  // Remove by stable ID — no index-shifting bugs
   const removeImage = useCallback((id: string) => {
     setImages(prev => prev.filter(img => img.id !== id));
   }, []);
@@ -612,7 +542,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       formData.append('id', String(conversation.id));
       formData.append('question', patientMessage);
 
-      // Only images currently in safe state are sent
       for (let i = 0; i < images.length; i++) {
         const blob = await dataURLtoBlob(images[i].dataUrl);
         const ext = blob.type.split('/')[1] ?? 'jpg';
@@ -627,7 +556,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       if (!response.ok) throw new Error('Failed to send message');
 
       setPatientMessage('');
-      setImages([]); // Full clear after send
+      setImages([]);
       setAssessmentExpanded(false);
       onUpdate();
       toast({
@@ -671,14 +600,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     }
   };
 
-  // ─────────────────────────────────────────────────────────
-  // AI content goes DIRECTLY into the Assessment editor.
-  // Called automatically after every generate in AIReviewAssistant.
-  // No Regenerate / Sync / Apply button needed.
-  // ─────────────────────────────────────────────────────────
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      // Fully replace the editor content with the AI response
       const normalized = normalizeAIContentToStructuredFormat(content);
       setPatientMessage(normalized);
 
@@ -698,12 +621,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isCaseDone =
     caseCompleted || conversation.mode === 'general_education';
 
-
-
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
-
-      {/* Header */}
       <div className="border-b border-border bg-card px-4 md:px-6 py-3 md:py-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 md:gap-4">
@@ -763,10 +682,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 flex flex-col min-w-0 w-full relative">
-
           <ScrollArea className="flex-1 px-4 md:px-6 py-4 md:py-6">
             <div className="space-y-6 md:space-y-8 max-w-4xl mx-auto">
               {resolvedIntakeData && (
@@ -797,7 +714,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
             </div>
           </ScrollArea>
 
-          {/* Assessment & Response */}
           {canRespond && !isCompleted && (
             <div
               className={
@@ -807,8 +723,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
               }
             >
               <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col space-y-3 md:space-y-4">
-
-                {/* Toolbar */}
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs md:text-sm font-semibold flex items-center gap-2">
                     <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4 text-primary" />
@@ -846,7 +760,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                       )}
                     </Button>
 
-                    {/* ADDED: Ask AI button — prefills AI chat with current editor content */}
                     <Button
                       variant="outline"
                       size="sm"
@@ -874,7 +787,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                   </div>
                 </div>
 
-                {/* Image previews — stable id keys, remove by id */}
                 {images.length > 0 && (
                   <div className="flex gap-2 mb-2 flex-wrap bg-muted/30 p-2 rounded-lg border border-dashed">
                     {images.map(img => (
@@ -945,13 +857,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     Send Response
                   </Button>
                 </div>
-
               </div>
             </div>
           )}
         </div>
 
-        {/* Desktop AI sidebar — rendered directly to prevent remount on parent re-render */}
         {!isMobile && showAI && (
           <div className="w-96 border-l border-border bg-card flex flex-col">
             <AIReviewAssistant
@@ -966,7 +876,6 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           </div>
         )}
 
-        {/* Mobile AI sheet — rendered directly to prevent remount on parent re-render */}
         {isMobile && (
           <Sheet open={showAI} onOpenChange={setShowAI}>
             <SheetContent side="right" className="p-0 w-[90%] sm:w-96">
