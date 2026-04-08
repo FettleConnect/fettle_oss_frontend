@@ -1,7 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Clock, MessageSquare, ChevronLeft, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  RefreshCw,
+  Clock,
+  MessageSquare,
+  ChevronLeft,
+  Sparkles,
+  AlertCircle,
+  CheckCircle2,
+} from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
 import { BASE_URL } from '@/base_url';
@@ -64,11 +72,15 @@ const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
   );
 };
 
+const getPatientChatCacheKey = (threadId: string | null) =>
+  `patient-chat-${threadId || 'default'}`;
+
 export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [cachedMessages, setCachedMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -78,6 +90,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
@@ -96,22 +109,28 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     [getEducationAiReplyCount]
   );
 
+  const resolvedMessages = useMemo(() => {
+    return messages.length > 0 ? messages : cachedMessages;
+  }, [messages, cachedMessages]);
+
   const lastAiMessage = useMemo(() => {
-    const aiMsgs = messages.filter((m) => m.role === 'ai' || m.role === 'AI');
+    const aiMsgs = resolvedMessages.filter((m) => m.role === 'ai' || m.role === 'AI');
     return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1] : null;
-  }, [messages]);
+  }, [resolvedMessages]);
 
   const remainingMessages = useMemo(() => {
     if (mode !== 'general_education') return null;
-    return getRemainingEducationalMessages(messages);
-  }, [messages, mode, getRemainingEducationalMessages]);
+    return getRemainingEducationalMessages(resolvedMessages);
+  }, [resolvedMessages, mode, getRemainingEducationalMessages]);
 
   const currentIntakeStep = useMemo(() => {
     if (mode !== 'post_payment_intake') return null;
     const content = lastAiMessage?.content.toLowerCase() || '';
+
     if (content.includes('relevant medical reports') || content.includes('medical reports')) {
       return 'report_image';
     }
+
     if (
       content.includes('upload clear images') ||
       content.includes('image of the skin condition') ||
@@ -120,6 +139,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     ) {
       return 'skin_image';
     }
+
     return 'text_questions';
   }, [mode, lastAiMessage]);
 
@@ -132,6 +152,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           Authorization: `Bearer ${authToken}`,
         },
       });
+
       if (res.ok) {
         const data = await res.json();
         setHistory(data.history || []);
@@ -146,6 +167,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
       const url = new URL(`${BASE_URL}/api/chat_history/`);
+
       if (threadId) {
         url.searchParams.append('thread_id', threadId);
       }
@@ -165,13 +187,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       if (!data.error && data.conv && Array.isArray(data.conv)) {
         setMessages(data.conv);
-        if (data.mode) {
-          setMode(data.mode as ConversationMode);
-        }
+      } else {
+        setMessages([]);
+      }
+
+      if (data.mode) {
+        setMode(data.mode as ConversationMode);
       }
 
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
+      } else if (threadId) {
+        setActiveThreadId(threadId);
       }
     } catch (e) {
       console.error(e);
@@ -184,6 +211,50 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchChatHistory();
     fetchConsultationHistory();
   }, [fetchChatHistory, fetchConsultationHistory]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(getPatientChatCacheKey(activeThreadId));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setCachedMessages(parsed);
+        } else {
+          setCachedMessages([]);
+        }
+      } else {
+        setCachedMessages([]);
+      }
+    } catch (e) {
+      console.warn('Failed loading cached patient chat', e);
+      setCachedMessages([]);
+    }
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!messages.length) return;
+
+    try {
+      localStorage.setItem(
+        getPatientChatCacheKey(activeThreadId),
+        JSON.stringify(messages)
+      );
+      setCachedMessages(messages);
+    } catch (e) {
+      console.warn('Failed saving patient chat', e);
+    }
+  }, [messages, activeThreadId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [resolvedMessages.length, isLoading, activeThreadId]);
 
   const handleNewConsultation = async () => {
     try {
@@ -201,6 +272,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (res.ok) {
         const data = await res.json();
         setMessages([]);
+        setCachedMessages([]);
         setMode('general_education');
         setActiveThreadId(data.thread_id);
         fetchConsultationHistory();
@@ -317,6 +389,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       const data = await res.json();
 
+      if (data.thread_id) {
+        setActiveThreadId(data.thread_id);
+      }
+
       if (data.mode) {
         setMode(data.mode as ConversationMode);
       }
@@ -331,6 +407,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           },
         ]);
       }
+
+      fetchConsultationHistory();
     } catch (e) {
       console.error(e);
       toast({
@@ -364,6 +442,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (res.ok) {
         const data = await res.json();
 
+        if (data.thread_id) {
+          setActiveThreadId(data.thread_id);
+        }
+
         if (data.mode) {
           setMode(data.mode as ConversationMode);
         }
@@ -394,7 +476,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     setShowPayment(false);
   };
 
-  const transformedMessages = messages.map((msg) => {
+  const transformedMessages = resolvedMessages.map((msg) => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
 
     if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
@@ -536,7 +618,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   size="icon"
                   className="h-8 w-8 text-navy"
                   onClick={() => {
-                    fetchChatHistory();
+                    fetchChatHistory(activeThreadId || undefined);
                     fetchConsultationHistory();
                     toast({ title: 'Syncing…', description: 'Updating consultation data.' });
                   }}
@@ -574,11 +656,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                 onSendMessage={handleSendMessage}
                 isLoading={isLoading}
                 mode={mode}
-                showDisclaimer={messages.length === 0}
+                showDisclaimer={resolvedMessages.length === 0}
                 onQuickReply={handleSendMessage}
                 intakeComplete={intakeComplete}
                 onNewConsultation={handleNewConsultation}
               />
+              <div ref={messagesEndRef} />
             </div>
           </div>
         </div>
