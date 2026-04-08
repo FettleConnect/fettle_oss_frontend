@@ -403,6 +403,9 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   };
 }
 
+const getDoctorChatCacheKey = (conversationId: string | number) =>
+  `doctor-chat-history-${conversationId}`;
+
 export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   conversation,
   messages,
@@ -422,25 +425,68 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const [showAI, setShowAI] = useState(false);
   const [assessmentExpanded, setAssessmentExpanded] = useState(false);
   const [aiPrefillMessage, setAiPrefillMessage] = useState<string>('');
+  const [cachedMessages, setCachedMessages] = useState<Message[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setShowAI(!isMobile);
   }, [isMobile]);
 
   useEffect(() => {
-    if (conversation.draftResponse && !patientMessage) {
-      setPatientMessage(normalizeAIContentToStructuredFormat(conversation.draftResponse));
-    }
-  }, [conversation.draftResponse, conversation.id, patientMessage]);
+    setPatientMessage(conversation.draftResponse || '');
+  }, [conversation.draftResponse, conversation.id]);
 
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
   }, [conversation.id, conversation.mode]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(getDoctorChatCacheKey(conversation.id));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setCachedMessages(parsed);
+        } else {
+          setCachedMessages([]);
+        }
+      } else {
+        setCachedMessages([]);
+      }
+    } catch (error) {
+      console.warn('Failed to load cached doctor chat history:', error);
+      setCachedMessages([]);
+    }
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+
+    try {
+      localStorage.setItem(
+        getDoctorChatCacheKey(conversation.id),
+        JSON.stringify(messages)
+      );
+      setCachedMessages(messages);
+    } catch (error) {
+      console.warn('Failed to cache doctor chat history:', error);
+    }
+  }, [messages, conversation.id]);
+
+  const resolvedMessages = useMemo<Message[]>(() => {
+    if (Array.isArray(messages) && messages.length > 0) {
+      return messages;
+    }
+    if (Array.isArray(cachedMessages) && cachedMessages.length > 0) {
+      return cachedMessages;
+    }
+    return [];
+  }, [messages, cachedMessages]);
+
   const resolvedIntakeData: IntakeData | undefined = useMemo(() => {
-    const parsed = parseIntakeFromMessages(messages);
+    const parsed = parseIntakeFromMessages(resolvedMessages);
     const raw = conversation.intakeData as any;
 
     const merged: IntakeData = {
@@ -467,10 +513,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     );
 
     return hasData ? merged : undefined;
-  }, [conversation.intakeData, messages]);
+  }, [conversation.intakeData, resolvedMessages]);
 
   const visibleMessages = useMemo(() => {
-    return messages.filter(
+    return resolvedMessages.filter(
       (m) =>
         !(
           m.content &&
@@ -478,14 +524,25 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           m.content.includes('Summary:')
         )
     );
-  }, [messages]);
+  }, [resolvedMessages]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [visibleMessages.length, showAI, assessmentExpanded]);
 
   const handleApplyDraft = () => {
     if (conversation.draftResponse) {
-      setPatientMessage(normalizeAIContentToStructuredFormat(conversation.draftResponse));
+      setPatientMessage(conversation.draftResponse);
       toast({
         title: 'Draft Applied',
-        description: 'AI-generated draft has been loaded into the editor.',
+        description: 'AI draft has been copied into the editor.',
       });
     }
   };
@@ -686,12 +743,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const normalized = normalizeAIContentToStructuredFormat(content);
-      setPatientMessage(normalized);
+      const appliedContent = cleanBody(content) || content || DEFAULT_ASSESSMENT_TEMPLATE;
+      setPatientMessage(appliedContent);
 
       toast({
         title: 'Assessment Updated',
-        description: 'AI response applied to the Assessment editor.',
+        description: 'AI response has been copied into the editor.',
       });
 
       if (isMobile) {
@@ -792,10 +849,12 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                     {visibleMessages.map((message) => (
                       <ChatMessage key={message.id} message={message} />
                     ))}
+                    <div ref={messagesEndRef} />
                   </div>
                 ) : (
                   <div className="text-center text-muted-foreground py-8 italic text-sm">
                     No conversation history available.
+                    <div ref={messagesEndRef} />
                   </div>
                 )}
               </section>
@@ -819,8 +878,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
                   <div className="flex gap-1.5 md:gap-2">
                     {conversation.draftResponse &&
-                      patientMessage !==
-                        normalizeAIContentToStructuredFormat(conversation.draftResponse) && (
+                      patientMessage !== conversation.draftResponse && (
                         <Button
                           variant="outline"
                           size="sm"
