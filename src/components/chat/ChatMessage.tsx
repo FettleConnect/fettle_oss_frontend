@@ -5,7 +5,10 @@ import { Bot, User, Stethoscope, X, Download, ChevronLeft, ChevronRight } from '
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-interface ChatMessageProps { message: Message; isStreaming?: boolean; }
+interface ChatMessageProps {
+  message: Message;
+  isStreaming?: boolean;
+}
 
 const SECTION_TITLES = [
   'Most Consistent With',
@@ -22,31 +25,44 @@ interface MarkdownProps {
   href?: string;
 }
 
-const MarkdownP = ({ children }: MarkdownProps) => <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>;
+const MarkdownP = ({ children }: MarkdownProps) => (
+  <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>
+);
 
-// FIXED: removed hardcoded text-navy — now inherits parent bubble text color
-// so headings are visible on both dark (navy) and light (white/blue) backgrounds
 const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong className="font-bold">{children}</strong>
 );
 
-const MarkdownUl = ({ children }: MarkdownProps) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
-const MarkdownOl = ({ children }: MarkdownProps) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
-const MarkdownLi = ({ children }: MarkdownProps) => <li className="text-sm leading-relaxed">{children}</li>;
+const MarkdownUl = ({ children }: MarkdownProps) => (
+  <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>
+);
+
+const MarkdownOl = ({ children }: MarkdownProps) => (
+  <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>
+);
+
+const MarkdownLi = ({ children }: MarkdownProps) => (
+  <li className="text-sm leading-relaxed">{children}</li>
+);
+
 const MarkdownA = ({ href, children }: MarkdownProps) => (
   <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
-    className="underline underline-offset-2 font-bold cursor-pointer transition-colors opacity-80 hover:opacity-100"
-  >{children}</a>
+    className="text-blue-600 underline underline-offset-2 font-semibold hover:text-blue-800 transition-colors cursor-pointer"
+  >
+    {children}
+  </a>
 );
 
-
-// Doctor avatar — shows photo with graceful fallback to stethoscope icon
 const DoctorAvatar: React.FC = () => {
   const [imgFailed, setImgFailed] = React.useState(false);
-  if (imgFailed) return <Stethoscope className="h-3.5 w-3.5 text-white" />;
+
+  if (imgFailed) {
+    return <Stethoscope className="h-3.5 w-3.5 text-white" />;
+  }
+
   return (
     <img
       src="/doctor-photo.jpg"
@@ -65,38 +81,55 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+
   const images = [...new Set(message.images ?? [])];
 
-  const openLightbox = (idx: number) => { setLightboxIndex(idx); setLightboxOpen(true); };
+  const openLightbox = (idx: number) => {
+    setLightboxIndex(idx);
+    setLightboxOpen(true);
+  };
+
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
+
   const prevImage = useCallback(() => {
     if (images.length === 0) return;
-    setLightboxIndex(i => (i - 1 + images.length) % images.length);
+    setLightboxIndex((i) => (i - 1 + images.length) % images.length);
   }, [images.length]);
+
   const nextImage = useCallback(() => {
     if (images.length === 0) return;
-    setLightboxIndex(i => (i + 1) % images.length);
+    setLightboxIndex((i) => (i + 1) % images.length);
   }, [images.length]);
 
   const handleDownload = async (url: string, idx: number) => {
     try {
-      const res = await fetch(url); const blob = await res.blob();
+      const res = await fetch(url);
+      const blob = await res.blob();
       const ext = blob.type.split('/')[1] ?? 'jpg';
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `clinical-image-${idx + 1}.${ext}`; a.click(); URL.revokeObjectURL(a.href);
+
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `clinical-image-${idx + 1}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
     } catch {
       const a = document.createElement('a');
-      a.href = url; a.download = `clinical-image-${idx + 1}.jpg`; a.target = '_blank'; a.click();
+      a.href = url;
+      a.download = `clinical-image-${idx + 1}.jpg`;
+      a.target = '_blank';
+      a.click();
     }
   };
 
   useEffect(() => {
     if (!lightboxOpen) return;
+
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowLeft') prevImage();
       if (e.key === 'ArrowRight') nextImage();
     };
+
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
@@ -107,32 +140,39 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-    // Fix literal \n\n that may come from backend escaped strings
+
     const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
     const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const withLinks = (isDoctor || isAI) ? linkifyUrls(normalized) : normalized;
+    const withLinks = isDoctor || isAI ? linkifyUrls(normalized) : normalized;
 
-    return withLinks.split('\n').map(line => {
-      const trimmed = line.trim();
-      if (trimmed.length < 2) return line;
-      if (trimmed.startsWith('**')) return line;
+    return withLinks
+      .split('\n')
+      .map((line) => {
+        const trimmed = line.trim();
 
-      const isHeader = SECTION_TITLES.some(title =>
-        trimmed.toLowerCase() === title.toLowerCase() ||
-        trimmed.toLowerCase().startsWith(title.toLowerCase() + ':')
-      );
+        if (trimmed.length < 2) return line;
+        if (trimmed.startsWith('**')) return line;
 
-      if (isHeader) {
-        if (trimmed.includes(':')) {
-          return trimmed.replace(/^([^:]+:)/, '**$1**');
+        const isHeader = SECTION_TITLES.some(
+          (title) =>
+            trimmed.toLowerCase() === title.toLowerCase() ||
+            trimmed.toLowerCase().startsWith(title.toLowerCase() + ':')
+        );
+
+        if (isHeader) {
+          if (trimmed.includes(':')) {
+            return trimmed.replace(/^([^:]+:)/, '**$1**');
+          }
+          return `**${trimmed}**`;
         }
-        return `**${trimmed}**`;
-      }
 
-      if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) return `**${trimmed}**`;
+        if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
+          return `**${trimmed}**`;
+        }
 
-      return line;
-    }).join('\n');
+        return line;
+      })
+      .join('\n');
   };
 
   const getRoleLabel = () => {
@@ -166,20 +206,24 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   if (isSystem) {
     return (
       <div className="flex flex-col items-center gap-2 w-full my-6">
-        <div className={cn('rounded-full px-6 py-2 text-[10px] text-center font-bold uppercase tracking-widest max-w-[90%]', getBubbleColors())}>
+        <div
+          className={cn(
+            'rounded-full px-6 py-2 text-[10px] text-center font-bold uppercase tracking-widest max-w-[90%]',
+            getBubbleColors()
+          )}
+        >
           {message.content}
         </div>
       </div>
     );
   }
 
-  // Never show INTAKE_COMPLETE raw text to patient
   const cleanContent = (message.content || '')
     .replace(/^INTAKE_COMPLETE\s*/gm, '')
     .replace(/Thank you for the information\.\s*\nINTAKE_COMPLETE/g, 'Thank you for the information.')
     .trim();
 
-  const renderedContent = (isDoctor || isAI) ? formatContent(cleanContent) : cleanContent;
+  const renderedContent = isDoctor || isAI ? formatContent(cleanContent) : cleanContent;
 
   const mdComponents = {
     p: MarkdownP,
@@ -192,13 +236,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   return (
     <>
-      <div className={cn('flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500', isPatient ? 'ml-auto items-end' : 'mr-auto items-start')}>
+      <div
+        className={cn(
+          'flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500',
+          isPatient ? 'ml-auto items-end' : 'mr-auto items-start'
+        )}
+      >
         {isDoctor ? (
           <a
             href="https://www.onlineskinspecialist.com/consultant-dermatologist/"
             target="_blank"
             rel="noopener noreferrer"
-            className={cn('flex items-center gap-2 text-[10px] hover:opacity-75 transition-opacity cursor-pointer', getLabelColors())}
+            className={cn(
+              'flex items-center gap-2 text-[10px] hover:opacity-75 transition-opacity cursor-pointer',
+              getLabelColors()
+            )}
           >
             <div className="overflow-hidden flex items-center justify-center rounded-full w-6 h-6 border border-navy/20">
               {getRoleIcon()}
@@ -207,24 +259,48 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           </a>
         ) : (
           <div className={cn('flex items-center gap-2 text-[10px]', getLabelColors())}>
-            <div className={cn(
-              "overflow-hidden flex items-center justify-center",
-              "p-1 rounded-md",
-              isAI ? "bg-accent-blue text-white" : "bg-gray-100 text-gray-500"
-            )}>
+            <div
+              className={cn(
+                'overflow-hidden flex items-center justify-center',
+                'p-1 rounded-md',
+                isAI ? 'bg-accent-blue text-white' : 'bg-gray-100 text-gray-500'
+              )}
+            >
               {getRoleIcon()}
             </div>
             <span>{getRoleLabel()}</span>
           </div>
         )}
-        <div className={cn('rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm', getBubbleColors(), isPatient ? 'rounded-tr-none' : 'rounded-tl-none')}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{renderedContent}</ReactMarkdown>
+
+        <div
+          className={cn(
+            'rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm',
+            getBubbleColors(),
+            isPatient ? 'rounded-tr-none' : 'rounded-tl-none'
+          )}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+            {renderedContent}
+          </ReactMarkdown>
+
           {images.length > 0 && (
-            <div className={cn('grid gap-3 mt-4', images.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
+            <div
+              className={cn(
+                'grid gap-3 mt-4',
+                images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+              )}
+            >
               {images.map((url, idx) => (
-                <div key={idx} className="group relative overflow-hidden rounded-xl border border-black/5 aspect-square">
-                  <img src={url} alt={`Clinical image ${idx + 1}`} onClick={() => openLightbox(idx)}
-                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-500" />
+                <div
+                  key={idx}
+                  className="group relative overflow-hidden rounded-xl border border-black/5 aspect-square"
+                >
+                  <img
+                    src={url}
+                    alt={`Clinical image ${idx + 1}`}
+                    onClick={() => openLightbox(idx)}
+                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-500"
+                  />
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex items-center justify-center">
                     <div className="bg-white/90 p-2 rounded-full text-navy shadow-lg">
                       <ChevronRight className="h-4 w-4" />
@@ -234,25 +310,67 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               ))}
             </div>
           )}
-          {isStreaming && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />}
+
+          {isStreaming && (
+            <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />
+          )}
         </div>
+
         <span className="text-[10px] text-gray-400 font-medium px-1 uppercase tracking-tighter">
           {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
+
       {lightboxOpen && images.length > 0 && (
-        <div className="fixed inset-0 z-[100] bg-navy/95 backdrop-blur-md flex items-center justify-center p-4" onClick={closeLightbox}>
-          <div className="absolute top-6 right-6 flex gap-3" onClick={e => e.stopPropagation()}>
-            <button onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)} className="text-white hover:bg-white/10 rounded-full h-12 w-12 flex items-center justify-center"><Download className="h-6 w-6" /></button>
-            <button onClick={closeLightbox} className="text-white hover:bg-red-500/20 rounded-full h-12 w-12 flex items-center justify-center"><X className="h-6 w-6" /></button>
+        <div
+          className="fixed inset-0 z-[100] bg-navy/95 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={closeLightbox}
+        >
+          <div className="absolute top-6 right-6 flex gap-3" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)}
+              className="text-white hover:bg-white/10 rounded-full h-12 w-12 flex items-center justify-center"
+            >
+              <Download className="h-6 w-6" />
+            </button>
+            <button
+              onClick={closeLightbox}
+              className="text-white hover:bg-red-500/20 rounded-full h-12 w-12 flex items-center justify-center"
+            >
+              <X className="h-6 w-6" />
+            </button>
           </div>
-          <img src={images[lightboxIndex]} alt={`Clinical image ${lightboxIndex + 1}`} onClick={e => e.stopPropagation()} className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl border border-white/10" />
+
+          <img
+            src={images[lightboxIndex]}
+            alt={`Clinical image ${lightboxIndex + 1}`}
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl border border-white/10"
+          />
+
           {images.length > 1 && (
             <>
-              <button onClick={e => { e.stopPropagation(); prevImage(); }} className="absolute left-6 top-1/2 -translate-y-1/2 text-white bg-white/5 hover:bg-white/15 backdrop-blur-sm rounded-full p-4 transition-all"><ChevronLeft className="h-8 w-8" /></button>
-              <button onClick={e => { e.stopPropagation(); nextImage(); }} className="absolute right-6 top-1/2 -translate-y-1/2 text-white bg-white/5 hover:bg-white/15 backdrop-blur-sm rounded-full p-4 transition-all"><ChevronRight className="h-8 w-8" /></button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prevImage();
+                }}
+                className="absolute left-6 top-1/2 -translate-y-1/2 text-white bg-white/5 hover:bg-white/15 backdrop-blur-sm rounded-full p-4 transition-all"
+              >
+                <ChevronLeft className="h-8 w-8" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextImage();
+                }}
+                className="absolute right-6 top-1/2 -translate-y-1/2 text-white bg-white/5 hover:bg-white/15 backdrop-blur-sm rounded-full p-4 transition-all"
+              >
+                <ChevronRight className="h-8 w-8" />
+              </button>
             </>
           )}
+
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full text-white text-xs font-bold uppercase tracking-widest">
             Image {lightboxIndex + 1} of {images.length}
           </div>
