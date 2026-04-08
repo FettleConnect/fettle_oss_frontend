@@ -1,6 +1,4 @@
-// 🔥 FULL FIXED FILE
-
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +12,13 @@ interface AIReviewAssistantProps {
   conversationId: string;
   onApplyContent?: (content: string) => void;
   editorContent?: string;
+  prefillMessage?: string;
+  onPrefillConsumed?: () => void;
+}
+
+interface AssistantMessage {
+  role: 'ai' | 'user';
+  content: string;
 }
 
 const CHAT_MODE_PROMPT = `
@@ -26,61 +31,54 @@ RULES:
 - Be concise and clinical.
 `;
 
-const STRUCTURED_PROMPT = `
-You are assisting a dermatologist.
-
-Generate a COMPLETE structured dermatology draft.
-
-Use EXACT sections:
-
-Most Consistent With
-
-Close Differentials
-
-Morphologic Justification
-
-Educational Treatment Framework
-
-Typical Course and Prognosis
-
-When In-Person Evaluation Is Considered
-
-Educational References
-
-Rules:
-- No placeholders
-- No brackets (if any, if relevant)
-- Paragraph format
-- Clean professional output
-`;
-
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
   contextData,
   conversationId,
   onApplyContent,
   editorContent,
+  prefillMessage,
+  onPrefillConsumed,
 }) => {
-  const [messages, setMessages] = useState<any[]>([
+  const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       role: 'ai',
-      content: "Ask me anything about this case. I can modify the diagnosis, refine the draft, or answer clinical reasoning questions.",
+      content:
+        'Ask me anything about this case. I can modify the diagnosis, refine the draft, or answer clinical reasoning questions.',
     },
   ]);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasConsumedPrefill = useRef(false);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const timer = window.setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (
+      prefillMessage &&
+      prefillMessage.trim() &&
+      !hasConsumedPrefill.current
+    ) {
+      hasConsumedPrefill.current = true;
+      setInput(prefillMessage);
+      onPrefillConsumed?.();
+    }
+  }, [prefillMessage, onPrefillConsumed]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
-    const userMsg = input;
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    const userMsg = input.trim();
+
+    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
 
@@ -90,10 +88,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const formData = new FormData();
       formData.append('id', conversationId);
       formData.append('question', userMsg);
-
-      // ✅ IMPORTANT: CHAT MODE PROMPT (NOT STRUCTURED)
       formData.append('systemPrompt', CHAT_MODE_PROMPT);
-
       formData.append('contextData', contextData);
       formData.append('currentDraft', editorContent || '');
 
@@ -106,11 +101,15 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
       const data = await res.json();
 
       const aiText =
-        data.result || data.response || data.message || 'No response';
+        data?.result?.trim() ||
+        data?.response?.trim() ||
+        data?.message?.trim() ||
+        'No response';
 
-      setMessages(prev => [...prev, { role: 'ai', content: aiText }]);
-    } catch (e) {
-      setMessages(prev => [
+      setMessages((prev) => [...prev, { role: 'ai', content: aiText }]);
+    } catch (error) {
+      console.error('Error getting AI response:', error);
+      setMessages((prev) => [
         ...prev,
         { role: 'ai', content: 'Error getting AI response' },
       ]);
@@ -119,82 +118,96 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     }
   };
 
-  // 🔥 APPLY BUTTON → STRUCTURED MODE
-  const handleApply = async (content: string) => {
-    try {
-      const authToken = localStorage.getItem('DoctorToken');
+  const handleApply = (content: string) => {
+    onApplyContent?.(content);
+  };
 
-      const formData = new FormData();
-      formData.append('id', conversationId);
-      formData.append('question', content);
-
-      // ✅ STRUCTURED MODE ONLY HERE
-      formData.append('systemPrompt', STRUCTURED_PROMPT);
-
-      formData.append('contextData', contextData);
-      formData.append('currentDraft', editorContent || '');
-
-      const res = await fetch(`${BASE_URL}/api/doctor_chat_view/`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      const structured =
-        data.result || data.response || data.message || '';
-
-      onApplyContent?.(structured);
-    } catch (e) {
-      console.error(e);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
     }
   };
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="flex justify-between items-center">
-        <CardTitle className="flex gap-2 items-center">
-          <Bot className="h-4 w-4" /> AI Assistant
+    <Card className="h-full flex flex-col rounded-none border-0 shadow-none relative">
+      <CardHeader className="relative border-b pr-14">
+        <CardTitle className="flex gap-2 items-center text-sm md:text-base">
+          <Bot className="h-4 w-4" />
+          AI Assistant
         </CardTitle>
-        <Button size="icon" onClick={onClose}>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          className="absolute right-3 top-3 h-8 w-8"
+        >
           <X className="h-4 w-4" />
         </Button>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col">
-        <ScrollArea className="flex-1">
-          <div className="space-y-3">
+      <CardContent className="flex-1 flex flex-col min-h-0 p-0">
+        <ScrollArea className="flex-1 px-4 py-4">
+          <div className="space-y-4">
             {messages.map((m, i) => (
-              <div key={i}>
-                <div className="text-sm">
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
-                </div>
+              <div
+                key={i}
+                className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                    m.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                  </div>
 
-                {m.role === 'ai' && i > 0 && (
-                  <Button
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => handleApply(m.content)}
-                  >
-                    Apply to Editor
-                  </Button>
-                )}
+                  {m.role === 'ai' && i > 0 && (
+                    <div className="mt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleApply(m.content)}
+                      >
+                        Apply to Editor
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
+
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
+                  AI is typing...
+                </div>
+              </div>
+            )}
+
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
 
-        <div className="flex gap-2 mt-3">
-          <input
-            className="flex-1 border rounded px-2 py-1"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-          />
-          <Button onClick={handleSend} disabled={isLoading}>
-            <Send className="h-4 w-4" />
-          </Button>
+        <div className="border-t p-3">
+          <div className="flex gap-2">
+            <input
+              className="flex-1 border rounded px-3 py-2 text-sm bg-background"
+              placeholder="Ask AI about this case..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+            />
+            <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
