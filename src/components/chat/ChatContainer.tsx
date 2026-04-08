@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
-  RefreshCw,
   ArrowLeft,
   Info,
   CheckCircle,
@@ -31,10 +30,6 @@ interface ChatContainerProps {
   onNewConsultation?: () => void;
 }
 
-// ─────────────────────────────────────────────────────────
-// Parse [OPTIONS: A | B | C | Other] from AI message text
-// Returns { cleanText, options } where cleanText has the tag removed
-// ─────────────────────────────────────────────────────────
 function parseOptions(content: string): { cleanText: string; options: string[] } {
   const regex = /\[OPTIONS:\s*([^\]]+)\]/i;
   const match = content.match(regex);
@@ -42,16 +37,13 @@ function parseOptions(content: string): { cleanText: string; options: string[] }
 
   const options = match[1]
     .split('|')
-    .map(o => o.trim())
+    .map((o) => o.trim())
     .filter(Boolean);
 
   const cleanText = content.replace(regex, '').trim();
   return { cleanText, options };
 }
 
-// ─────────────────────────────────────────────────────────
-// OptionButtons — renders the option pills + "Other" text box
-// ─────────────────────────────────────────────────────────
 interface OptionButtonsProps {
   options: string[];
   onSelect: (value: string) => void;
@@ -95,9 +87,8 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
 
   return (
     <div className="mt-3 space-y-2">
-      {/* Option pills */}
       <div className="flex flex-wrap gap-2">
-        {options.map(option => {
+        {options.map((option) => {
           const isOther = option.toLowerCase() === 'other';
           const isSelected = selected === option;
           const isDisabled = disabled || (!!selected && selected !== option);
@@ -125,14 +116,13 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
         })}
       </div>
 
-      {/* "Other" inline text box */}
       {showOtherInput && !selected && (
         <div className="flex gap-2 items-center animate-in fade-in slide-in-from-top-1 duration-200">
           <input
             ref={inputRef}
             type="text"
             value={otherText}
-            onChange={e => setOtherText(e.target.value)}
+            onChange={(e) => setOtherText(e.target.value)}
             onKeyDown={handleOtherKeyDown}
             placeholder="Type your answer..."
             className="flex-1 h-9 px-3 text-xs rounded-lg border border-navy/20 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy/20 bg-white text-navy placeholder:text-muted-foreground"
@@ -151,10 +141,6 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
   );
 };
 
-// ─────────────────────────────────────────────────────────
-// MessageWithOptions — wraps ChatMessage and appends option buttons
-// if the AI message contains an [OPTIONS: ...] tag
-// ─────────────────────────────────────────────────────────
 interface MessageWithOptionsProps {
   message: Message;
   isLast: boolean;
@@ -175,7 +161,6 @@ const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
     [message.content]
   );
 
-  // Render the message with the OPTIONS tag stripped from visible text
   const cleanMessage = useMemo(
     () => ({ ...message, content: cleanText }),
     [message, cleanText]
@@ -210,8 +195,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   intakeComplete = false,
   onNewConsultation,
 }) => {
-  // Auto-scrolling disabled as per user request.
-  // Users will now scroll manually.
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [messages.length, isLoading, streamingContent]);
 
   const modeInfo = useMemo(() => {
     switch (mode) {
@@ -230,13 +225,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   }, [mode]);
 
-  const lastAiContent = useMemo(() => {
-    const aiMsgs = messages.filter(m => m.role === 'ai');
-    return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1].content.toLowerCase() : '';
-  }, [messages]);
-
   const showConsentConfirm = mode === 'consent_clarification';
-  const aiReplyCount = messages.filter(m => m.role === 'ai').length;
+  const aiReplyCount = messages.filter((m) => m.role === 'ai').length;
   const freeTierExhausted = mode === 'general_education' && aiReplyCount >= 3;
   const hideInput = showConsentConfirm || freeTierExhausted;
   const showNextStepCTA = mode === 'general_education' && aiReplyCount >= 1;
@@ -254,10 +244,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     return null;
   }, [mode]);
 
-  // ─────────────────────────────────────────────────────────
-  // Determine the index of the last AI message so we only
-  // show option buttons on the most recent AI message
-  // ─────────────────────────────────────────────────────────
   const lastAiMessageIndex = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'ai') return i;
@@ -265,11 +251,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     return -1;
   }, [messages]);
 
-  // The patient has answered the last AI question if there is a
-  // user message after the last AI message
   const patientAnsweredLast = useMemo(() => {
     if (lastAiMessageIndex === -1) return true;
-    return messages.slice(lastAiMessageIndex + 1).some(m => m.role === 'patient' || m.role === 'user');
+    return messages
+      .slice(lastAiMessageIndex + 1)
+      .some((m) => m.role === 'patient' || m.role === 'user');
   }, [messages, lastAiMessageIndex]);
 
   const handleOptionSelect = (value: string) => {
@@ -281,7 +267,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       <div className="border-b border-gray-100 bg-white px-4 py-3 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-navy" />
-          <h2 className="font-bold text-navy uppercase tracking-widest text-xs">Consultation Channel</h2>
+          <h2 className="font-bold text-navy uppercase tracking-widest text-xs">
+            Consultation Channel
+          </h2>
         </div>
         <Badge
           className={cn(
@@ -297,7 +285,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       {pinnedNote && (
         <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 flex-shrink-0 animate-in fade-in slide-in-from-top-1 duration-300">
           <Info className="h-3.5 w-3.5 text-navy flex-shrink-0 mt-0.5" />
-          <p className="text-[11px] text-navy font-bold uppercase tracking-tight leading-relaxed">{pinnedNote}</p>
+          <p className="text-[11px] text-navy font-bold uppercase tracking-tight leading-relaxed">
+            {pinnedNote}
+          </p>
         </div>
       )}
 
@@ -308,16 +298,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <AlertTriangle className="h-3 w-3 text-amber-600" />
               Service Disclosure
             </p>
-            <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-gray-600 italic">{DISCLAIMER}</pre>
+            <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-gray-600 italic">
+              {DISCLAIMER}
+            </pre>
           </div>
         </div>
       )}
 
-      {/* Messages Viewport - Strictly manual scrolling */}
       <div className="flex-1 p-4 bg-gray-50/30 overflow-y-auto overflow-x-hidden">
         <div className="space-y-6 max-w-4xl mx-auto pb-4">
           {messages.map((message, index) => {
-            // Only AI messages get option buttons, and only on the last AI message
             if (message.role === 'ai') {
               const isLastAiMessage = index === lastAiMessageIndex;
               return (
@@ -335,15 +325,40 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           })}
 
           {isLoading && (
-            <div className="flex items-center gap-3 text-navy font-bold text-[10px] uppercase tracking-widest ml-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground ml-2">
               <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-navy rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 bg-navy/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-navy/30 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span
+                  className="w-1.5 h-1.5 bg-navy rounded-full animate-bounce"
+                  style={{ animationDelay: '0ms' }}
+                />
+                <span
+                  className="w-1.5 h-1.5 bg-navy/60 rounded-full animate-bounce"
+                  style={{ animationDelay: '150ms' }}
+                />
+                <span
+                  className="w-1.5 h-1.5 bg-navy/30 rounded-full animate-bounce"
+                  style={{ animationDelay: '300ms' }}
+                />
               </div>
-              <span>Expert Assistant is analyzing</span>
+              <span>AI is typing...</span>
             </div>
           )}
+
+          {streamingContent && !isLoading && (
+            <ChatMessage
+              message={{
+                id: 'streaming-message',
+                role: 'ai',
+                content: streamingContent,
+                timestamp: new Date(),
+                isVisible: true,
+                conversationId: '',
+              }}
+              isStreaming
+            />
+          )}
+
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -354,7 +369,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm font-bold uppercase tracking-tight">Clinical Consent Required</p>
+              <p className="text-sm font-bold uppercase tracking-tight">
+                Clinical Consent Required
+              </p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 By clicking confirm, you agree to proceed with a paid consultation which includes a specialist dermatological review.
               </p>
@@ -380,7 +397,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       )}
 
-
       {showNextStepCTA && !freeTierExhausted && (
         <div className="border-t border-gray-100 bg-gradient-to-b from-white to-[#f8f9fc] p-5 space-y-3 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.08)] flex-shrink-0 relative z-10">
           <div className="flex items-start gap-3">
@@ -388,7 +404,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <Stethoscope className="h-4 w-4 text-navy" />
             </div>
             <div>
-              <p className="text-sm font-bold text-navy tracking-tight">Would you like a specialist review?</p>
+              <p className="text-sm font-bold text-navy tracking-tight">
+                Would you like a specialist review?
+              </p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 Get a full dermatologist-reviewed assessment including diagnosis, treatment framework, and personalised insights. Click below to proceed.
               </p>
@@ -412,7 +430,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <Stethoscope className="h-5 w-5 text-accent-blue" />
             </div>
             <div>
-              <p className="text-sm font-bold uppercase tracking-tight text-navy">Free Insight Limit Reached</p>
+              <p className="text-sm font-bold uppercase tracking-tight text-navy">
+                Free Insight Limit Reached
+              </p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 Please upgrade to a specialist review by Dr. Attili to continue receiving expert assessments.
               </p>
