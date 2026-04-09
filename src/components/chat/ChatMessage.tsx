@@ -33,7 +33,7 @@ const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong className="font-bold">{children}</strong>
 );
 
-// Section headings — rendered via ### so they are ALWAYS bold regardless of context
+// Section headings rendered via ### — always visually bold
 const MarkdownH3 = ({ children }: MarkdownProps) => (
   <p className="font-bold text-sm mt-3 mb-1">{children}</p>
 );
@@ -151,7 +151,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         const trimmed = line.trim();
         if (trimmed.length < 2) return line;
 
-        // Never touch numbered list items — preserves correct 1,2,3... numbering
+        // Never touch numbered list items — preserves correct 1, 2, 3... numbering
         if (/^\d+\.\s/.test(trimmed)) return line;
 
         // Already a markdown heading — leave it
@@ -247,6 +247,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     a: MarkdownA,
   };
 
+  // Safely parse timestamp — API may return a string, Date object, or nothing
+  const formattedTime = message.timestamp
+    ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+
   return (
     <>
       <div
@@ -329,9 +334,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           )}
         </div>
 
-        <span className="text-[10px] text-gray-400 font-medium px-1 uppercase tracking-tighter">
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        {formattedTime && (
+          <span className="text-[10px] text-gray-400 font-medium px-1 uppercase tracking-tighter">
+            {formattedTime}
+          </span>
+        )}
       </div>
 
       {lightboxOpen && images.length > 0 && (
