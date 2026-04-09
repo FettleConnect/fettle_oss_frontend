@@ -22,7 +22,17 @@ interface AssistantMessage {
   content: string;
 }
 
+// ── Prompt used for general conversational questions ─────────────────────────
+// Does NOT contain Module 3 keywords so the backend routes to conversational mode.
 const CHAT_MODE_PROMPT = `
+You are assisting a consultant dermatologist reviewing a patient case.
+Answer the doctor's question directly, concisely, and clinically.
+Do not generate a full structured assessment unless explicitly asked.
+`;
+
+// ── Prompt used when doctor explicitly requests a clinical assessment ─────────
+// Contains Module 3 keywords so the backend routes to structured module3 mode.
+const CLINICAL_ASSESSMENT_PROMPT = `
 You are Module 3: AI Clinical Analysis for dermatologist review only.
 THIS OUTPUT IS STRICTLY FOR DERMATOLOGIST REVIEW AND MUST NOT BE SHOWN TO THE PATIENT.
 
@@ -35,32 +45,42 @@ Rules:
 - Do NOT include patient-facing explanations
 - Do NOT use lay language
 
-For any question involving diagnosis, differential, morphology, investigations, red flags, or prognosis,
-ALWAYS respond using this exact structured format:
+Return the response in this EXACT structure:
 
-**Primary Likely Diagnosis:**
+Primary Likely Diagnosis:
 - Single most likely condition
 
-**Differential Diagnoses (Ranked):**
+Differential Diagnoses (Ranked):
 1.
 2.
 3.
 4.
 
-**Key Morphologic / Clinical Features:**
+Key Morphologic / Clinical Features:
 - Bullet points linking findings to diagnosis
 
-**Red Flags (if any):**
+Red Flags (if any):
 - Features that may suggest serious or alternative pathology
 
-**Suggested Investigations (if relevant):**
+Suggested Investigations (if relevant):
 - Biopsy, dermoscopy, labs, etc.
 
-**Diagnostic Confidence:**
+Diagnostic Confidence:
 - High / Moderate / Low
-
-For purely conversational or clarification questions, you may respond briefly in prose.
 `;
+
+// Keywords that indicate the doctor wants a structured clinical assessment
+const CLINICAL_KEYWORDS = [
+  'diagnosis', 'diagnose', 'differential', 'assessment', 'analyse', 'analyze',
+  'what is this', 'what could this be', 'what do you think', 'impression',
+  'morpholog', 'investigation', 'confidence', 'red flag', 'generate', 'draft',
+  'write', 'full assessment', 'clinical analysis',
+];
+
+function isClinicalRequest(question: string): boolean {
+  const lower = question.toLowerCase();
+  return CLINICAL_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 // ─── Markdown render components ───────────────────────────────────────────────
 
@@ -69,7 +89,6 @@ interface MdProps {
   href?: string;
 }
 
-// inline style guarantees bold — cannot be overridden by any CSS class or reset
 const BoldHeading = ({ children }: MdProps) => (
   <p style={{ fontWeight: 700 }} className="text-sm mt-3 mb-1">
     {children}
@@ -122,7 +141,7 @@ const mdComponents = {
   a: MdA,
 };
 
-// ─── Section titles for both Module 3 and Module 4 ────────────────────────────
+// ─── Section titles ───────────────────────────────────────────────────────────
 
 const ALL_SECTION_TITLES = [
   'Most Consistent With',
@@ -142,13 +161,8 @@ const ALL_SECTION_TITLES = [
   'Diagnostic Confidence',
 ];
 
-/**
- * Converts every known section title to ### heading so ReactMarkdown
- * always routes it to BoldHeading — regardless of ** or plain text.
- */
 function normalizeContent(text: string): string {
   if (!text) return '';
-
   return text
     .replace(/\\n\\n/g, '\n\n')
     .replace(/\\n/g, '\n')
@@ -158,15 +172,11 @@ function normalizeContent(text: string): string {
     .map((line) => {
       const trimmed = line.trim();
       if (trimmed.length < 2) return line;
-
-      // Never touch numbered list items
       if (/^\d+\.\s/.test(trimmed)) return line;
-
-      // Already a heading — leave it
       if (trimmed.startsWith('#')) return trimmed;
 
-      // Strip existing ** wrapper to get bare title
-      const stripped = trimmed.replace(/^\*\*(.+)\*\*$/, '$1').replace(/:$/, '').trim();
+      // Strip ALL ** and trailing colon — handles **Title**, **Title:**, **Title:**
+      const stripped = trimmed.replace(/\*\*/g, '').replace(/:$/, '').trim();
 
       const isSection = ALL_SECTION_TITLES.some(
         (title) =>
@@ -175,10 +185,7 @@ function normalizeContent(text: string): string {
       );
 
       if (isSection) return `### ${stripped}`;
-
-      // Return trimmed for existing inline bold (avoids indented-code misparse)
       if (trimmed.startsWith('**')) return trimmed;
-
       return line;
     })
     .join('\n');
@@ -231,13 +238,18 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     setInput('');
     setIsLoading(true);
 
+    // Choose prompt based on whether this is a clinical assessment request
+    const systemPrompt = isClinicalRequest(userMsg)
+      ? CLINICAL_ASSESSMENT_PROMPT
+      : CHAT_MODE_PROMPT;
+
     try {
       const authToken = localStorage.getItem('DoctorToken');
 
       const formData = new FormData();
       formData.append('id', conversationId);
       formData.append('question', userMsg);
-      formData.append('systemPrompt', CHAT_MODE_PROMPT);
+      formData.append('systemPrompt', systemPrompt);
       formData.append('contextData', contextData);
       formData.append('currentDraft', editorContent || '');
 
@@ -312,10 +324,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                       : 'bg-muted text-foreground'
                   }`}
                 >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={mdComponents}
-                  >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                     {normalizeContent(m.content)}
                   </ReactMarkdown>
 
