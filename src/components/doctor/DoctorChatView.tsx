@@ -389,7 +389,10 @@ function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   };
 
   const allPatientImages: string[] = messages
-    .filter((m) => m.role === 'patient')
+    .filter((m) => {
+      const role = String(m.role || '').toLowerCase();
+      return role !== 'ai' && role !== 'doctor';
+    })
     .flatMap((m) => m.images ?? []);
 
   return {
@@ -416,7 +419,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isMobile = useIsMobile();
 
   const [patientMessage, setPatientMessage] = useState(
-    conversation.draftResponse || ''
+    normalizeAIContentToStructuredFormat(conversation.draftResponse || '')
   );
   const [isSending, setIsSending] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
@@ -429,14 +432,22 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const lastConversationIdRef = useRef<string | number | null>(null);
 
   useEffect(() => {
     setShowAI(!isMobile);
   }, [isMobile]);
 
   useEffect(() => {
-    setPatientMessage(conversation.draftResponse || '');
-  }, [conversation.draftResponse, conversation.id]);
+    const currentId = conversation.id;
+
+    if (lastConversationIdRef.current !== currentId) {
+      lastConversationIdRef.current = currentId;
+      setPatientMessage(normalizeAIContentToStructuredFormat(conversation.draftResponse || ''));
+      setImages([]);
+      setAssessmentExpanded(false);
+    }
+  }, [conversation.id, conversation.draftResponse]);
 
   useEffect(() => {
     setCaseCompleted(conversation.mode === 'general_education');
@@ -505,7 +516,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
         raw?.relevantHealthHistory ||
         parsed?.relevantHealthHistory ||
         '',
-      images: Array.isArray(raw?.images) ? raw.images : [],
+      images: Array.isArray(raw?.images) ? raw.images : parsed?.images || [],
     };
 
     const hasData = Object.values(merged).some((v) =>
@@ -538,13 +549,16 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [visibleMessages.length, showAI, assessmentExpanded]);
 
   const handleApplyDraft = () => {
-    if (conversation.draftResponse) {
-      setPatientMessage(conversation.draftResponse);
-      toast({
-        title: 'Draft Applied',
-        description: 'AI draft has been copied into the editor.',
-      });
-    }
+    const normalizedDraft = normalizeAIContentToStructuredFormat(
+      conversation.draftResponse || ''
+    );
+
+    setPatientMessage(normalizedDraft);
+
+    toast({
+      title: 'Draft Applied',
+      description: 'AI draft has been copied into the editor.',
+    });
   };
 
   const handleImageSelect = useCallback(
@@ -743,7 +757,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const appliedContent = cleanBody(content) || content || DEFAULT_ASSESSMENT_TEMPLATE;
+      const appliedContent = normalizeAIContentToStructuredFormat(
+        cleanBody(content) || content || DEFAULT_ASSESSMENT_TEMPLATE
+      );
+
       setPatientMessage(appliedContent);
 
       toast({
@@ -878,7 +895,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
                   <div className="flex gap-1.5 md:gap-2">
                     {conversation.draftResponse &&
-                      patientMessage !== conversation.draftResponse && (
+                      patientMessage !==
+                        normalizeAIContentToStructuredFormat(conversation.draftResponse) && (
                         <Button
                           variant="outline"
                           size="sm"
