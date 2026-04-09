@@ -44,14 +44,16 @@ const MarkdownP = ({ children }: MarkdownProps) => (
   <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>
 );
 
+// Inline style guarantees bold regardless of any CSS specificity conflict
 const MarkdownStrong = ({ children }: MarkdownProps) => (
-  <strong className="font-bold">{children}</strong>
+  <strong style={{ fontWeight: 700 }}>{children}</strong>
 );
 
-// All heading levels share one bold component so whichever level ReactMarkdown
-// emits (h1–h6), it always renders as bold.
+// All heading levels → same bold style, inline style overrides any CSS reset
 const BoldHeading = ({ children }: MarkdownProps) => (
-  <p className="font-bold text-sm mt-3 mb-1">{children}</p>
+  <p style={{ fontWeight: 700 }} className="text-sm mt-3 mb-1">
+    {children}
+  </p>
 );
 
 const MarkdownUl = ({ children }: MarkdownProps) => (
@@ -101,8 +103,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     message.role === 'AI' ||
     message.role === 'assistant';
 
-  // Apply formatting to any message that isn't from the patient or system.
-  // Covers 'doctor', 'ai', 'AI', 'assistant', or any other API role string.
   const shouldFormat = !isPatient && !isSystem;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -173,34 +173,31 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         const trimmed = line.trim();
         if (trimmed.length < 2) return line;
 
-        // Never touch numbered list items — preserves correct 1, 2, 3... numbering
+        // Never touch numbered list items
         if (/^\d+\.\s/.test(trimmed)) return line;
 
         // Already a markdown heading — leave it
         if (trimmed.startsWith('#')) return trimmed;
 
-        // Strip any existing ** wrapper to get the bare title text
+        // Strip any existing ** wrapper to get the bare title
         const stripped = trimmed
           .replace(/^\*\*(.+)\*\*$/, '$1')
           .replace(/:$/, '')
           .trim();
 
-        // Check against ALL known section titles (Module 3 + Module 4)
+        // Match known section titles — emit as ### so BoldHeading renders it
         const isHeader = ALL_SECTION_TITLES.some(
           (title) =>
             stripped.toLowerCase() === title.toLowerCase() ||
-            stripped.toLowerCase().startsWith(title.toLowerCase() + ':') ||
-            // also match when the AI includes "(if any)" or "(ranked)" variants
-            title.toLowerCase().startsWith(stripped.toLowerCase())
+            stripped.toLowerCase().startsWith(title.toLowerCase() + ':')
         );
 
         if (isHeader) {
-          // Emit as ### so BoldHeading always renders it bold
           return `### ${stripped}`;
         }
 
-        // Inline bold that isn't a section title — return trimmed so ReactMarkdown
-        // never misreads leading whitespace as indented code
+        // Inline bold that isn't a section title — return trimmed to avoid
+        // ReactMarkdown misreading leading whitespace as indented code
         if (trimmed.startsWith('**')) return trimmed;
 
         // Short Title Case label lines → inline bold
@@ -281,7 +278,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     a: MarkdownA,
   };
 
-  // Safely parse timestamp — API may return a string, Date object, or nothing
   const formattedTime = message.timestamp
     ? new Date(message.timestamp).toLocaleTimeString([], {
         hour: '2-digit',
