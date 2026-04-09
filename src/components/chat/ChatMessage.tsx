@@ -33,8 +33,9 @@ const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong className="font-bold">{children}</strong>
 );
 
-// Section headings rendered via ### — always visually bold
-const MarkdownH3 = ({ children }: MarkdownProps) => (
+// All heading levels map to the same bold style so it works regardless of
+// which heading level ReactMarkdown decides to emit (h1–h6).
+const BoldHeading = ({ children }: MarkdownProps) => (
   <p className="font-bold text-sm mt-3 mb-1">{children}</p>
 );
 
@@ -80,8 +81,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const isPatient = message.role === 'patient';
   const isDoctor = message.role === 'doctor';
   const isSystem = message.role === 'system';
-  // Handle both 'ai' and 'AI' returned by different API endpoints
-  const isAI = message.role === 'ai' || message.role === 'AI';
+  const isAI =
+    message.role === 'ai' ||
+    message.role === 'AI' ||
+    message.role === 'assistant';
+
+  // Apply formatting to any message that isn't from the patient or system.
+  // This covers 'doctor', 'ai', 'AI', 'assistant', or any other API role.
+  const shouldFormat = !isPatient && !isSystem;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -143,7 +150,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     if (!text) return '';
     const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
     const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const withLinks = isDoctor || isAI ? linkifyUrls(normalized) : normalized;
+    const withLinks = linkifyUrls(normalized);
 
     return withLinks
       .split('\n')
@@ -157,10 +164,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         // Already a markdown heading — leave it
         if (trimmed.startsWith('#')) return trimmed;
 
-        // Strip any existing ** wrapper so we can check the bare title
-        const stripped = trimmed.replace(/^\*\*(.+)\*\*$/, '$1').replace(/:$/, '');
+        // Strip any existing ** wrapper to get the bare title text
+        const stripped = trimmed.replace(/^\*\*(.+)\*\*$/, '$1').replace(/:$/, '').trim();
 
-        // Match known section titles → emit as ### so MarkdownH3 guarantees bold
+        // Known section titles → ### heading (guaranteed bold via BoldHeading)
         const isHeader = SECTION_TITLES.some(
           (title) =>
             stripped.toLowerCase() === title.toLowerCase() ||
@@ -170,11 +177,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           return `### ${stripped}`;
         }
 
-        // Inline bold that isn't a section title — return trimmed (no leading
-        // whitespace) so ReactMarkdown never misreads it as indented code
+        // Inline bold that isn't a section title — return trimmed so ReactMarkdown
+        // never misreads leading whitespace as indented code
         if (trimmed.startsWith('**')) return trimmed;
 
-        // Short Title Case / ALL-CAPS label lines → inline bold
+        // Short Title Case label lines → inline bold
         if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
           return `**${trimmed}**`;
         }
@@ -235,12 +242,19 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     )
     .trim();
 
-  const renderedContent = isDoctor || isAI ? formatContent(cleanContent) : cleanContent;
+  const renderedContent = shouldFormat ? formatContent(cleanContent) : cleanContent;
 
+  // All heading levels share the same bold component so whichever level
+  // ReactMarkdown emits, it will always render as bold.
   const mdComponents = {
     p: MarkdownP,
     strong: MarkdownStrong,
-    h3: MarkdownH3,
+    h1: BoldHeading,
+    h2: BoldHeading,
+    h3: BoldHeading,
+    h4: BoldHeading,
+    h5: BoldHeading,
+    h6: BoldHeading,
     ul: MarkdownUl,
     ol: MarkdownOl,
     li: MarkdownLi,
@@ -249,7 +263,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   // Safely parse timestamp — API may return a string, Date object, or nothing
   const formattedTime = message.timestamp
-    ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    ? new Date(message.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
     : '';
 
   return (
