@@ -23,13 +23,43 @@ interface AssistantMessage {
 }
 
 const CHAT_MODE_PROMPT = `
-You are assisting a dermatologist.
+You are Module 3: AI Clinical Analysis for dermatologist review only.
+THIS OUTPUT IS STRICTLY FOR DERMATOLOGIST REVIEW AND MUST NOT BE SHOWN TO THE PATIENT.
 
-RULES:
-- Respond conversationally.
-- Answer the doctor's question directly.
-- DO NOT generate full draft unless explicitly asked.
-- Be concise and clinical.
+Rules:
+- You may suggest a most likely diagnosis
+- Provide a ranked differential diagnosis list
+- Use standard dermatological reasoning
+- Be concise, structured, and clinically precise
+- Do NOT include treatment instructions
+- Do NOT include patient-facing explanations
+- Do NOT use lay language
+
+For any question involving diagnosis, differential, morphology, investigations, red flags, or prognosis,
+ALWAYS respond using this exact structured format:
+
+**Primary Likely Diagnosis:**
+- Single most likely condition
+
+**Differential Diagnoses (Ranked):**
+1.
+2.
+3.
+4.
+
+**Key Morphologic / Clinical Features:**
+- Bullet points linking findings to diagnosis
+
+**Red Flags (if any):**
+- Features that may suggest serious or alternative pathology
+
+**Suggested Investigations (if relevant):**
+- Biopsy, dermoscopy, labs, etc.
+
+**Diagnostic Confidence:**
+- High / Moderate / Low
+
+For purely conversational or clarification questions, you may respond briefly in prose.
 `;
 
 // ─── Markdown render components ───────────────────────────────────────────────
@@ -39,9 +69,11 @@ interface MdProps {
   href?: string;
 }
 
-// All heading levels → bold so whichever level the model emits it always shows bold
+// inline style guarantees bold — cannot be overridden by any CSS class or reset
 const BoldHeading = ({ children }: MdProps) => (
-  <p className="font-bold text-sm mt-3 mb-1">{children}</p>
+  <p style={{ fontWeight: 700 }} className="text-sm mt-3 mb-1">
+    {children}
+  </p>
 );
 
 const MdP = ({ children }: MdProps) => (
@@ -49,7 +81,7 @@ const MdP = ({ children }: MdProps) => (
 );
 
 const MdStrong = ({ children }: MdProps) => (
-  <strong className="font-bold">{children}</strong>
+  <strong style={{ fontWeight: 700 }}>{children}</strong>
 );
 
 const MdUl = ({ children }: MdProps) => (
@@ -93,7 +125,6 @@ const mdComponents = {
 // ─── Section titles for both Module 3 and Module 4 ────────────────────────────
 
 const ALL_SECTION_TITLES = [
-  // Module 4 — patient-facing
   'Most Consistent With',
   'Close Differentials',
   'Morphologic Justification',
@@ -101,7 +132,6 @@ const ALL_SECTION_TITLES = [
   'Typical Course and Prognosis',
   'When In-Person Evaluation Is Considered',
   'Educational References',
-  // Module 3 — dermatologist-only
   'Primary Likely Diagnosis',
   'Differential Diagnoses (Ranked)',
   'Differential Diagnoses',
@@ -113,9 +143,8 @@ const ALL_SECTION_TITLES = [
 ];
 
 /**
- * Normalises AI content so that every known section title becomes a ### heading.
- * This guarantees bold rendering in the panel AND correct formatting when the
- * content is applied to the editor.
+ * Converts every known section title to ### heading so ReactMarkdown
+ * always routes it to BoldHeading — regardless of ** or plain text.
  */
 function normalizeContent(text: string): string {
   if (!text) return '';
@@ -133,7 +162,7 @@ function normalizeContent(text: string): string {
       // Never touch numbered list items
       if (/^\d+\.\s/.test(trimmed)) return line;
 
-      // Already a heading
+      // Already a heading — leave it
       if (trimmed.startsWith('#')) return trimmed;
 
       // Strip existing ** wrapper to get bare title
@@ -142,8 +171,7 @@ function normalizeContent(text: string): string {
       const isSection = ALL_SECTION_TITLES.some(
         (title) =>
           stripped.toLowerCase() === title.toLowerCase() ||
-          stripped.toLowerCase().startsWith(title.toLowerCase() + ':') ||
-          title.toLowerCase().startsWith(stripped.toLowerCase())
+          stripped.toLowerCase().startsWith(title.toLowerCase() + ':')
       );
 
       if (isSection) return `### ${stripped}`;
@@ -284,7 +312,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                       : 'bg-muted text-foreground'
                   }`}
                 >
-                  {/* Render with custom components so headings are always bold */}
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={mdComponents}
