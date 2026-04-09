@@ -34,11 +34,11 @@ const MarkdownStrong = ({ children }: MarkdownProps) => (
 );
 
 const MarkdownUl = ({ children }: MarkdownProps) => (
-  <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>
+  <ul className="list-disc list-outside pl-5 mb-2 space-y-1">{children}</ul>
 );
 
 const MarkdownOl = ({ children }: MarkdownProps) => (
-  <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>
+  <ol className="list-decimal list-outside pl-5 mb-2 space-y-1">{children}</ol>
 );
 
 const MarkdownLi = ({ children }: MarkdownProps) => (
@@ -58,11 +58,9 @@ const MarkdownA = ({ href, children }: MarkdownProps) => (
 
 const DoctorAvatar: React.FC = () => {
   const [imgFailed, setImgFailed] = React.useState(false);
-
   if (imgFailed) {
     return <Stethoscope className="h-3.5 w-3.5 text-white" />;
   }
-
   return (
     <img
       src="/doctor-photo.jpg"
@@ -106,7 +104,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       const res = await fetch(url);
       const blob = await res.blob();
       const ext = blob.type.split('/')[1] ?? 'jpg';
-
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `clinical-image-${idx + 1}.${ext}`;
@@ -123,13 +120,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   useEffect(() => {
     if (!lightboxOpen) return;
-
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowLeft') prevImage();
       if (e.key === 'ArrowRight') nextImage();
     };
-
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
@@ -140,25 +135,28 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-
     const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
     const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = isDoctor || isAI ? linkifyUrls(normalized) : normalized;
-
     return withLinks
       .split('\n')
       .map((line) => {
         const trimmed = line.trim();
-
         if (trimmed.length < 2) return line;
-        if (trimmed.startsWith('**')) return line;
+
+        // FIX 1: Never transform numbered list items — leave them intact so
+        // ReactMarkdown collects them into a single <ol> with correct numbering.
+        if (/^\d+\.\s/.test(trimmed)) return line;
+
+        // FIX 2: Return `trimmed` (no leading whitespace) so ReactMarkdown
+        // always parses **…** as bold text, never as indented code.
+        if (trimmed.startsWith('**')) return trimmed;
 
         const isHeader = SECTION_TITLES.some(
           (title) =>
             trimmed.toLowerCase() === title.toLowerCase() ||
             trimmed.toLowerCase().startsWith(title.toLowerCase() + ':')
         );
-
         if (isHeader) {
           if (trimmed.includes(':')) {
             return trimmed.replace(/^([^:]+:)/, '**$1**');
@@ -166,7 +164,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           return `**${trimmed}**`;
         }
 
-        if (/^(\d+\.\s+)?[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
+        // FIX 3: Removed the leading (\d+\.\s+)? group so this catch-all bold
+        // regex can never accidentally match a numbered list item.
+        if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
           return `**${trimmed}**`;
         }
 
@@ -220,7 +220,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const cleanContent = (message.content || '')
     .replace(/^INTAKE_COMPLETE\s*/gm, '')
-    .replace(/Thank you for the information\.\s*\nINTAKE_COMPLETE/g, 'Thank you for the information.')
+    .replace(
+      /Thank you for the information\.\s*\nINTAKE_COMPLETE/g,
+      'Thank you for the information.'
+    )
     .trim();
 
   const renderedContent = isDoctor || isAI ? formatContent(cleanContent) : cleanContent;
