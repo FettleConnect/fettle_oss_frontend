@@ -10,7 +10,8 @@ interface ChatMessageProps {
   isStreaming?: boolean;
 }
 
-const SECTION_TITLES = [
+// Module 4 — patient-facing section titles
+const MODULE_4_TITLES = [
   'Most Consistent With',
   'Close Differentials',
   'Morphologic Justification',
@@ -19,6 +20,20 @@ const SECTION_TITLES = [
   'When In-Person Evaluation Is Considered',
   'Educational References',
 ];
+
+// Module 3 — dermatologist-only section titles
+const MODULE_3_TITLES = [
+  'Primary Likely Diagnosis',
+  'Differential Diagnoses (Ranked)',
+  'Differential Diagnoses',
+  'Key Morphologic / Clinical Features',
+  'Key Morphologic Features',
+  'Red Flags',
+  'Suggested Investigations',
+  'Diagnostic Confidence',
+];
+
+const ALL_SECTION_TITLES = [...MODULE_4_TITLES, ...MODULE_3_TITLES];
 
 interface MarkdownProps {
   children?: ReactNode;
@@ -33,8 +48,8 @@ const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong className="font-bold">{children}</strong>
 );
 
-// All heading levels map to the same bold style so it works regardless of
-// which heading level ReactMarkdown decides to emit (h1–h6).
+// All heading levels share one bold component so whichever level ReactMarkdown
+// emits (h1–h6), it always renders as bold.
 const BoldHeading = ({ children }: MarkdownProps) => (
   <p className="font-bold text-sm mt-3 mb-1">{children}</p>
 );
@@ -87,7 +102,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     message.role === 'assistant';
 
   // Apply formatting to any message that isn't from the patient or system.
-  // This covers 'doctor', 'ai', 'AI', 'assistant', or any other API role.
+  // Covers 'doctor', 'ai', 'AI', 'assistant', or any other API role string.
   const shouldFormat = !isPatient && !isSystem;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -165,15 +180,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         if (trimmed.startsWith('#')) return trimmed;
 
         // Strip any existing ** wrapper to get the bare title text
-        const stripped = trimmed.replace(/^\*\*(.+)\*\*$/, '$1').replace(/:$/, '').trim();
+        const stripped = trimmed
+          .replace(/^\*\*(.+)\*\*$/, '$1')
+          .replace(/:$/, '')
+          .trim();
 
-        // Known section titles → ### heading (guaranteed bold via BoldHeading)
-        const isHeader = SECTION_TITLES.some(
+        // Check against ALL known section titles (Module 3 + Module 4)
+        const isHeader = ALL_SECTION_TITLES.some(
           (title) =>
             stripped.toLowerCase() === title.toLowerCase() ||
-            stripped.toLowerCase().startsWith(title.toLowerCase() + ':')
+            stripped.toLowerCase().startsWith(title.toLowerCase() + ':') ||
+            // also match when the AI includes "(if any)" or "(ranked)" variants
+            title.toLowerCase().startsWith(stripped.toLowerCase())
         );
+
         if (isHeader) {
+          // Emit as ### so BoldHeading always renders it bold
           return `### ${stripped}`;
         }
 
@@ -244,8 +266,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const renderedContent = shouldFormat ? formatContent(cleanContent) : cleanContent;
 
-  // All heading levels share the same bold component so whichever level
-  // ReactMarkdown emits, it will always render as bold.
   const mdComponents = {
     p: MarkdownP,
     strong: MarkdownStrong,
