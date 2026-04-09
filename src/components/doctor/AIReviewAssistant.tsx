@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Bot, Send, X } from 'lucide-react';
 import { BASE_URL } from '@/base_url';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface AIReviewAssistantProps {
   onClose: () => void;
@@ -30,6 +31,132 @@ RULES:
 - DO NOT generate full draft unless explicitly asked.
 - Be concise and clinical.
 `;
+
+// ─── Markdown render components ───────────────────────────────────────────────
+
+interface MdProps {
+  children?: ReactNode;
+  href?: string;
+}
+
+// All heading levels → bold so whichever level the model emits it always shows bold
+const BoldHeading = ({ children }: MdProps) => (
+  <p className="font-bold text-sm mt-3 mb-1">{children}</p>
+);
+
+const MdP = ({ children }: MdProps) => (
+  <p className="text-sm leading-relaxed mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>
+);
+
+const MdStrong = ({ children }: MdProps) => (
+  <strong className="font-bold">{children}</strong>
+);
+
+const MdUl = ({ children }: MdProps) => (
+  <ul className="list-disc list-outside pl-5 mb-2 space-y-0.5 text-sm">{children}</ul>
+);
+
+const MdOl = ({ children }: MdProps) => (
+  <ol className="list-decimal list-outside pl-5 mb-2 space-y-0.5 text-sm">{children}</ol>
+);
+
+const MdLi = ({ children }: MdProps) => (
+  <li className="leading-relaxed">{children}</li>
+);
+
+const MdA = ({ href, children }: MdProps) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="text-blue-600 underline underline-offset-2 hover:text-blue-800 transition-colors"
+  >
+    {children}
+  </a>
+);
+
+const mdComponents = {
+  p: MdP,
+  strong: MdStrong,
+  h1: BoldHeading,
+  h2: BoldHeading,
+  h3: BoldHeading,
+  h4: BoldHeading,
+  h5: BoldHeading,
+  h6: BoldHeading,
+  ul: MdUl,
+  ol: MdOl,
+  li: MdLi,
+  a: MdA,
+};
+
+// ─── Section titles for both Module 3 and Module 4 ────────────────────────────
+
+const ALL_SECTION_TITLES = [
+  // Module 4 — patient-facing
+  'Most Consistent With',
+  'Close Differentials',
+  'Morphologic Justification',
+  'Educational Treatment Framework',
+  'Typical Course and Prognosis',
+  'When In-Person Evaluation Is Considered',
+  'Educational References',
+  // Module 3 — dermatologist-only
+  'Primary Likely Diagnosis',
+  'Differential Diagnoses (Ranked)',
+  'Differential Diagnoses',
+  'Key Morphologic / Clinical Features',
+  'Key Morphologic Features',
+  'Red Flags',
+  'Suggested Investigations',
+  'Diagnostic Confidence',
+];
+
+/**
+ * Normalises AI content so that every known section title becomes a ### heading.
+ * This guarantees bold rendering in the panel AND correct formatting when the
+ * content is applied to the editor.
+ */
+function normalizeContent(text: string): string {
+  if (!text) return '';
+
+  return text
+    .replace(/\\n\\n/g, '\n\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (trimmed.length < 2) return line;
+
+      // Never touch numbered list items
+      if (/^\d+\.\s/.test(trimmed)) return line;
+
+      // Already a heading
+      if (trimmed.startsWith('#')) return trimmed;
+
+      // Strip existing ** wrapper to get bare title
+      const stripped = trimmed.replace(/^\*\*(.+)\*\*$/, '$1').replace(/:$/, '').trim();
+
+      const isSection = ALL_SECTION_TITLES.some(
+        (title) =>
+          stripped.toLowerCase() === title.toLowerCase() ||
+          stripped.toLowerCase().startsWith(title.toLowerCase() + ':') ||
+          title.toLowerCase().startsWith(stripped.toLowerCase())
+      );
+
+      if (isSection) return `### ${stripped}`;
+
+      // Return trimmed for existing inline bold (avoids indented-code misparse)
+      if (trimmed.startsWith('**')) return trimmed;
+
+      return line;
+    })
+    .join('\n');
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   onClose,
@@ -57,16 +184,11 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     const timer = window.setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, 50);
-
     return () => window.clearTimeout(timer);
   }, [messages, isLoading]);
 
   useEffect(() => {
-    if (
-      prefillMessage &&
-      prefillMessage.trim() &&
-      !hasConsumedPrefill.current
-    ) {
+    if (prefillMessage && prefillMessage.trim() && !hasConsumedPrefill.current) {
       hasConsumedPrefill.current = true;
       setInput(prefillMessage);
       onPrefillConsumed?.();
@@ -77,7 +199,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
     if (!input.trim() || isLoading) return;
 
     const userMsg = input.trim();
-
     setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
@@ -163,9 +284,13 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
                       : 'bg-muted text-foreground'
                   }`}
                 >
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
-                  </div>
+                  {/* Render with custom components so headings are always bold */}
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={mdComponents}
+                  >
+                    {normalizeContent(m.content)}
+                  </ReactMarkdown>
 
                   {m.role === 'ai' && i > 0 && (
                     <div className="mt-3">
@@ -185,7 +310,7 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
             {isLoading && (
               <div className="flex justify-start">
                 <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
-                  AI is typing...
+                  AI is typing…
                 </div>
               </div>
             )}
