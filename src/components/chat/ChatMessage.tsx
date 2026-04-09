@@ -10,7 +10,6 @@ interface ChatMessageProps {
   isStreaming?: boolean;
 }
 
-// Module 4 — patient-facing section titles
 const MODULE_4_TITLES = [
   'Most Consistent With',
   'Close Differentials',
@@ -21,7 +20,6 @@ const MODULE_4_TITLES = [
   'Educational References',
 ];
 
-// Module 3 — dermatologist-only section titles
 const MODULE_3_TITLES = [
   'Primary Likely Diagnosis',
   'Differential Diagnoses (Ranked)',
@@ -44,12 +42,11 @@ const MarkdownP = ({ children }: MarkdownProps) => (
   <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>
 );
 
-// Inline style guarantees bold regardless of any CSS specificity conflict
+// inline style — cannot be overridden by any CSS class or reset
 const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong style={{ fontWeight: 700 }}>{children}</strong>
 );
 
-// All heading levels → same bold style, inline style overrides any CSS reset
 const BoldHeading = ({ children }: MarkdownProps) => (
   <p style={{ fontWeight: 700 }} className="text-sm mt-3 mb-1">
     {children}
@@ -179,13 +176,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         // Already a markdown heading — leave it
         if (trimmed.startsWith('#')) return trimmed;
 
-        // Strip any existing ** wrapper to get the bare title
+        // Strip ALL ** markers and trailing colon to get the bare title.
+        // This handles: **Title**, **Title:**, **Title:**  (all backend variants)
         const stripped = trimmed
-          .replace(/^\*\*(.+)\*\*$/, '$1')
-          .replace(/:$/, '')
+          .replace(/\*\*/g, '')   // remove all ** markers
+          .replace(/:$/, '')      // remove trailing colon
           .trim();
 
-        // Match known section titles — emit as ### so BoldHeading renders it
+        // Match known section titles → emit as ### so BoldHeading renders bold
         const isHeader = ALL_SECTION_TITLES.some(
           (title) =>
             stripped.toLowerCase() === title.toLowerCase() ||
