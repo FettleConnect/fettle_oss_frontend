@@ -33,6 +33,11 @@ const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong className="font-bold">{children}</strong>
 );
 
+// Section headings — rendered via ### so they are ALWAYS bold regardless of context
+const MarkdownH3 = ({ children }: MarkdownProps) => (
+  <p className="font-bold text-sm mt-3 mb-1">{children}</p>
+);
+
 const MarkdownUl = ({ children }: MarkdownProps) => (
   <ul className="list-disc list-outside pl-5 mb-2 space-y-1">{children}</ul>
 );
@@ -75,7 +80,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const isPatient = message.role === 'patient';
   const isDoctor = message.role === 'doctor';
   const isSystem = message.role === 'system';
-  const isAI = message.role === 'ai';
+  // Handle both 'ai' and 'AI' returned by different API endpoints
+  const isAI = message.role === 'ai' || message.role === 'AI';
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -138,34 +144,37 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
     const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = isDoctor || isAI ? linkifyUrls(normalized) : normalized;
+
     return withLinks
       .split('\n')
       .map((line) => {
         const trimmed = line.trim();
         if (trimmed.length < 2) return line;
 
-        // FIX 1: Never transform numbered list items — leave them intact so
-        // ReactMarkdown collects them into a single <ol> with correct numbering.
+        // Never touch numbered list items — preserves correct 1,2,3... numbering
         if (/^\d+\.\s/.test(trimmed)) return line;
 
-        // FIX 2: Return `trimmed` (no leading whitespace) so ReactMarkdown
-        // always parses **…** as bold text, never as indented code.
-        if (trimmed.startsWith('**')) return trimmed;
+        // Already a markdown heading — leave it
+        if (trimmed.startsWith('#')) return trimmed;
 
+        // Strip any existing ** wrapper so we can check the bare title
+        const stripped = trimmed.replace(/^\*\*(.+)\*\*$/, '$1').replace(/:$/, '');
+
+        // Match known section titles → emit as ### so MarkdownH3 guarantees bold
         const isHeader = SECTION_TITLES.some(
           (title) =>
-            trimmed.toLowerCase() === title.toLowerCase() ||
-            trimmed.toLowerCase().startsWith(title.toLowerCase() + ':')
+            stripped.toLowerCase() === title.toLowerCase() ||
+            stripped.toLowerCase().startsWith(title.toLowerCase() + ':')
         );
         if (isHeader) {
-          if (trimmed.includes(':')) {
-            return trimmed.replace(/^([^:]+:)/, '**$1**');
-          }
-          return `**${trimmed}**`;
+          return `### ${stripped}`;
         }
 
-        // FIX 3: Removed the leading (\d+\.\s+)? group so this catch-all bold
-        // regex can never accidentally match a numbered list item.
+        // Inline bold that isn't a section title — return trimmed (no leading
+        // whitespace) so ReactMarkdown never misreads it as indented code
+        if (trimmed.startsWith('**')) return trimmed;
+
+        // Short Title Case / ALL-CAPS label lines → inline bold
         if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
           return `**${trimmed}**`;
         }
@@ -231,6 +240,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const mdComponents = {
     p: MarkdownP,
     strong: MarkdownStrong,
+    h3: MarkdownH3,
     ul: MarkdownUl,
     ol: MarkdownOl,
     li: MarkdownLi,
@@ -329,7 +339,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           className="fixed inset-0 z-[100] bg-navy/95 backdrop-blur-md flex items-center justify-center p-4"
           onClick={closeLightbox}
         >
-          <div className="absolute top-6 right-6 flex gap-3" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="absolute top-6 right-6 flex gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               onClick={() => handleDownload(images[lightboxIndex], lightboxIndex)}
               className="text-white hover:bg-white/10 rounded-full h-12 w-12 flex items-center justify-center"
