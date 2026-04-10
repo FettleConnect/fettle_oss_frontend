@@ -40,10 +40,12 @@ interface ChatMessage {
 
 interface ConsultationHistoryItem {
   id: string;
-  name: string;
-  mode: string;
-  status: string;
-  created_at: string;
+  name?: string;
+  title?: string;
+  mode?: string;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 const formatMessageContent = (text: string) => {
@@ -55,6 +57,27 @@ const formatMessageContent = (text: string) => {
       '**$1**'
     )
     .replace(/\n{3,}/g, '\n\n');
+};
+
+const formatConsultationDate = (value?: string) => {
+  if (!value) return 'No date';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'No date';
+
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const getConsultationTitle = (item: ConsultationHistoryItem, index: number) => {
+  const rawTitle = item.title || item.name;
+  if (rawTitle && rawTitle.trim()) return rawTitle.trim();
+  return `Consultation ${index + 1}`;
 };
 
 const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
@@ -274,6 +297,69 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
+  const handleGoToDermatologistReview = async () => {
+    if (isSendingRef.current || isLoading) return;
+
+    isSendingRef.current = true;
+    setIsLoading(true);
+
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'Go to dermatologist review');
+
+      if (activeThreadId) {
+        formData.append('thread_id', activeThreadId);
+      }
+
+      const res = await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        toast({
+          title: 'Error',
+          description: data.errorMsg || 'Could not continue to dermatologist review.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (data.mode) {
+        setMode(data.mode);
+      }
+
+      if (data.thread_id) {
+        setActiveThreadId(data.thread_id);
+        await fetchChatHistory(data.thread_id);
+      } else {
+        await fetchChatHistory(activeThreadId || undefined);
+      }
+
+      await fetchConsultationHistory();
+
+      if (data.mode === 'payment_page') {
+        setShowPayment(true);
+      }
+    } catch (e) {
+      console.error('Go to dermatologist review failed:', e);
+      toast({
+        title: 'Error',
+        description: 'Could not continue to dermatologist review.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+      isSendingRef.current = false;
+    }
+  };
+
   const handleSendMessage = async (content: string, images?: File[]) => {
     if (isSendingRef.current || isLoading) return;
     if (!content?.trim() && (!images || images.length === 0)) return;
@@ -413,8 +499,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           {history.length === 0 ? (
             <div className="px-3 py-6 text-sm text-slate-500">No consultations yet.</div>
           ) : (
-            history.map((item) => {
+            history.map((item, index) => {
               const isActive = activeThreadId === item.id;
+              const title = getConsultationTitle(item, index);
+              const dateText = formatConsultationDate(item.created_at || item.updated_at);
+
               return (
                 <button
                   key={item.id}
@@ -427,12 +516,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   )}
                 >
                   <div className="truncate text-sm font-semibold text-slate-800">
-                    {item.name || 'Consultation'}
+                    {title}
                   </div>
 
                   <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                     <Clock className="h-3.5 w-3.5" />
-                    <span>{item.mode}</span>
+                    <span>{dateText}</span>
                   </div>
                 </button>
               );
@@ -504,6 +593,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   messages={transformedMessages}
                   streamingContent=""
                   onSendMessage={handleSendMessage}
+                  onGoToDermatologistReview={handleGoToDermatologistReview}
                   isLoading={isLoading}
                   mode={mode}
                   showDisclaimer={resolvedMessages.length === 0}
