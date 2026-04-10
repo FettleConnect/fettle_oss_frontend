@@ -9,6 +9,7 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle2,
+  Plus,
 } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
@@ -102,10 +103,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
 
-  const doctorHasResponded = useMemo(() => {
-    return messages.some((m) => m.role === 'doctor');
-  }, [messages]);
-
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
@@ -134,10 +131,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const res = await fetch(`${BASE_URL}/api/consultation_list/`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
+
       const data = await res.json();
-      setHistory(data.history || []);
+      setHistory(Array.isArray(data.history) ? data.history : []);
     } catch (error) {
       console.error('Failed to fetch consultation history:', error);
+      setHistory([]);
     }
   }, []);
 
@@ -147,7 +146,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const authToken = localStorage.getItem('authToken');
 
       const url = new URL(`${BASE_URL}/api/chat_history/`);
-      if (threadId) url.searchParams.append('thread_id', threadId);
+      if (threadId) {
+        url.searchParams.append('thread_id', threadId);
+      }
 
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${authToken}` },
@@ -155,25 +156,37 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       const data = await res.json();
 
-      const formatted = (data.conv || []).map((m: ChatMessage) => ({
-        ...m,
-        content: formatMessageContent(m.content),
-      }));
+      const formatted = Array.isArray(data.conv)
+        ? data.conv.map((m: ChatMessage) => ({
+            ...m,
+            content: formatMessageContent(m.content),
+          }))
+        : [];
 
       setMessages(formatted);
 
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
         try {
-          localStorage.setItem(getPatientChatCacheKey(data.thread_id), JSON.stringify(formatted));
+          localStorage.setItem(
+            getPatientChatCacheKey(data.thread_id),
+            JSON.stringify(formatted)
+          );
         } catch (e) {
           console.error('Cache write failed:', e);
         }
+      } else if (!threadId) {
+        setActiveThreadId(null);
       }
 
-      if (data.mode) setMode(data.mode);
+      if (data.mode) {
+        setMode(data.mode);
+      }
     } catch (e) {
       console.error('Failed to fetch chat history:', e);
+      if (!threadId) {
+        setMessages([]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -186,20 +199,33 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   useEffect(() => {
     if (!activeThreadId) return;
+
     try {
       const cached = localStorage.getItem(getPatientChatCacheKey(activeThreadId));
       if (cached) {
-        setCachedMessages(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          setCachedMessages(parsed);
+        } else {
+          setCachedMessages([]);
+        }
+      } else {
+        setCachedMessages([]);
       }
     } catch (e) {
       console.error('Cache read failed:', e);
+      setCachedMessages([]);
     }
   }, [activeThreadId]);
 
   useEffect(() => {
     if (!activeThreadId) return;
+
     try {
-      localStorage.setItem(getPatientChatCacheKey(activeThreadId), JSON.stringify(messages));
+      localStorage.setItem(
+        getPatientChatCacheKey(activeThreadId),
+        JSON.stringify(messages)
+      );
     } catch (e) {
       console.error('Cache update failed:', e);
     }
@@ -208,12 +234,45 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleSelectHistory = async (threadId: string) => {
     setActiveThreadId(threadId);
     await fetchChatHistory(threadId);
-    if (isMobile) setShowHistory(false);
+    if (isMobile) {
+      setShowHistory(false);
+    }
   };
 
   const handleRefresh = async () => {
     await fetchConsultationHistory();
     await fetchChatHistory(activeThreadId || undefined);
+  };
+
+  const handleNewConsultation = async () => {
+    try {
+      setIsLoading(true);
+      setMessages([]);
+      setCachedMessages([]);
+      setActiveThreadId(null);
+      setMode('general_education');
+
+      await fetchConsultationHistory();
+      await fetchChatHistory();
+
+      if (isMobile) {
+        setShowHistory(false);
+      }
+
+      toast({
+        title: 'New Consultation',
+        description: 'A new consultation has been opened.',
+      });
+    } catch (e) {
+      console.error('New consultation failed:', e);
+      toast({
+        title: 'Error',
+        description: 'Could not start a new consultation.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSendMessage = async (content: string, images?: File[]) => {
@@ -236,7 +295,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
       formData.append('question', content || '');
-      if (activeThreadId) formData.append('thread_id', activeThreadId);
+
+      if (activeThreadId) {
+        formData.append('thread_id', activeThreadId);
+      }
 
       if (images && images.length > 0) {
         images.forEach((file) => {
@@ -268,7 +330,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setMode(data.mode);
       }
 
-      if (data.thread_id && !activeThreadId) {
+      if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
 
@@ -276,7 +338,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         const aiRole =
           data.role === 'system'
             ? 'system'
-            : doctorHasResponded || data.mode === 'doctor_patient'
+            : data.mode === 'doctor_patient'
               ? 'system'
               : 'ai';
 
@@ -330,9 +392,21 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           <MessageSquare className="h-4 w-4 text-slate-500" />
           <h3 className="text-sm font-semibold text-slate-800">Consultations</h3>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleRefresh}>
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleNewConsultation}
+            title="New Consultation"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+
+          <Button variant="ghost" size="icon" onClick={handleRefresh} title="Refresh">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <ScrollArea className="h-[calc(100%-57px)]">
@@ -356,6 +430,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   <div className="truncate text-sm font-semibold text-slate-800">
                     {item.name || 'Consultation'}
                   </div>
+
                   <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                     <Clock className="h-3.5 w-3.5" />
                     <span>{item.mode}</span>
@@ -394,8 +469,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                   )}
+
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-900">Dermatology Chat</h2>
+                    <h2 className="text-sm font-semibold text-slate-900">
+                      Dermatology Chat
+                    </h2>
                     <p className="text-xs text-slate-500">
                       {mode === 'doctor_patient'
                         ? 'Doctor will reply directly'
@@ -408,9 +486,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   </div>
                 </div>
 
-                {mode === 'payment_page' && (
-                  <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
-                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={handleNewConsultation}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2"
+                  >
+                    + New Consultation
+                  </Button>
+
+                  {mode === 'payment_page' && (
+                    <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
+                  )}
+                </div>
               </div>
 
               <div className="flex-1 min-h-0">
