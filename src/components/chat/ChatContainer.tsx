@@ -21,13 +21,14 @@ import {
 interface ChatContainerProps {
   messages: Message[];
   streamingContent: string;
-  onSendMessage: (content: string, images?: string[]) => Promise<void> | void;
+  onSendMessage: (content: string, images?: File[]) => Promise<void> | void;
   isLoading: boolean;
   mode: ConversationMode;
   showDisclaimer: boolean;
   onQuickReply?: (reply: string) => void;
   intakeComplete?: boolean;
   onNewConsultation?: () => void;
+  onGoToDermatologistReview?: () => void;
 }
 
 function parseOptions(content: string): { cleanText: string; options: string[] } {
@@ -103,8 +104,8 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
                 isSelected
                   ? 'bg-navy text-white border-navy shadow-md'
                   : isOther
-                  ? 'bg-white text-navy border-navy/30 hover:border-navy hover:bg-navy/5'
-                  : 'bg-white text-navy border-navy/20 hover:border-navy/60 hover:bg-navy/5',
+                    ? 'bg-white text-navy border-navy/30 hover:border-navy hover:bg-navy/5'
+                    : 'bg-white text-navy border-navy/20 hover:border-navy/60 hover:bg-navy/5',
                 isDisabled && !isSelected && 'opacity-40 cursor-not-allowed',
                 isOther && !isDisabled && 'flex items-center gap-1'
               )}
@@ -194,6 +195,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onQuickReply,
   intakeComplete = false,
   onNewConsultation,
+  onGoToDermatologistReview,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -260,6 +262,34 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const handleOptionSelect = (value: string) => {
     onSendMessage(value);
+  };
+
+  const handleGoToReview = () => {
+    if (onGoToDermatologistReview) {
+      onGoToDermatologistReview();
+      return;
+    }
+    if (onQuickReply) {
+      onQuickReply('YES');
+      return;
+    }
+    onSendMessage('YES');
+  };
+
+  const handleConfirmPay = () => {
+    if (onQuickReply) {
+      onQuickReply('PAYNOW');
+      return;
+    }
+    onSendMessage('PAYNOW');
+  };
+
+  const handleGoBack = () => {
+    if (onQuickReply) {
+      onQuickReply('DEFER');
+      return;
+    }
+    onSendMessage('DEFER');
   };
 
   return (
@@ -362,7 +392,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </div>
       </div>
 
-      {showConsentConfirm && onQuickReply && (
+      {showConsentConfirm && (
         <div className="border-t border-gray-100 bg-white p-6 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] flex-shrink-0 relative z-10">
           <div className="flex items-start gap-3 text-navy">
             <div className="bg-navy/10 p-2 rounded-full flex-shrink-0">
@@ -381,14 +411,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             <Button
               variant="outline"
               className="flex-1 h-11 border-gray-200 text-navy font-bold uppercase text-xs tracking-widest"
-              onClick={() => onQuickReply('DEFER')}
+              onClick={handleGoBack}
               disabled={isLoading}
             >
               <ArrowLeft className="h-4 w-4 mr-2" /> Go Back
             </Button>
             <Button
               className="flex-1 h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
-              onClick={() => onQuickReply('PAYNOW')}
+              onClick={handleConfirmPay}
               disabled={isLoading}
             >
               <CheckCircle className="h-4 w-4 mr-2" /> Confirm & Pay
@@ -414,7 +444,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
           <Button
             className="w-full h-11 bg-navy hover:bg-navy/90 text-white font-bold uppercase text-xs tracking-widest shadow-lg shadow-navy/20"
-            onClick={() => onQuickReply?.('YES')}
+            onClick={handleGoToReview}
             disabled={isLoading}
           >
             <Stethoscope className="h-3.5 w-3.5 mr-2" />
@@ -440,7 +470,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
           <Button
             className="w-full h-12 bg-[#16437E] hover:bg-[#0d2d5a] text-white font-bold uppercase text-xs tracking-widest shadow-xl shadow-navy/20"
-            onClick={() => onQuickReply?.('YES')}
+            onClick={handleGoToReview}
             disabled={isLoading}
           >
             <Stethoscope className="h-3.5 w-3.5 mr-2" />
