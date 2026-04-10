@@ -1,5 +1,3 @@
-// 🔥 ONLY CHANGES ARE MARKED WITH ✅ FIX
-
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { Button } from '@/components/ui/button';
@@ -47,23 +45,16 @@ interface ConsultationHistoryItem {
   created_at: string;
 }
 
-/* =========================================================
-   ✅ FIX 1: FORCE BOLD HEADINGS FORMAT
-========================================================= */
 const formatMessageContent = (text: string) => {
   if (!text) return '';
 
   return text
     .replace(
-      /(Most Consistent With|Close Differentials|Morphologic Justification|Educational Treatment Framework|Typical Course and Prognosis|When In-Person Evaluation Is Considered|Educational References)/gi,
+      /(Most Consistent With|Close Differentials|Morphologic Justification|Educational Treatment Framework|Typical Course and Prognosis|When In-Person Evaluation Is Considered|Educational References|Primary Likely Diagnosis|Differential Diagnoses|Key Morphologic Features|Red Flags|Suggested Investigations|Diagnostic Confidence)/gi,
       '**$1**'
     )
     .replace(/\n{3,}/g, '\n\n');
 };
-
-/* =========================================================
-   AI LIMIT BADGE (UNCHANGED)
-========================================================= */
 
 const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
   if (remaining <= 0) {
@@ -111,9 +102,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
 
-  /* =========================================================
-     ✅ FIX 2: BLOCK AI AFTER DOCTOR RESPONSE
-  ========================================================= */
   const doctorHasResponded = useMemo(() => {
     return messages.some((m) => m.role === 'doctor');
   }, [messages]);
@@ -121,8 +109,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
-    return chatMessages.filter((msg) => msg.role === 'ai' || msg.role === 'AI')
-      .length;
+    return chatMessages.filter((msg) => msg.role === 'ai' || msg.role === 'AI').length;
   }, []);
 
   const getRemainingEducationalMessages = useCallback(
@@ -141,9 +128,18 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     return getRemainingEducationalMessages(resolvedMessages);
   }, [resolvedMessages, mode, getRemainingEducationalMessages]);
 
-  /* =========================================================
-     FETCH
-  ========================================================= */
+  const fetchConsultationHistory = useCallback(async () => {
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const res = await fetch(`${BASE_URL}/api/consultation_list/`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await res.json();
+      setHistory(data.history || []);
+    } catch (error) {
+      console.error('Failed to fetch consultation history:', error);
+    }
+  }, []);
 
   const fetchChatHistory = useCallback(async (threadId?: string) => {
     try {
@@ -159,9 +155,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       const data = await res.json();
 
-      /* =========================================================
-         ✅ FIX 3: FORMAT ALL INCOMING MESSAGES
-      ========================================================= */
       const formatted = (data.conv || []).map((m: ChatMessage) => ({
         ...m,
         content: formatMessageContent(m.content),
@@ -169,91 +162,148 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       setMessages(formatted);
 
+      if (data.thread_id) {
+        setActiveThreadId(data.thread_id);
+        try {
+          localStorage.setItem(getPatientChatCacheKey(data.thread_id), JSON.stringify(formatted));
+        } catch (e) {
+          console.error('Cache write failed:', e);
+        }
+      }
+
       if (data.mode) setMode(data.mode);
-      if (data.thread_id) setActiveThreadId(data.thread_id);
     } catch (e) {
-      console.error(e);
+      console.error('Failed to fetch chat history:', e);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  /* =========================================================
-     SEND MESSAGE
-  ========================================================= */
+  useEffect(() => {
+    fetchConsultationHistory();
+    fetchChatHistory();
+  }, [fetchConsultationHistory, fetchChatHistory]);
 
-  const handleSendMessage = async (content: string, images?: string[]) => {
-    if (isSendingRef.current || isLoading) return;
-
-    /* =========================================================
-       ✅ FIX 4: STOP AI AFTER DOCTOR RESPONSE
-    ========================================================= */
-    if (doctorHasResponded) {
-      // Only append message locally, DO NOT CALL AI
-      const userMessage: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content,
-        images,
-      };
-
-      setMessages((prev) => [...prev, userMessage]);
-
-      toast({
-        title: 'Message Sent',
-        description: 'Waiting for doctor response.',
-      });
-
-      return;
+  useEffect(() => {
+    if (!activeThreadId) return;
+    try {
+      const cached = localStorage.getItem(getPatientChatCacheKey(activeThreadId));
+      if (cached) {
+        setCachedMessages(JSON.parse(cached));
+      }
+    } catch (e) {
+      console.error('Cache read failed:', e);
     }
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+    try {
+      localStorage.setItem(getPatientChatCacheKey(activeThreadId), JSON.stringify(messages));
+    } catch (e) {
+      console.error('Cache update failed:', e);
+    }
+  }, [messages, activeThreadId]);
+
+  const handleSelectHistory = async (threadId: string) => {
+    setActiveThreadId(threadId);
+    await fetchChatHistory(threadId);
+    if (isMobile) setShowHistory(false);
+  };
+
+  const handleRefresh = async () => {
+    await fetchConsultationHistory();
+    await fetchChatHistory(activeThreadId || undefined);
+  };
+
+  const handleSendMessage = async (content: string, images?: File[]) => {
+    if (isSendingRef.current || isLoading) return;
+    if (!content?.trim() && (!images || images.length === 0)) return;
 
     isSendingRef.current = true;
 
-    const userMessage: ChatMessage = {
+    const tempUserMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       content,
-      images,
+      images: [],
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => [...prev, tempUserMessage]);
     setIsLoading(true);
 
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', content);
-      formData.append('thread_id', activeThreadId || '');
+      formData.append('question', content || '');
+      if (activeThreadId) formData.append('thread_id', activeThreadId);
+
+      if (images && images.length > 0) {
+        images.forEach((file) => {
+          formData.append('image', file);
+        });
+      }
 
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
         body: formData,
       });
 
       const data = await res.json();
 
+      if (data.error) {
+        toast({
+          title: 'Error',
+          description: data.errorMsg || 'Could not send message.',
+          variant: 'destructive',
+        });
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempUserMessage.id));
+        return;
+      }
+
+      if (data.mode) {
+        setMode(data.mode);
+      }
+
+      if (data.thread_id && !activeThreadId) {
+        setActiveThreadId(data.thread_id);
+      }
+
       if (data.result) {
+        const aiRole =
+          data.role === 'system'
+            ? 'system'
+            : doctorHasResponded || data.mode === 'doctor_patient'
+              ? 'system'
+              : 'ai';
+
         setMessages((prev) => [
           ...prev,
           {
-            id: `ai-${Date.now()}`,
-            role: 'ai',
-            content: formatMessageContent(data.result), // ✅ FIX
+            id: `${aiRole}-${Date.now()}`,
+            role: aiRole,
+            content: formatMessageContent(data.result),
           },
         ]);
       }
+
+      await fetchConsultationHistory();
     } catch (e) {
-      console.error(e);
+      console.error('Send message failed:', e);
+      toast({
+        title: 'Error',
+        description: 'Could not send message.',
+        variant: 'destructive',
+      });
+      setMessages((prev) => prev.filter((msg) => msg.id !== tempUserMessage.id));
     } finally {
       setIsLoading(false);
       isSendingRef.current = false;
     }
   };
-
-  /* =========================================================
-     TRANSFORM MESSAGES
-  ========================================================= */
 
   const transformedMessages = resolvedMessages.map((msg) => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
@@ -273,31 +323,124 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     };
   });
 
-  /* =========================================================
-     UI (UNCHANGED)
-  ========================================================= */
+  const historySidebar = (
+    <div className="h-full border-r bg-white">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-800">Consultations</h3>
+        </div>
+        <Button variant="ghost" size="icon" onClick={handleRefresh}>
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <ScrollArea className="h-[calc(100%-57px)]">
+        <div className="p-2">
+          {history.length === 0 ? (
+            <div className="px-3 py-6 text-sm text-slate-500">No consultations yet.</div>
+          ) : (
+            history.map((item) => {
+              const isActive = activeThreadId === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleSelectHistory(item.id)}
+                  className={cn(
+                    'mb-2 w-full rounded-xl border px-3 py-3 text-left transition',
+                    isActive
+                      ? 'border-blue-200 bg-blue-50'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  )}
+                >
+                  <div className="truncate text-sm font-semibold text-slate-800">
+                    {item.name || 'Consultation'}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>{item.mode}</span>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
 
   return (
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh] flex items-center">
       <div className="container mx-auto max-w-6xl">
-
         {remainingMessages !== null && (
           <div className="px-4 pt-3 pb-1 bg-white border-b border-gray-100">
             <AiMessagesLeftBadge remaining={remainingMessages} />
           </div>
         )}
 
-        <div className="bg-white rounded-2xl shadow-xl border flex flex-col h-[700px]">
-          <ChatContainer
-            messages={transformedMessages}
-            streamingContent=""
-            onSendMessage={handleSendMessage}
-            isLoading={isLoading}
-            mode={mode}
-            showDisclaimer={resolvedMessages.length === 0}
-            intakeComplete={intakeComplete}
-          />
+        <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[700px]">
+            {!isMobile && showHistory && historySidebar}
+
+            <div className="flex min-h-0 flex-col">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="flex items-center gap-3">
+                  {isMobile && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowHistory(true)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">Dermatology Chat</h2>
+                    <p className="text-xs text-slate-500">
+                      {mode === 'doctor_patient'
+                        ? 'Doctor will reply directly'
+                        : mode === 'dermatologist_review'
+                          ? 'Awaiting dermatologist review'
+                          : mode === 'final_output'
+                            ? 'Consultation completed'
+                            : 'AI assistant active'}
+                    </p>
+                  </div>
+                </div>
+
+                {mode === 'payment_page' && (
+                  <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
+                )}
+              </div>
+
+              <div className="flex-1 min-h-0">
+                <ChatContainer
+                  messages={transformedMessages}
+                  streamingContent=""
+                  onSendMessage={handleSendMessage}
+                  isLoading={isLoading}
+                  mode={mode}
+                  showDisclaimer={resolvedMessages.length === 0}
+                  intakeComplete={intakeComplete}
+                />
+              </div>
+            </div>
+          </div>
         </div>
+
+        {isMobile && (
+          <Sheet open={showHistory} onOpenChange={setShowHistory}>
+            <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
+              {historySidebar}
+            </SheetContent>
+          </Sheet>
+        )}
+
+        {showPayment && (
+          <div className="mt-6">
+            <PaymentPage />
+          </div>
+        )}
       </div>
     </section>
   );
