@@ -165,7 +165,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       setMessages(formatted);
 
-      if (data.thread_id) {
+      if (data.thread_id && threadId) {
         setActiveThreadId(data.thread_id);
         try {
           localStorage.setItem(
@@ -253,7 +253,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       setMode('general_education');
 
       await fetchConsultationHistory();
-      await fetchChatHistory();
 
       if (isMobile) {
         setShowHistory(false);
@@ -261,7 +260,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
       toast({
         title: 'New Consultation',
-        description: 'A new consultation has been opened.',
+        description: 'Start typing to begin a new consultation.',
       });
     } catch (e) {
       console.error('New consultation failed:', e);
