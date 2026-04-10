@@ -259,7 +259,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     )
     .trim();
 
-  const renderedContent = shouldFormat ? formatContent(cleanContent) : cleanContent;
+  const renderedContent = shouldFormat
+    ? formatContent(cleanContent)
+    : cleanContent || ' ';
 
   const mdComponents = {
     p: MarkdownP,
