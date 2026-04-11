@@ -1,11 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ImagePlus, Send, X } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 
 interface ChatInputProps {
-  onSend: (content: string, images?: string[]) => Promise<void> | void;
+  onSend: (content: string, images?: File[]) => Promise<void> | void;
   isLoading: boolean;
   mode: ConversationMode;
   disabled?: boolean;
@@ -13,25 +13,14 @@ interface ChatInputProps {
 
 interface PendingImage {
   id: string;
-  dataUrl: string;
+  previewUrl: string;
   fingerprint: string;
   fileName: string;
+  file: File;
 }
 
 function buildFingerprint(file: File): string {
   return `${file.name}__${file.size}__${file.lastModified}`;
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') resolve(reader.result);
-      else reject(new Error('Failed to convert file to data URL'));
-    };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -47,9 +36,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesRef = useRef<PendingImage[]>([]);
 
-  // Only allow images in intake and review modes (Bug 4 alignment)
+  // Only allow images in intake and review modes
   const canAttachImages = useMemo(() => {
-    return mode === 'post_payment_intake' || mode === 'dermatologist_review' || mode === 'final_output';
+    return (
+      mode === 'post_payment_intake' ||
+      mode === 'dermatologist_review' ||
+      mode === 'final_output'
+    );
   }, [mode]);
 
   const hasImages = images.length > 0;
@@ -65,10 +58,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const setImagesState = (updater: (prev: PendingImage[]) => PendingImage[]) => {
-    setImages(prev => {
+    setImages((prev) => {
       const next = updater(prev);
       imagesRef.current = next;
       return next;
+    });
+  };
+
+  const revokePreviewUrls = (items: PendingImage[]) => {
+    items.forEach((item) => {
+      try {
+        URL.revokeObjectURL(item.previewUrl);
+      } catch (e) {
+        console.error('Failed to revoke preview URL:', e);
+      }
     });
   };
 
@@ -82,26 +85,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const selectedFiles = Array.from(files);
 
     try {
-      const newItems = await Promise.all(
-        selectedFiles.map(async file => {
-          const dataUrl = await fileToDataUrl(file);
-          return {
-            id: `${Date.now()}-${Math.random()}`,
-            dataUrl,
-            fingerprint: buildFingerprint(file),
-            fileName: file.name,
-          } as PendingImage;
-        })
-      );
+      const newItems: PendingImage[] = selectedFiles.map((file) => ({
+        id: `${Date.now()}-${Math.random()}`,
+        previewUrl: URL.createObjectURL(file),
+        fingerprint: buildFingerprint(file),
+        fileName: file.name,
+        file,
+      }));
 
-      setImagesState(prev => {
-        const seen = new Set(prev.map(img => img.fingerprint));
+      setImagesState((prev) => {
+        const seen = new Set(prev.map((img) => img.fingerprint));
         const valid: PendingImage[] = [];
+
         for (const item of newItems) {
-          if (!item || seen.has(item.fingerprint)) continue;
+          if (!item || seen.has(item.fingerprint)) {
+            try {
+              URL.revokeObjectURL(item.previewUrl);
+            } catch (e) {
+              console.error('Failed to revoke duplicate preview URL:', e);
+            }
+            continue;
+          }
           seen.add(item.fingerprint);
           valid.push(item);
         }
+
         return [...prev, ...valid];
       });
     } catch (err) {
@@ -112,13 +120,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleRemoveImage = (id: string) => {
-    setImagesState(prev => prev.filter(img => img.id !== id));
+    setImagesState((prev) => {
+      const removed = prev.filter((img) => img.id === id);
+      revokePreviewUrls(removed);
+      return prev.filter((img) => img.id !== id);
+    });
     resetFileInput();
   };
 
   const clearAll = () => {
     setText('');
-    setImagesState(() => []);
+    setImagesState((prev) => {
+      revokePreviewUrls(prev);
+      return [];
+    });
     resetFileInput();
   };
 
@@ -132,7 +147,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setSending(true);
 
     try {
-      const payloadImages = currentImages.map(img => img.dataUrl);
+      const payloadImages = currentImages.map((img) => img.file);
       await onSend(currentTrimmedText, payloadImages.length ? payloadImages : undefined);
       clearAll();
     } catch (err) {
@@ -149,14 +164,28 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  useEffect(() => {
+    return () => {
+      revokePreviewUrls(imagesRef.current);
+    };
+  }, []);
+
   return (
     <div className="border-t border-border bg-card p-3 md:p-4">
       {hasImages && (
         <div className="mb-3 flex flex-wrap gap-2 rounded-lg border border-dashed bg-muted/30 p-2">
-          {images.map(img => (
+          {images.map((img) => (
             <div key={img.id} className="relative">
-              <img src={img.dataUrl} alt={img.fileName} className="h-20 w-20 rounded-md border object-cover" />
-              <button type="button" onClick={() => handleRemoveImage(img.id)} className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white">
+              <img
+                src={img.previewUrl}
+                alt={img.fileName}
+                className="h-20 w-20 rounded-md border object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveImage(img.id)}
+                className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white"
+              >
                 <X className="h-3 w-3" />
               </button>
             </div>
@@ -167,8 +196,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <div className="flex items-end gap-2">
         {canAttachImages && (
           <>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePickImages} disabled={isLoading || disabled || sending} />
-            <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading || disabled || sending}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handlePickImages}
+              disabled={isLoading || disabled || sending}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || disabled || sending}
+            >
               <ImagePlus className="h-4 w-4" />
             </Button>
           </>
@@ -176,9 +219,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         <Textarea
           value={text}
-          onChange={e => setText(e.target.value)}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={canAttachImages ? "Type message or upload images..." : "Type your message..."}
+          placeholder={canAttachImages ? 'Type message or upload images...' : 'Type your message...'}
           disabled={isLoading || disabled || sending}
           className="min-h-[52px] max-h-40 resize-none"
         />
