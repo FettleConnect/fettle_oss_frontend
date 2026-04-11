@@ -622,6 +622,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                     mode={mode}
                     showDisclaimer={resolvedMessages.length === 0}
                     intakeComplete={intakeComplete}
+                    patientLabel="You"
                   />
                 </div>
               </div>
