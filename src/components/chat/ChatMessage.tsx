@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  patientLabel?: string; // "You" in patient view, patient name in doctor view
 }
 
 const MODULE_4_TITLES = [
@@ -19,7 +20,6 @@ const MODULE_4_TITLES = [
   'When In-Person Evaluation Is Considered',
   'Educational References',
 ];
-
 const MODULE_3_TITLES = [
   'Primary Likely Diagnosis',
   'Differential Diagnoses (Ranked)',
@@ -30,7 +30,6 @@ const MODULE_3_TITLES = [
   'Suggested Investigations',
   'Diagnostic Confidence',
 ];
-
 const ALL_SECTION_TITLES = [...MODULE_4_TITLES, ...MODULE_3_TITLES];
 
 interface MarkdownProps {
@@ -41,30 +40,24 @@ interface MarkdownProps {
 const MarkdownP = ({ children }: MarkdownProps) => (
   <p className="whitespace-pre-wrap mb-2 last:mb-0">{children}</p>
 );
-
 // inline style — cannot be overridden by any CSS class or reset
 const MarkdownStrong = ({ children }: MarkdownProps) => (
   <strong style={{ fontWeight: 700 }}>{children}</strong>
 );
-
 const BoldHeading = ({ children }: MarkdownProps) => (
   <p style={{ fontWeight: 700 }} className="text-sm mt-3 mb-1">
     {children}
   </p>
 );
-
 const MarkdownUl = ({ children }: MarkdownProps) => (
   <ul className="list-disc list-outside pl-5 mb-2 space-y-1">{children}</ul>
 );
-
 const MarkdownOl = ({ children }: MarkdownProps) => (
   <ol className="list-decimal list-outside pl-5 mb-2 space-y-1">{children}</ol>
 );
-
 const MarkdownLi = ({ children }: MarkdownProps) => (
   <li className="text-sm leading-relaxed">{children}</li>
 );
-
 const MarkdownA = ({ href, children }: MarkdownProps) => (
   <a
     href={href}
@@ -78,11 +71,9 @@ const MarkdownA = ({ href, children }: MarkdownProps) => (
 
 const DoctorAvatar: React.FC = () => {
   const [imgFailed, setImgFailed] = React.useState(false);
-
   if (imgFailed) {
     return <Stethoscope className="h-3.5 w-3.5 text-white" />;
   }
-
   return (
     <img
       src="/doctor-photo.jpg"
@@ -93,14 +84,12 @@ const DoctorAvatar: React.FC = () => {
   );
 };
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming, patientLabel }) => {
   const role = String(message.role || '').toLowerCase();
-
   const isPatient = role === 'patient' || role === 'user';
   const isDoctor = role === 'doctor';
   const isSystem = role === 'system';
   const isAI = role === 'ai' || role === 'assistant';
-
   const shouldFormat = !isPatient && !isSystem;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -112,14 +101,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     setLightboxIndex(idx);
     setLightboxOpen(true);
   };
-
   const closeLightbox = useCallback(() => setLightboxOpen(false), []);
-
   const prevImage = useCallback(() => {
     if (images.length === 0) return;
     setLightboxIndex((i) => (i - 1 + images.length) % images.length);
   }, [images.length]);
-
   const nextImage = useCallback(() => {
     if (images.length === 0) return;
     setLightboxIndex((i) => (i + 1) % images.length);
@@ -146,13 +132,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   useEffect(() => {
     if (!lightboxOpen) return;
-
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowLeft') prevImage();
       if (e.key === 'ArrowRight') nextImage();
     };
-
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
@@ -163,51 +147,43 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
-
     const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
     const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = linkifyUrls(normalized);
-
     return withLinks
       .split('\n')
       .map((line) => {
         const trimmed = line.trim();
         if (trimmed.length < 2) return line;
-
         // Never touch numbered list items
         if (/^\d+\.\s/.test(trimmed)) return line;
-
         // Already a markdown heading — leave it
         if (trimmed.startsWith('#')) return trimmed;
-
         // Strip ** markers and trailing colon
         const stripped = trimmed.replace(/\*\*/g, '').replace(/:$/, '').trim();
-
         // Match known section titles -> emit as ### so BoldHeading renders bold
         const isHeader = ALL_SECTION_TITLES.some(
           (title) =>
             stripped.toLowerCase() === title.toLowerCase() ||
             stripped.toLowerCase().startsWith(title.toLowerCase() + ':')
         );
-
         if (isHeader) {
           return `### ${stripped}`;
         }
-
         // Inline bold that isn't a section title
         if (trimmed.startsWith('**')) return trimmed;
-
         // Short Title Case label lines -> inline bold
         if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
           return `**${trimmed}**`;
         }
-
         return line;
       })
       .join('\n');
   };
 
   const getRoleLabel = () => {
+    // Use patientLabel if provided ("You" in patient view, patient name in doctor view)
+    if (isPatient && patientLabel) return patientLabel;
     if (message.senderName && isPatient) return message.senderName;
     if (isPatient) return 'Patient';
     if (isDoctor) return 'Dr. Sasi Kiran Attili';
@@ -321,7 +297,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
             <span>{getRoleLabel()}</span>
           </div>
         )}
-
         <div
           className={cn(
             'rounded-2xl px-5 py-3.5 text-sm leading-relaxed shadow-sm',
@@ -332,7 +307,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
             {renderedContent}
           </ReactMarkdown>
-
           {images.length > 0 && (
             <div
               className={cn(
@@ -360,19 +334,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               ))}
             </div>
           )}
-
           {isStreaming && (
             <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-middle" />
           )}
         </div>
-
         {formattedTime && (
           <span className="text-[10px] text-gray-400 font-medium px-1 uppercase tracking-tighter">
             {formattedTime}
           </span>
         )}
       </div>
-
       {lightboxOpen && images.length > 0 && (
         <div
           className="fixed inset-0 z-[100] bg-navy/95 backdrop-blur-md flex items-center justify-center p-4"
@@ -395,14 +366,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               <X className="h-6 w-6" />
             </button>
           </div>
-
           <img
             src={images[lightboxIndex]}
             alt={`Clinical image ${lightboxIndex + 1}`}
             onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl border border-white/10"
           />
-
           {images.length > 1 && (
             <>
               <button
@@ -425,7 +394,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
               </button>
             </>
           )}
-
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full text-white text-xs font-bold uppercase tracking-widest">
             Image {lightboxIndex + 1} of {images.length}
           </div>
