@@ -424,13 +424,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('question', content || '');
+      formData.append(
+        'question',
+        content?.trim() || (images && images.length > 0 ? 'Please analyze this image.' : '')
+      );
       if (activeThreadId) {
         formData.append('thread_id', activeThreadId);
       }
       if (images && images.length > 0) {
         images.forEach((file) => {
-          formData.append('image', file);
+          formData.append('images', file);
         });
       }
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
