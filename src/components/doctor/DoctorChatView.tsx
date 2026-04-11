@@ -691,7 +691,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', String(conversation.id));
-      formData.append('question', buildCompleteDraftFromSource(patientMessage));
+      // FIX: Send patientMessage directly instead of reprocessing through
+      // buildCompleteDraftFromSource, which was overwriting doctor/AI edits
+      // with template/fallback content.
+      formData.append('question', patientMessage.trim());
 
       const uniqueImages = Array.from(
         new Map(images.map((img) => [img.dataUrl, img])).values()
