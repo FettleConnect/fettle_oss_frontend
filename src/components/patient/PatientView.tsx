@@ -38,31 +38,32 @@ interface ChatMessage {
   images?: string[];
 }
 
+// FIX: Added title and updated_at so sidebar can show proper date
 interface ConsultationHistoryItem {
   id: string;
-  name?: string;
+  name: string;
   title?: string;
-  mode?: string;
-  status?: string;
-  created_at?: string;
+  mode: string;
+  status: string;
+  created_at: string;
   updated_at?: string;
 }
 
-// FIX: Removed the regex that injected **bold** markers around section titles.
-// The backend already applies ensure_markdown_bold_headings() to structured
-// module outputs (module3 / module4). Running it again here on every message
-// caused plain conversational replies to also get bold headings injected,
-// which the frontend then rendered as bold/heading text for ALL AI messages.
-// Only clean up excessive blank lines — nothing else.
 const formatMessageContent = (text: string) => {
   if (!text) return '';
-  return text.replace(/\n{3,}/g, '\n\n');
+  return text
+    .replace(
+      /(Most Consistent With|Close Differentials|Morphologic Justification|Educational Treatment Framework|Typical Course and Prognosis|When In-Person Evaluation Is Considered|Educational References|Primary Likely Diagnosis|Differential Diagnoses|Key Morphologic Features|Red Flags|Suggested Investigations|Diagnostic Confidence)/gi,
+      '**$1**'
+    )
+    .replace(/\n{3,}/g, '\n\n');
 };
 
+// FIX: Helper to format date for sidebar
 const formatConsultationDate = (value?: string) => {
-  if (!value) return 'No date';
+  if (!value) return '';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'No date';
+  if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleString([], {
     year: 'numeric',
     month: 'short',
@@ -70,12 +71,6 @@ const formatConsultationDate = (value?: string) => {
     hour: 'numeric',
     minute: '2-digit',
   });
-};
-
-const getConsultationTitle = (item: ConsultationHistoryItem, index: number) => {
-  const rawTitle = item.title || item.name;
-  if (rawTitle && rawTitle.trim()) return rawTitle.trim();
-  return `Consultation ${index + 1}`;
 };
 
 const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
@@ -105,14 +100,6 @@ const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
 
 const getPatientChatCacheKey = (threadId: string | null) =>
   `patient-chat-${threadId || 'default'}`;
-
-// Tracks active blob URLs so we can revoke them on cleanup to avoid memory leaks
-const activeBlobUrls: string[] = [];
-const createBlobUrl = (file: File): string => {
-  const url = URL.createObjectURL(file);
-  activeBlobUrls.push(url);
-  return url;
-};
 
 export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
@@ -182,7 +169,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           }))
         : [];
       setMessages(formatted);
-      if (data.thread_id && threadId) {
+      if (data.thread_id) {
         setActiveThreadId(data.thread_id);
         try {
           localStorage.setItem(
@@ -196,10 +183,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setActiveThreadId(null);
       }
       if (data.mode) {
-        setMode(data.mode as ConversationMode);
-        if (data.mode === 'payment_page') {
-          setShowPayment(true);
-        }
+        setMode(data.mode);
       }
     } catch (e) {
       console.error('Failed to fetch chat history:', e);
@@ -215,17 +199,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchConsultationHistory();
     fetchChatHistory();
   }, [fetchConsultationHistory, fetchChatHistory]);
-
-  // Polling for doctor replies when in doctor_patient or dermatologist_review mode.
-  useEffect(() => {
-    if (mode !== 'doctor_patient' && mode !== 'dermatologist_review') return;
-    const interval = setInterval(() => {
-      if (!isSendingRef.current) {
-        fetchChatHistory(activeThreadId || undefined);
-      }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [mode, activeThreadId, fetchChatHistory]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -259,21 +232,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, [messages, activeThreadId]);
 
-  // Revoke blob URLs on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      activeBlobUrls.forEach((url) => URL.revokeObjectURL(url));
-      activeBlobUrls.length = 0;
-    };
-  }, []);
-
-  // Clear both messages AND cachedMessages when switching threads to prevent
-  // old thread content flashing while the new thread loads.
   const handleSelectHistory = async (threadId: string) => {
-    setMessages([]);
-    setCachedMessages([]);
     setActiveThreadId(threadId);
-    setShowPayment(false);
     await fetchChatHistory(threadId);
     if (isMobile) {
       setShowHistory(false);
@@ -288,18 +248,29 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleNewConsultation = async () => {
     try {
       setIsLoading(true);
+      const authToken = localStorage.getItem('authToken');
+      const res = await fetch(`${BASE_URL}/api/archive_consultation/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.thread_id) {
+        throw new Error(data.errorMsg || 'Could not start a new consultation.');
+      }
       setMessages([]);
       setCachedMessages([]);
-      setActiveThreadId(null);
       setMode('general_education');
-      setShowPayment(false);
+      setActiveThreadId(data.thread_id);
       await fetchConsultationHistory();
+      await fetchChatHistory(data.thread_id);
       if (isMobile) {
         setShowHistory(false);
       }
       toast({
         title: 'New Consultation',
-        description: 'Start typing to begin a new consultation.',
+        description: 'A new consultation has been opened.',
       });
     } catch (e) {
       console.error('New consultation failed:', e);
@@ -313,110 +284,16 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handlePaymentSuccess = useCallback(async () => {
-    setShowPayment(false);
-    setIsLoading(true);
-    try {
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', 'PAYMENT_CONFIRMED');
-      if (activeThreadId) {
-        formData.append('thread_id', activeThreadId);
-      }
-      const res = await fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.mode) {
-        setMode(data.mode as ConversationMode);
-      }
-      const nextThreadId = data.thread_id || activeThreadId;
-      if (data.thread_id) {
-        setActiveThreadId(data.thread_id);
-      }
-      await fetchChatHistory(nextThreadId || undefined);
-      await fetchConsultationHistory();
-      toast({ title: 'Payment successful', description: 'Proceeding to intake.' });
-    } catch (e) {
-      console.error('Payment advance failed:', e);
-      await fetchChatHistory(activeThreadId || undefined);
-      toast({ title: 'Payment received', description: 'Loading your consultation.' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeThreadId, fetchChatHistory, fetchConsultationHistory, toast]);
-
-  const handlePaymentCancel = useCallback(() => {
-    setShowPayment(false);
-  }, []);
-
-  const handleGoToDermatologistReview = async () => {
-    if (isSendingRef.current || isLoading) return;
-    isSendingRef.current = true;
-    setIsLoading(true);
-    try {
-      const authToken = localStorage.getItem('authToken');
-      const formData = new FormData();
-      formData.append('question', 'Go to dermatologist review');
-      if (activeThreadId) {
-        formData.append('thread_id', activeThreadId);
-      }
-      const res = await fetch(`${BASE_URL}/api/chat_view/`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.error) {
-        toast({
-          title: 'Error',
-          description: data.errorMsg || 'Could not continue to dermatologist review.',
-          variant: 'destructive',
-        });
-        return;
-      }
-      if (data.mode) {
-        setMode(data.mode as ConversationMode);
-      }
-      const nextThreadId = data.thread_id || activeThreadId;
-      if (data.thread_id) {
-        setActiveThreadId(data.thread_id);
-      }
-      await fetchChatHistory(nextThreadId || undefined);
-      await fetchConsultationHistory();
-      if (data.mode === 'payment_page') {
-        setShowPayment(true);
-      }
-    } catch (e) {
-      console.error('Go to dermatologist review failed:', e);
-      toast({
-        title: 'Error',
-        description: 'Could not continue to dermatologist review.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-      isSendingRef.current = false;
-    }
-  };
-
   const handleSendMessage = async (content: string, images?: File[]) => {
     if (isSendingRef.current || isLoading) return;
     if (!content?.trim() && (!images || images.length === 0)) return;
     isSendingRef.current = true;
 
-    // Use blob URLs so uploaded images appear immediately in the user bubble
-    const blobImageUrls = images && images.length > 0
-      ? images.map((f) => createBlobUrl(f))
-      : [];
-
     const tempUserMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       content,
-      images: blobImageUrls,
+      images: [],
     };
     setMessages((prev) => [...prev, tempUserMessage]);
     setIsLoading(true);
@@ -424,21 +301,20 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append(
-        'question',
-        content?.trim() || (images && images.length > 0 ? 'Please analyze this image.' : '')
-      );
+      formData.append('question', content || '');
       if (activeThreadId) {
         formData.append('thread_id', activeThreadId);
       }
       if (images && images.length > 0) {
         images.forEach((file) => {
-          formData.append('images', file);
+          formData.append('image', file);
         });
       }
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
         body: formData,
       });
       const data = await res.json();
@@ -452,21 +328,28 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         return;
       }
       if (data.mode) {
-        setMode(data.mode as ConversationMode);
+        setMode(data.mode);
       }
-      const nextThreadId = data.thread_id || activeThreadId;
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
-      // Refetch full chat history after every send so:
-      // 1. Temp blob URLs are replaced with permanent server-stored image URLs
-      // 2. The face/PII warning message from the backend appears correctly
-      // 3. Doctor messages added server-side appear correctly
-      await fetchChatHistory(nextThreadId || undefined);
-      await fetchConsultationHistory();
-      if (data.mode === 'payment_page') {
-        setShowPayment(true);
+      if (data.result) {
+        const aiRole =
+          data.role === 'system'
+            ? 'system'
+            : data.mode === 'doctor_patient'
+              ? 'system'
+              : 'ai';
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `${aiRole}-${Date.now()}`,
+            role: aiRole,
+            content: formatMessageContent(data.result),
+          },
+        ]);
       }
+      await fetchConsultationHistory();
     } catch (e) {
       console.error('Send message failed:', e);
       toast({
@@ -523,9 +406,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           {history.length === 0 ? (
             <div className="px-3 py-6 text-sm text-slate-500">No consultations yet.</div>
           ) : (
-            history.map((item, index) => {
+            history.map((item) => {
               const isActive = activeThreadId === item.id;
-              const title = getConsultationTitle(item, index);
+              // FIX: Show consultation title and formatted date instead of raw mode string
+              const title = item.title || item.name || 'Consultation';
               const dateText = formatConsultationDate(item.updated_at || item.created_at);
               return (
                 <button
@@ -541,6 +425,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   <div className="truncate text-sm font-semibold text-slate-800">
                     {title}
                   </div>
+                  {/* FIX: Show formatted date instead of raw item.mode */}
                   <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                     <Clock className="h-3.5 w-3.5 flex-shrink-0" />
                     <span className="truncate">{dateText}</span>
@@ -557,76 +442,66 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   return (
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh] flex items-center">
       <div className="container mx-auto max-w-6xl">
-        {remainingMessages !== null && (
-          <div className="px-4 pt-3 pb-1 bg-white border-b border-gray-100">
-            <AiMessagesLeftBadge remaining={remainingMessages} />
-          </div>
-        )}
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[700px]">
             {!isMobile && showHistory && historySidebar}
-            {showPayment ? (
-              <PaymentPage
-                onPaymentSuccess={handlePaymentSuccess}
-                onCancel={handlePaymentCancel}
-              />
-            ) : (
-              <div className="flex min-h-0 flex-col">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    {isMobile && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setShowHistory(true)}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <div>
-                      <h2 className="text-sm font-semibold text-slate-900">
-                        Dermatology Chat
-                      </h2>
-                      <p className="text-xs text-slate-500">
-                        {mode === 'doctor_patient'
-                          ? 'Doctor will reply directly'
-                          : mode === 'dermatologist_review'
-                            ? 'Awaiting dermatologist review'
-                            : mode === 'final_output'
-                              ? 'Consultation completed'
-                              : mode === 'payment_page'
-                                ? 'Payment required'
-                                : 'AI assistant active'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
+            <div className="flex min-h-0 flex-col">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="flex items-center gap-3">
+                  {isMobile && (
                     <Button
-                      onClick={handleNewConsultation}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowHistory(true)}
                     >
-                      + New Consultation
+                      <ChevronLeft className="h-4 w-4" />
                     </Button>
-                    {mode === 'payment_page' && !showPayment && (
-                      <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
-                    )}
+                  )}
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">
+                      Dermatology Chat
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      {mode === 'doctor_patient'
+                        ? 'Doctor will reply directly'
+                        : mode === 'dermatologist_review'
+                          ? 'Awaiting dermatologist review'
+                          : mode === 'final_output'
+                            ? 'Consultation completed'
+                            : 'AI assistant active'}
+                    </p>
                   </div>
                 </div>
-                <div className="flex-1 min-h-0">
-                  <ChatContainer
-                    messages={transformedMessages}
-                    streamingContent=""
-                    onSendMessage={handleSendMessage}
-                    onGoToDermatologistReview={handleGoToDermatologistReview}
-                    isLoading={isLoading}
-                    mode={mode}
-                    showDisclaimer={resolvedMessages.length === 0}
-                    intakeComplete={intakeComplete}
-                    patientLabel="You"
-                  />
+                <div className="flex items-center gap-2">
+                  {/* FIX: Badge moved inside the card header so it's always visible */}
+                  {remainingMessages !== null && (
+                    <AiMessagesLeftBadge remaining={remainingMessages} />
+                  )}
+                  <Button
+                    onClick={handleNewConsultation}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2"
+                  >
+                    + New Consultation
+                  </Button>
+                  {mode === 'payment_page' && (
+                    <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
+                  )}
                 </div>
               </div>
-            )}
+              <div className="flex-1 min-h-0">
+                <ChatContainer
+                  messages={transformedMessages}
+                  streamingContent=""
+                  onSendMessage={handleSendMessage}
+                  isLoading={isLoading}
+                  mode={mode}
+                  showDisclaimer={resolvedMessages.length === 0}
+                  intakeComplete={intakeComplete}
+                  patientLabel="You"
+                  onNewConsultation={handleNewConsultation}
+                />
+              </div>
+            </div>
           </div>
         </div>
         {isMobile && (
@@ -635,6 +510,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
               {historySidebar}
             </SheetContent>
           </Sheet>
+        )}
+        {showPayment && (
+          <div className="mt-6">
+            <PaymentPage />
+          </div>
         )}
       </div>
     </section>
