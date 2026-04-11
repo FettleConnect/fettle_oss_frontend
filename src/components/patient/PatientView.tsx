@@ -48,14 +48,15 @@ interface ConsultationHistoryItem {
   updated_at?: string;
 }
 
+// FIX: Removed the regex that injected **bold** markers around section titles.
+// The backend already applies ensure_markdown_bold_headings() to structured
+// module outputs (module3 / module4). Running it again here on every message
+// caused plain conversational replies to also get bold headings injected,
+// which the frontend then rendered as bold/heading text for ALL AI messages.
+// Only clean up excessive blank lines — nothing else.
 const formatMessageContent = (text: string) => {
   if (!text) return '';
-  return text
-    .replace(
-      /(Most Consistent With|Close Differentials|Morphologic Justification|Educational Treatment Framework|Typical Course and Prognosis|When In-Person Evaluation Is Considered|Educational References|Primary Likely Diagnosis|Differential Diagnoses|Key Morphologic Features|Red Flags|Suggested Investigations|Diagnostic Confidence)/gi,
-      '**$1**'
-    )
-    .replace(/\n{3,}/g, '\n\n');
+  return text.replace(/\n{3,}/g, '\n\n');
 };
 
 const formatConsultationDate = (value?: string) => {
@@ -105,7 +106,7 @@ const AiMessagesLeftBadge = ({ remaining }: { remaining: number }) => {
 const getPatientChatCacheKey = (threadId: string | null) =>
   `patient-chat-${threadId || 'default'}`;
 
-// FIX: Tracks active blob URLs so we can revoke them on cleanup to avoid memory leaks
+// Tracks active blob URLs so we can revoke them on cleanup to avoid memory leaks
 const activeBlobUrls: string[] = [];
 const createBlobUrl = (file: File): string => {
   const url = URL.createObjectURL(file);
@@ -123,12 +124,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
-  // FIX: showPayment now controls rendering INSIDE the chat area, not below it
   const [showPayment, setShowPayment] = useState(false);
-
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
-
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
@@ -183,9 +181,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             content: formatMessageContent(m.content),
           }))
         : [];
-
       setMessages(formatted);
-
       if (data.thread_id && threadId) {
         setActiveThreadId(data.thread_id);
         try {
@@ -199,10 +195,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       } else if (!threadId) {
         setActiveThreadId(null);
       }
-
       if (data.mode) {
         setMode(data.mode as ConversationMode);
-        // FIX: If the stored mode is payment_page, show payment on load
         if (data.mode === 'payment_page') {
           setShowPayment(true);
         }
@@ -222,8 +216,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     fetchChatHistory();
   }, [fetchConsultationHistory, fetchChatHistory]);
 
-  // FIX: Polling for doctor replies when in doctor_patient or dermatologist_review mode.
-  // Polls every 15 seconds so the patient sees doctor messages without manual refresh.
+  // Polling for doctor replies when in doctor_patient or dermatologist_review mode.
   useEffect(() => {
     if (mode !== 'doctor_patient' && mode !== 'dermatologist_review') return;
     const interval = setInterval(() => {
@@ -266,7 +259,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, [messages, activeThreadId]);
 
-  // FIX: Revoke blob URLs on unmount to prevent memory leaks
+  // Revoke blob URLs on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
       activeBlobUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -274,7 +267,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     };
   }, []);
 
-  // FIX: Clear both messages AND cachedMessages when switching threads to prevent
+  // Clear both messages AND cachedMessages when switching threads to prevent
   // old thread content flashing while the new thread loads.
   const handleSelectHistory = async (threadId: string) => {
     setMessages([]);
@@ -320,10 +313,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // FIX: After PayPal completes, send "PAYMENT_CONFIRMED" to chat_view so the backend
-  // advances the thread from payment_page → post_payment_intake and returns the first
-  // intake message. Using a direct fetch instead of handleSendMessage to avoid the
-  // isSendingRef guard which would block this call if another send just finished.
   const handlePaymentSuccess = useCallback(async () => {
     setShowPayment(false);
     setIsLoading(true);
@@ -352,7 +341,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       toast({ title: 'Payment successful', description: 'Proceeding to intake.' });
     } catch (e) {
       console.error('Payment advance failed:', e);
-      // Soft fallback: still reload chat — mode may already have advanced server-side
       await fetchChatHistory(activeThreadId || undefined);
       toast({ title: 'Payment received', description: 'Loading your consultation.' });
     } finally {
@@ -360,7 +348,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, [activeThreadId, fetchChatHistory, fetchConsultationHistory, toast]);
 
-  // FIX: onCancel — dismiss payment overlay without losing the chat
   const handlePaymentCancel = useCallback(() => {
     setShowPayment(false);
   }, []);
@@ -382,7 +369,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         body: formData,
       });
       const data = await res.json();
-
       if (data.error) {
         toast({
           title: 'Error',
@@ -391,21 +377,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         });
         return;
       }
-
       if (data.mode) {
         setMode(data.mode as ConversationMode);
       }
-
       const nextThreadId = data.thread_id || activeThreadId;
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
-
-      // FIX: Always refetch full history after a CTA action for accuracy
       await fetchChatHistory(nextThreadId || undefined);
       await fetchConsultationHistory();
-
-      // FIX: Show payment when backend returns payment_page mode
       if (data.mode === 'payment_page') {
         setShowPayment(true);
       }
@@ -427,7 +407,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     if (!content?.trim() && (!images || images.length === 0)) return;
     isSendingRef.current = true;
 
-    // FIX: Use blob URLs so uploaded images appear immediately in the user bubble
+    // Use blob URLs so uploaded images appear immediately in the user bubble
     const blobImageUrls = images && images.length > 0
       ? images.map((f) => createBlobUrl(f))
       : [];
@@ -438,7 +418,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       content,
       images: blobImageUrls,
     };
-
     setMessages((prev) => [...prev, tempUserMessage]);
     setIsLoading(true);
 
@@ -454,14 +433,12 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           formData.append('image', file);
         });
       }
-
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
       const data = await res.json();
-
       if (data.error) {
         toast({
           title: 'Error',
@@ -471,25 +448,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setMessages((prev) => prev.filter((msg) => msg.id !== tempUserMessage.id));
         return;
       }
-
       if (data.mode) {
         setMode(data.mode as ConversationMode);
       }
-
       const nextThreadId = data.thread_id || activeThreadId;
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
-
-      // FIX: Refetch full chat history after every send. This:
-      //   1. Replaces temp blob URLs with permanent server-stored image URLs
-      //   2. Ensures doctor messages (added server-side) appear correctly
-      //   3. Gives us the accurate complete conversation from the backend
+      // Refetch full chat history after every send so:
+      // 1. Temp blob URLs are replaced with permanent server-stored image URLs
+      // 2. The face/PII warning message from the backend appears correctly
+      // 3. Doctor messages added server-side appear correctly
       await fetchChatHistory(nextThreadId || undefined);
       await fetchConsultationHistory();
-
-      // FIX: Check for payment_page mode in the send response too
-      // (triggered when user clicks "Confirm & Pay" → sends "PAYNOW")
       if (data.mode === 'payment_page') {
         setShowPayment(true);
       }
@@ -510,7 +481,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const transformedMessages = resolvedMessages.map((msg) => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
     if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
-    // FIX: Properly map 'doctor' role — was previously falling through to 'patient'
     else if (msg.role === 'doctor') role = 'doctor';
     else if (msg.role === 'system') role = 'system';
     return {
@@ -553,7 +523,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             history.map((item, index) => {
               const isActive = activeThreadId === item.id;
               const title = getConsultationTitle(item, index);
-              // FIX: Prefer updated_at over created_at for recency; sidebar already correct
               const dateText = formatConsultationDate(item.updated_at || item.created_at);
               return (
                 <button
@@ -593,9 +562,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[700px]">
             {!isMobile && showHistory && historySidebar}
-
-            {/* FIX: PaymentPage replaces the chat area when showPayment is true,
-                instead of appearing outside the card below it. Props are now correct. */}
             {showPayment ? (
               <PaymentPage
                 onPaymentSuccess={handlePaymentSuccess}
@@ -638,7 +604,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                     >
                       + New Consultation
                     </Button>
-                    {/* FIX: "Open Payment" button now correctly triggers showPayment */}
                     {mode === 'payment_page' && !showPayment && (
                       <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
                     )}
@@ -660,7 +625,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             )}
           </div>
         </div>
-
         {isMobile && (
           <Sheet open={showHistory} onOpenChange={setShowHistory}>
             <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
