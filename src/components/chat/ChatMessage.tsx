@@ -78,9 +78,11 @@ const MarkdownA = ({ href, children }: MarkdownProps) => (
 
 const DoctorAvatar: React.FC = () => {
   const [imgFailed, setImgFailed] = React.useState(false);
+
   if (imgFailed) {
     return <Stethoscope className="h-3.5 w-3.5 text-white" />;
   }
+
   return (
     <img
       src="/doctor-photo.jpg"
@@ -92,13 +94,12 @@ const DoctorAvatar: React.FC = () => {
 };
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
-  const isPatient = message.role === 'patient';
-  const isDoctor = message.role === 'doctor';
-  const isSystem = message.role === 'system';
-  const isAI =
-    message.role === 'ai' ||
-    message.role === 'AI' ||
-    message.role === 'assistant';
+  const role = String(message.role || '').toLowerCase();
+
+  const isPatient = role === 'patient' || role === 'user';
+  const isDoctor = role === 'doctor';
+  const isSystem = role === 'system';
+  const isAI = role === 'ai' || role === 'assistant';
 
   const shouldFormat = !isPatient && !isSystem;
 
@@ -145,11 +146,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   useEffect(() => {
     if (!lightboxOpen) return;
+
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowLeft') prevImage();
       if (e.key === 'ArrowRight') nextImage();
     };
+
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxOpen, closeLightbox, prevImage, nextImage]);
@@ -160,6 +163,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
   const formatContent = (text: string | null | undefined): string => {
     if (!text) return '';
+
     const unescaped = text.replace(/\\n\\n/g, '\n\n').replace(/\\n/g, '\n');
     const normalized = unescaped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const withLinks = linkifyUrls(normalized);
@@ -176,14 +180,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         // Already a markdown heading — leave it
         if (trimmed.startsWith('#')) return trimmed;
 
-        // Strip ALL ** markers and trailing colon to get the bare title.
-        // This handles: **Title**, **Title:**, **Title:**  (all backend variants)
-        const stripped = trimmed
-          .replace(/\*\*/g, '')   // remove all ** markers
-          .replace(/:$/, '')      // remove trailing colon
-          .trim();
+        // Strip ** markers and trailing colon
+        const stripped = trimmed.replace(/\*\*/g, '').replace(/:$/, '').trim();
 
-        // Match known section titles → emit as ### so BoldHeading renders bold
+        // Match known section titles -> emit as ### so BoldHeading renders bold
         const isHeader = ALL_SECTION_TITLES.some(
           (title) =>
             stripped.toLowerCase() === title.toLowerCase() ||
@@ -194,11 +194,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           return `### ${stripped}`;
         }
 
-        // Inline bold that isn't a section title — return trimmed to avoid
-        // ReactMarkdown misreading leading whitespace as indented code
+        // Inline bold that isn't a section title
         if (trimmed.startsWith('**')) return trimmed;
 
-        // Short Title Case label lines → inline bold
+        // Short Title Case label lines -> inline bold
         if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
           return `**${trimmed}**`;
         }
@@ -209,7 +208,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   };
 
   const getRoleLabel = () => {
-    if (message.senderName) return message.senderName;
+    if (message.senderName && isPatient) return message.senderName;
     if (isPatient) return 'Patient';
     if (isDoctor) return 'Dr. Sasi Kiran Attili';
     if (isSystem) return 'Notification';
