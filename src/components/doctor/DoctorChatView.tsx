@@ -871,7 +871,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
                 {visibleMessages.length > 0 ? (
                   <div className="space-y-4">
                     {visibleMessages.map((message) => (
-                      <ChatMessage key={message.id} message={message} />
+                      <ChatMessage key={message.id} message={message} patientLabel={conversation.patientName} />
                     ))}
                     <div ref={messagesEndRef} />
                   </div>
