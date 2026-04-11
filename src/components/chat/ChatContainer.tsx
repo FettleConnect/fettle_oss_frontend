@@ -30,6 +30,7 @@ interface ChatContainerProps {
   intakeComplete?: boolean;
   onNewConsultation?: () => void;
   onGoToDermatologistReview?: () => void;
+  patientLabel?: string; // "You" in patient view, patient name in doctor view
 }
 
 function parseOptions(content: string): { cleanText: string; options: string[] } {
@@ -145,6 +146,7 @@ interface MessageWithOptionsProps {
   onSelect: (value: string) => void;
   isLoading: boolean;
   alreadyAnswered: boolean;
+  patientLabel?: string;
 }
 
 const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
@@ -153,6 +155,7 @@ const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
   onSelect,
   isLoading,
   alreadyAnswered,
+  patientLabel,
 }) => {
   const { cleanText, options } = useMemo(
     () => parseOptions(message.content),
@@ -165,7 +168,7 @@ const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
   const showOptions = options.length > 0 && isLast && !alreadyAnswered;
   return (
     <div>
-      <ChatMessage message={cleanMessage} />
+      <ChatMessage message={cleanMessage} patientLabel={patientLabel} />
       {showOptions && (
         <div className="ml-2 mt-1 max-w-[85%]">
           <OptionButtons
@@ -190,6 +193,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   intakeComplete = false,
   onNewConsultation,
   onGoToDermatologistReview,
+  patientLabel,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -235,7 +239,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   // FIX: Also hide chat input during payment_page mode — user should not be able
   // to type while the payment overlay is open.
   const hideInput = showConsentConfirm || freeTierExhausted || mode === 'payment_page';
-
   const showNextStepCTA = mode === 'general_education' && aiReplyCount >= 1;
 
   const pinnedNote = useMemo(() => {
@@ -357,12 +360,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                   onSelect={handleOptionSelect}
                   isLoading={isLoading}
                   alreadyAnswered={patientAnsweredLast}
+                  patientLabel={patientLabel}
                 />
               );
             }
-            return <ChatMessage key={message.id} message={message} />;
+            return (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                patientLabel={patientLabel}
+              />
+            );
           })}
-
           {isLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground ml-2">
               <div className="flex gap-1">
@@ -382,7 +391,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               <span>AI is typing...</span>
             </div>
           )}
-
           {streamingContent && !isLoading && (
             <ChatMessage
               message={{
@@ -396,7 +404,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
               isStreaming
             />
           )}
-
           <div ref={messagesEndRef} />
         </div>
       </div>
