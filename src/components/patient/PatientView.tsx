@@ -320,12 +320,44 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
-  // FIX: onPaymentSuccess — dismiss payment, refresh history and chat so mode updates
+  // FIX: After PayPal completes, send "PAYMENT_CONFIRMED" to chat_view so the backend
+  // advances the thread from payment_page → post_payment_intake and returns the first
+  // intake message. Using a direct fetch instead of handleSendMessage to avoid the
+  // isSendingRef guard which would block this call if another send just finished.
   const handlePaymentSuccess = useCallback(async () => {
     setShowPayment(false);
-    await fetchChatHistory(activeThreadId || undefined);
-    await fetchConsultationHistory();
-    toast({ title: 'Payment successful', description: 'Proceeding to intake.' });
+    setIsLoading(true);
+    try {
+      const authToken = localStorage.getItem('authToken');
+      const formData = new FormData();
+      formData.append('question', 'PAYMENT_CONFIRMED');
+      if (activeThreadId) {
+        formData.append('thread_id', activeThreadId);
+      }
+      const res = await fetch(`${BASE_URL}/api/chat_view/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.mode) {
+        setMode(data.mode as ConversationMode);
+      }
+      const nextThreadId = data.thread_id || activeThreadId;
+      if (data.thread_id) {
+        setActiveThreadId(data.thread_id);
+      }
+      await fetchChatHistory(nextThreadId || undefined);
+      await fetchConsultationHistory();
+      toast({ title: 'Payment successful', description: 'Proceeding to intake.' });
+    } catch (e) {
+      console.error('Payment advance failed:', e);
+      // Soft fallback: still reload chat — mode may already have advanced server-side
+      await fetchChatHistory(activeThreadId || undefined);
+      toast({ title: 'Payment received', description: 'Loading your consultation.' });
+    } finally {
+      setIsLoading(false);
+    }
   }, [activeThreadId, fetchChatHistory, fetchConsultationHistory, toast]);
 
   // FIX: onCancel — dismiss payment overlay without losing the chat
