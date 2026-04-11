@@ -16,6 +16,7 @@ import {
   ChevronRight,
   MessageSquare,
   PenLine,
+  CreditCard,
 } from 'lucide-react';
 
 interface ChatContainerProps {
@@ -35,12 +36,10 @@ function parseOptions(content: string): { cleanText: string; options: string[] }
   const regex = /\[OPTIONS:\s*([^\]]+)\]/i;
   const match = content.match(regex);
   if (!match) return { cleanText: content, options: [] };
-
   const options = match[1]
     .split('|')
     .map((o) => o.trim())
     .filter(Boolean);
-
   const cleanText = content.replace(regex, '').trim();
   return { cleanText, options };
 }
@@ -93,7 +92,6 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
           const isOther = option.toLowerCase() === 'other';
           const isSelected = selected === option;
           const isDisabled = disabled || (!!selected && selected !== option);
-
           return (
             <button
               key={option}
@@ -116,7 +114,6 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
           );
         })}
       </div>
-
       {showOtherInput && !selected && (
         <div className="flex gap-2 items-center animate-in fade-in slide-in-from-top-1 duration-200">
           <input
@@ -161,14 +158,11 @@ const MessageWithOptions: React.FC<MessageWithOptionsProps> = ({
     () => parseOptions(message.content),
     [message.content]
   );
-
   const cleanMessage = useMemo(
     () => ({ ...message, content: cleanText }),
     [message, cleanText]
   );
-
   const showOptions = options.length > 0 && isLast && !alreadyAnswered;
-
   return (
     <div>
       <ChatMessage message={cleanMessage} />
@@ -206,10 +200,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         block: 'end',
       });
     }, 50);
-
     return () => window.clearTimeout(timer);
   }, [messages.length, isLoading, streamingContent]);
 
+  // FIX: Added 'payment_page' and 'doctor_patient' cases so the badge
+  // never shows raw mode strings.
   const modeInfo = useMemo(() => {
     switch (mode) {
       case 'general_education':
@@ -222,6 +217,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         return { label: 'Awaiting Review', variant: 'outline' as const, color: 'text-accent-blue' };
       case 'final_output':
         return { label: 'Consultation Complete', variant: 'default' as const, color: 'text-green-600' };
+      // FIX: payment_page mode label
+      case 'payment_page':
+        return { label: 'Payment Required', variant: 'default' as const, color: 'text-amber-600' };
+      // FIX: doctor_patient mode label
+      case 'doctor_patient':
+        return { label: 'Doctor Chat', variant: 'default' as const, color: 'text-navy' };
       default:
         return { label: mode, variant: 'secondary' as const, color: 'text-navy' };
     }
@@ -230,7 +231,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const showConsentConfirm = mode === 'consent_clarification';
   const aiReplyCount = messages.filter((m) => m.role === 'ai').length;
   const freeTierExhausted = mode === 'general_education' && aiReplyCount >= 3;
-  const hideInput = showConsentConfirm || freeTierExhausted;
+
+  // FIX: Also hide chat input during payment_page mode — user should not be able
+  // to type while the payment overlay is open.
+  const hideInput = showConsentConfirm || freeTierExhausted || mode === 'payment_page';
+
   const showNextStepCTA = mode === 'general_education' && aiReplyCount >= 1;
 
   const pinnedNote = useMemo(() => {
@@ -242,6 +247,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }
     if (mode === 'final_output') {
       return 'Consultation complete. You can view your final assessment above.';
+    }
+    // FIX: Informational note for doctor_patient mode
+    if (mode === 'doctor_patient') {
+      return 'You are now in a direct conversation with Dr. Attili.';
     }
     return null;
   }, [mode]);
@@ -423,6 +432,21 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             >
               <CheckCircle className="h-4 w-4 mr-2" /> Confirm & Pay
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* FIX: Show a "Proceed to Payment" CTA banner when mode is payment_page
+          so the user has a clear action even inside the chat view */}
+      {mode === 'payment_page' && !showConsentConfirm && (
+        <div className="border-t border-amber-100 bg-amber-50 p-5 flex-shrink-0 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-amber-100 p-2 rounded-full flex-shrink-0">
+              <CreditCard className="h-4 w-4 text-amber-700" />
+            </div>
+            <p className="text-xs font-bold text-amber-800 uppercase tracking-tight flex-1">
+              Payment required to proceed with the specialist review.
+            </p>
           </div>
         </div>
       )}
