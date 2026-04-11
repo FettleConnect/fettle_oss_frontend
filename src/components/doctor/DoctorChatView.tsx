@@ -370,6 +370,12 @@ function normalizeAIContentToStructuredFormat(rawText: string): string {
   return finalText;
 }
 
+function buildCompleteDraftFromSource(rawText: string): string {
+  return normalizeAIContentToStructuredFormat(
+    cleanBody(rawText) || DEFAULT_ASSESSMENT_TEMPLATE
+  );
+}
+
 function parseIntakeFromMessages(messages: Message[]): IntakeData | null {
   const intakeMsg = messages.find(
     (m) =>
@@ -419,7 +425,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const isMobile = useIsMobile();
 
   const [patientMessage, setPatientMessage] = useState(
-    normalizeAIContentToStructuredFormat(conversation.draftResponse || '')
+    buildCompleteDraftFromSource(conversation.draftResponse || '')
   );
   const [isSending, setIsSending] = useState(false);
   const [caseCompleted, setCaseCompleted] = useState(false);
@@ -434,6 +440,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastConversationIdRef = useRef<string | number | null>(null);
 
+  const latestBackendDraft = useMemo(() => {
+    return buildCompleteDraftFromSource(conversation.draftResponse || '');
+  }, [conversation.draftResponse]);
+
   useEffect(() => {
     setShowAI(!isMobile);
   }, [isMobile]);
@@ -443,7 +453,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
     if (lastConversationIdRef.current !== currentId) {
       lastConversationIdRef.current = currentId;
-      setPatientMessage(normalizeAIContentToStructuredFormat(conversation.draftResponse || ''));
+      setPatientMessage(buildCompleteDraftFromSource(conversation.draftResponse || ''));
       setImages([]);
       setAssessmentExpanded(false);
     }
@@ -549,15 +559,11 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
   }, [visibleMessages.length, showAI, assessmentExpanded]);
 
   const handleApplyDraft = () => {
-    const normalizedDraft = normalizeAIContentToStructuredFormat(
-      conversation.draftResponse || ''
-    );
-
-    setPatientMessage(normalizedDraft);
+    setPatientMessage(latestBackendDraft);
 
     toast({
       title: 'Draft Applied',
-      description: 'AI draft has been copied into the editor.',
+      description: 'AI draft has been copied into the editor completely.',
     });
   };
 
@@ -685,7 +691,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
       const authToken = localStorage.getItem('DoctorToken');
       const formData = new FormData();
       formData.append('id', String(conversation.id));
-      formData.append('question', patientMessage);
+      formData.append('question', buildCompleteDraftFromSource(patientMessage));
 
       const uniqueImages = Array.from(
         new Map(images.map((img) => [img.dataUrl, img])).values()
@@ -757,15 +763,13 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const appliedContent = normalizeAIContentToStructuredFormat(
-        cleanBody(content) || content || DEFAULT_ASSESSMENT_TEMPLATE
-      );
+      const appliedContent = buildCompleteDraftFromSource(content);
 
       setPatientMessage(appliedContent);
 
       toast({
         title: 'Assessment Updated',
-        description: 'AI response has been copied into the editor.',
+        description: 'AI response has been copied into the editor completely.',
       });
 
       if (isMobile) {
@@ -895,8 +899,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
                   <div className="flex gap-1.5 md:gap-2">
                     {conversation.draftResponse &&
-                      patientMessage !==
-                        normalizeAIContentToStructuredFormat(conversation.draftResponse) && (
+                      cleanBody(patientMessage) !== cleanBody(latestBackendDraft) && (
                         <Button
                           variant="outline"
                           size="sm"
