@@ -763,9 +763,9 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
   const handleApplyAIContent = useCallback(
     (content: string) => {
-      const appliedContent = buildCompleteDraftFromSource(content);
+      if (!content || !content.trim()) return;
 
-      setPatientMessage(appliedContent);
+      setPatientMessage(content.trim());
 
       toast({
         title: 'Assessment Updated',
