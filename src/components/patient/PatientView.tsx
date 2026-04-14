@@ -306,8 +306,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     if (!content?.trim() && (!images || images.length === 0)) return;
     isSendingRef.current = true;
 
+    // Optimistic user message — will be replaced by server fetch after send
     const tempUserMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-temp-${Date.now()}`,
       role: 'user',
       content,
       images: [],
@@ -350,22 +351,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
-      if (data.result) {
-        const aiRole =
-          data.role === 'system'
-            ? 'system'
-            : data.mode === 'doctor_patient'
-              ? 'system'
-              : 'ai';
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${aiRole}-${Date.now()}`,
-            role: aiRole,
-            content: formatMessageContent(data.result),
-          },
-        ]);
-      }
+      // Always reload from server — avoids duplicate messages from dual-source conflict
+      await fetchChatHistory(data.thread_id || activeThreadId || undefined);
       await fetchConsultationHistory();
     } catch (e) {
       console.error('Send message failed:', e);
