@@ -37,7 +37,6 @@ interface ChatMessage {
   images?: string[];
 }
 
-// FIX: Added title and updated_at so sidebar can show proper date
 interface ConsultationHistoryItem {
   id: string;
   name: string;
@@ -52,13 +51,12 @@ const formatMessageContent = (text: string) => {
   if (!text) return '';
   return text
     .replace(
-      /(Most Consistent With|Close Differentials|Morphologic Justification|Educational Treatment Framework|Typical Course and Prognosis|When In-Person Evaluation Is Considered|Educational References|Primary Likely Diagnosis|Differential Diagnoses|Key Morphologic Features|Red Flags|Suggested Investigations|Diagnostic Confidence)/gi,
+      /(Most Consistent With|Close Differentials|Morphologic Justification|Educational Treatment Framework|Typical Course and Prognosis|When In-Person Evaluation Is Considered|Educational References|Primary Likely Diagnosis|Differential Diagnoses|Key Morphologic Features|Key Morphologic \/ Clinical Features|Red Flags|Suggested Investigations|Diagnostic Confidence)/gi,
       '**$1**'
     )
     .replace(/\n{3,}/g, '\n\n');
 };
 
-// FIX: Helper to format date for sidebar
 const formatConsultationDate = (value?: string) => {
   if (!value) return '';
   const date = new Date(value);
@@ -103,23 +101,34 @@ const getPatientChatCacheKey = (threadId: string | null) =>
 export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const { toast } = useToast();
   const isMobile = useIsMobile();
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [cachedMessages, setCachedMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
   const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
-    try { return localStorage.getItem('activeThreadId') || null; } catch { return null; }
+    try {
+      return localStorage.getItem('activeThreadId') || null;
+    } catch {
+      return null;
+    }
   });
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
+
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
+
   const isSendingRef = useRef(false);
   const lastSentRef = useRef<{ content: string; time: number } | null>(null);
+
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
-    return chatMessages.filter((msg) => msg.role === 'ai' || msg.role === 'AI').length;
+    return chatMessages.filter((msg) => {
+      const role = String(msg.role || '').toLowerCase();
+      return role === 'ai' || role === 'assistant';
+    }).length;
   }, []);
 
   const getRemainingEducationalMessages = useCallback(
@@ -131,11 +140,23 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const resolvedMessages = useMemo(() => {
     const base = messages.length > 0 ? messages : cachedMessages;
-    // Deduplicate by id to guard against any double-load race conditions
-    const seen = new Set<string>();
+
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
+
     return base.filter((m) => {
-      if (seen.has(m.id)) return false;
-      seen.add(m.id);
+      const id = String(m.id || '').trim();
+      const role = String(m.role || '').trim().toLowerCase();
+      const content = String(m.content || '').trim();
+      const imagesKey = JSON.stringify((m.images || []).slice().sort());
+      const compositeKey = `${role}::${content}::${imagesKey}`;
+
+      if (id && seenIds.has(id)) return false;
+      if (content && seenKeys.has(compositeKey)) return false;
+
+      if (id) seenIds.add(id);
+      if (content) seenKeys.add(compositeKey);
+
       return true;
     });
   }, [messages, cachedMessages]);
@@ -162,22 +183,29 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const fetchChatHistory = useCallback(async (threadId?: string, silent = false) => {
     try {
       if (!silent) setIsLoading(true);
+
       const authToken = localStorage.getItem('authToken');
       const url = new URL(`${BASE_URL}/api/chat_history/`);
+
       if (threadId) {
         url.searchParams.append('thread_id', threadId);
       }
+
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${authToken}` },
       });
+
       const data = await res.json();
+
       const formatted = Array.isArray(data.conv)
         ? data.conv.map((m: ChatMessage) => ({
             ...m,
             content: formatMessageContent(m.content),
           }))
         : [];
+
       setMessages(formatted);
+
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
         try {
@@ -191,6 +219,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       } else if (!threadId) {
         setActiveThreadId(null);
       }
+
       if (data.mode) {
         setMode(data.mode);
       }
@@ -204,7 +233,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, []);
 
-  // Persist active thread so it survives page refresh
   useEffect(() => {
     try {
       if (activeThreadId) {
@@ -219,14 +247,20 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   useEffect(() => {
     const savedThreadId = (() => {
-      try { return localStorage.getItem('activeThreadId') || undefined; } catch { return undefined; }
+      try {
+        return localStorage.getItem('activeThreadId') || undefined;
+      } catch {
+        return undefined;
+      }
     })();
+
     fetchConsultationHistory();
     fetchChatHistory(savedThreadId);
   }, [fetchConsultationHistory, fetchChatHistory]);
 
   useEffect(() => {
     if (!activeThreadId) return;
+
     try {
       const cached = localStorage.getItem(getPatientChatCacheKey(activeThreadId));
       if (cached) {
@@ -247,6 +281,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   useEffect(() => {
     if (!activeThreadId) return;
+
     try {
       localStorage.setItem(
         getPatientChatCacheKey(activeThreadId),
@@ -273,6 +308,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleNewConsultation = async () => {
     try {
       setIsLoading(true);
+
       const authToken = localStorage.getItem('authToken');
       const res = await fetch(`${BASE_URL}/api/archive_consultation/`, {
         method: 'POST',
@@ -280,19 +316,25 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           Authorization: `Bearer ${authToken}`,
         },
       });
+
       const data = await res.json();
+
       if (!res.ok || data.error || !data.thread_id) {
         throw new Error(data.errorMsg || 'Could not start a new consultation.');
       }
+
       setMessages([]);
       setCachedMessages([]);
       setMode('general_education');
       setActiveThreadId(data.thread_id);
+
       await fetchConsultationHistory();
       await fetchChatHistory(data.thread_id);
+
       if (isMobile) {
         setShowHistory(false);
       }
+
       toast({
         title: 'New Consultation',
         description: 'A new consultation has been opened.',
@@ -312,38 +354,58 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleSendMessage = async (content: string, images?: File[]) => {
     if (isSendingRef.current || isLoading) return;
     if (!content?.trim() && (!images || images.length === 0)) return;
-    // Prevent duplicate sends of the same message within 3 seconds
+
+    const trimmedContent = content.trim();
     const now = Date.now();
+
     if (
       lastSentRef.current &&
-      lastSentRef.current.content === content.trim() &&
+      lastSentRef.current.content === trimmedContent &&
       now - lastSentRef.current.time < 3000
-    ) return;
-    lastSentRef.current = { content: content.trim(), time: now };
+    ) {
+      return;
+    }
+
+    lastSentRef.current = { content: trimmedContent, time: now };
     isSendingRef.current = true;
 
-    // Optimistic user message — will be replaced by server fetch after send
     const tempUserMessage: ChatMessage = {
       id: `user-temp-${Date.now()}`,
       role: 'user',
       content,
       images: [],
     };
-    setMessages((prev) => [...prev, tempUserMessage]);
+
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      const lastRole = String(last?.role || '').toLowerCase();
+      const lastContent = String(last?.content || '').trim();
+
+      if (last && lastRole === 'user' && lastContent === trimmedContent) {
+        return prev;
+      }
+
+      return [...prev, tempUserMessage];
+    });
+
     setIsLoading(true);
 
     try {
       const authToken = localStorage.getItem('authToken');
       const formData = new FormData();
+
       formData.append('question', content || '');
+
       if (activeThreadId) {
         formData.append('thread_id', activeThreadId);
       }
+
       if (images && images.length > 0) {
         images.forEach((file) => {
           formData.append('image', file);
         });
       }
+
       const res = await fetch(`${BASE_URL}/api/chat_view/`, {
         method: 'POST',
         headers: {
@@ -351,24 +413,28 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         },
         body: formData,
       });
+
       const data = await res.json();
+
       if (data.error) {
         toast({
           title: 'Error',
           description: data.errorMsg || 'Could not send message.',
           variant: 'destructive',
         });
+
         setMessages((prev) => prev.filter((msg) => msg.id !== tempUserMessage.id));
         return;
       }
+
       if (data.mode) {
         setMode(data.mode);
       }
+
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
-      // Always reload from server — avoids duplicate messages from dual-source conflict
-      // silent=true so it doesn't reset isLoading and break the send guard
+
       await fetchChatHistory(data.thread_id || activeThreadId || undefined, true);
       await fetchConsultationHistory();
     } catch (e) {
@@ -378,6 +444,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         description: 'Could not send message.',
         variant: 'destructive',
       });
+
       setMessages((prev) => prev.filter((msg) => msg.id !== tempUserMessage.id));
     } finally {
       setIsLoading(false);
@@ -387,7 +454,6 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const handlePaymentSuccess = async () => {
     setShowPayment(false);
-    // Explicitly notify backend to transition mode
     await handleSendMessage('payment_confirmed');
     await fetchChatHistory(activeThreadId || undefined);
     toast({
@@ -402,9 +468,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const transformedMessages = resolvedMessages.map((msg) => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
-    if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
-    else if (msg.role === 'doctor') role = 'doctor';
-    else if (msg.role === 'system') role = 'system';
+
+    if (msg.role === 'AI' || msg.role === 'ai' || msg.role === 'assistant') {
+      role = 'ai';
+    } else if (msg.role === 'doctor') {
+      role = 'doctor';
+    } else if (msg.role === 'system') {
+      role = 'system';
+    }
+
     return {
       id: msg.id,
       role,
@@ -421,16 +493,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-slate-500" />
-          {/* CHANGE 1: "Consultations" sidebar header → font-bold */}
           <h3 className="text-sm font-bold text-slate-800">Consultations</h3>
         </div>
         <div className="flex items-center gap-1">
-          {/* REMOVED: Plus icon New Consultation button */}
           <Button variant="ghost" size="icon" onClick={handleRefresh} title="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
       </div>
+
       <ScrollArea className="h-[calc(100%-57px)]">
         <div className="p-2">
           {history.length === 0 ? (
@@ -438,9 +509,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           ) : (
             history.map((item) => {
               const isActive = activeThreadId === item.id;
-              // FIX: Show consultation title and formatted date instead of raw mode string
               const title = item.title || item.name || 'Consultation';
               const dateText = formatConsultationDate(item.updated_at || item.created_at);
+
               return (
                 <button
                   key={item.id}
@@ -452,11 +523,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                       : 'border-slate-200 bg-white hover:bg-slate-50'
                   )}
                 >
-                  {/* CHANGE 2: Consultation item title → font-bold */}
                   <div className="truncate text-sm font-bold text-slate-800">
                     {title}
                   </div>
-                  {/* FIX: Show formatted date instead of raw item.mode */}
                   <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                     <Clock className="h-3.5 w-3.5 flex-shrink-0" />
                     <span className="truncate">{dateText}</span>
@@ -476,6 +545,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[850px]">
             {!isMobile && showHistory && historySidebar}
+
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center justify-between border-b px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -488,8 +558,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                   )}
+
                   <div>
-                    {/* CHANGE 3: "Dermatology Chat" header → font-bold */}
                     <h2 className="text-sm font-bold text-slate-900">
                       Dermatology Chat
                     </h2>
@@ -504,22 +574,25 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                     </p>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-2">
-                  {/* FIX: Badge moved inside the card header so it's always visible */}
                   {remainingMessages !== null && (
                     <AiMessagesLeftBadge remaining={remainingMessages} />
                   )}
+
                   <Button
                     onClick={handleNewConsultation}
                     className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2"
                   >
                     + New Consultation
                   </Button>
+
                   {mode === 'payment_page' && (
                     <Button onClick={() => setShowPayment(true)}>Open Payment</Button>
                   )}
                 </div>
               </div>
+
               <div className="flex-1 min-h-0">
                 <ChatContainer
                   messages={transformedMessages}
@@ -536,6 +609,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </div>
           </div>
         </div>
+
         {isMobile && (
           <Sheet open={showHistory} onOpenChange={setShowHistory}>
             <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
@@ -543,9 +617,10 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </SheetContent>
           </Sheet>
         )}
+
         {showPayment && (
           <div className="mt-8 pb-12">
-            <PaymentPage 
+            <PaymentPage
               onPaymentSuccess={handlePaymentSuccess}
               onCancel={handlePaymentCancel}
             />
