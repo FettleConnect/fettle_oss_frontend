@@ -2,6 +2,10 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { ChatContainer } from '@/components/chat/ChatContainer';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog';
+import {
   RefreshCw,
   Clock,
   MessageSquare,
@@ -474,7 +478,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-screen">
       <div className="container mx-auto max-w-6xl">
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[850px]">
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[900px]">
             {!isMobile && showHistory && historySidebar}
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center justify-between border-b px-4 py-3">
@@ -543,14 +547,17 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
             </SheetContent>
           </Sheet>
         )}
-        {showPayment && (
-          <div className="mt-8 pb-12">
-            <PaymentPage 
-              onPaymentSuccess={handlePaymentSuccess}
-              onCancel={handlePaymentCancel}
-            />
-          </div>
-        )}
+
+        <Dialog open={showPayment} onOpenChange={setShowPayment}>
+          <DialogContent className="sm:max-w-[480px] border-none p-0 overflow-hidden bg-white shadow-2xl">
+            <div className="p-6 md:p-8">
+              <PaymentPage 
+                onPaymentSuccess={handlePaymentSuccess}
+                onCancel={handlePaymentCancel}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </section>
   );
