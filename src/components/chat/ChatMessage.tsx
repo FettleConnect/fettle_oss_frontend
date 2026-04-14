@@ -264,7 +264,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming, 
     <>
       <div
         className={cn(
-          'flex flex-col gap-2 max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-500',
+          'flex flex-col gap-2 max-w-[85%]',
           isPatient ? 'ml-auto items-end' : 'mr-auto items-start'
         )}
       >

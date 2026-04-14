@@ -197,6 +197,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 }) => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Auto-scrolling disabled per user request
+  /*
   useEffect(() => {
     const timer = window.setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({
@@ -206,6 +208,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     }, 50);
     return () => window.clearTimeout(timer);
   }, [messages.length, isLoading, streamingContent]);
+  */
 
   // FIX: Added 'payment_page' and 'doctor_patient' cases so the badge
   // never shows raw mode strings.
@@ -325,7 +328,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       </div>
 
       {pinnedNote && (
-        <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 flex-shrink-0 animate-in fade-in slide-in-from-top-1 duration-300">
+        <div className="bg-navy/5 border-b border-navy/10 px-4 py-2 flex items-start gap-2 flex-shrink-0">
           <Info className="h-3.5 w-3.5 text-navy flex-shrink-0 mt-0.5" />
           <p className="text-[11px] text-navy font-bold uppercase tracking-tight leading-relaxed">
             {pinnedNote}

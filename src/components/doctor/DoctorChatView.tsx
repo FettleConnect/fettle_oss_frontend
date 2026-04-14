@@ -547,6 +547,8 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
     );
   }, [resolvedMessages]);
 
+  // Auto-scrolling disabled per user request
+  /*
   useEffect(() => {
     const timer = window.setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({
@@ -557,6 +559,7 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
 
     return () => window.clearTimeout(timer);
   }, [visibleMessages.length, showAI, assessmentExpanded]);
+  */
 
   const handleApplyDraft = () => {
     setPatientMessage(latestBackendDraft);
