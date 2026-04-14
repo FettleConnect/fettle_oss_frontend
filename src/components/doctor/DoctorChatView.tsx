@@ -739,7 +739,10 @@ export const DoctorChatView: React.FC<DoctorChatViewProps> = ({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ user_id: conversation.patient_id }),
+        body: JSON.stringify({ 
+          user_id: conversation.patient_id,
+          thread_id: conversation.id
+        }),
       });
 
       if (response.ok) {
