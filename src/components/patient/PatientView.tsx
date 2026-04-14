@@ -115,6 +115,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [showPayment, setShowPayment] = useState(false);
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
+  const lastSentRef = useRef<{ content: string; time: number } | null>(null);
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
@@ -129,7 +130,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   );
 
   const resolvedMessages = useMemo(() => {
-    return messages.length > 0 ? messages : cachedMessages;
+    const base = messages.length > 0 ? messages : cachedMessages;
+    // Deduplicate by id to guard against any double-load race conditions
+    const seen = new Set<string>();
+    return base.filter((m) => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
   }, [messages, cachedMessages]);
 
   const remainingMessages = useMemo(() => {
@@ -151,9 +159,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, []);
 
-  const fetchChatHistory = useCallback(async (threadId?: string) => {
+  const fetchChatHistory = useCallback(async (threadId?: string, silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
       const url = new URL(`${BASE_URL}/api/chat_history/`);
       if (threadId) {
@@ -192,7 +200,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setMessages([]);
       }
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
@@ -304,6 +312,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleSendMessage = async (content: string, images?: File[]) => {
     if (isSendingRef.current || isLoading) return;
     if (!content?.trim() && (!images || images.length === 0)) return;
+    // Prevent duplicate sends of the same message within 3 seconds
+    const now = Date.now();
+    if (
+      lastSentRef.current &&
+      lastSentRef.current.content === content.trim() &&
+      now - lastSentRef.current.time < 3000
+    ) return;
+    lastSentRef.current = { content: content.trim(), time: now };
     isSendingRef.current = true;
 
     // Optimistic user message — will be replaced by server fetch after send
@@ -352,7 +368,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setActiveThreadId(data.thread_id);
       }
       // Always reload from server — avoids duplicate messages from dual-source conflict
-      await fetchChatHistory(data.thread_id || activeThreadId || undefined);
+      // silent=true so it doesn't reset isLoading and break the send guard
+      await fetchChatHistory(data.thread_id || activeThreadId || undefined, true);
       await fetchConsultationHistory();
     } catch (e) {
       console.error('Send message failed:', e);
