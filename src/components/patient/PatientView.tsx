@@ -107,7 +107,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [cachedMessages, setCachedMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
+    try { return localStorage.getItem('activeThreadId') || null; } catch { return null; }
+  });
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
@@ -194,9 +196,25 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, []);
 
+  // Persist active thread so it survives page refresh
   useEffect(() => {
+    try {
+      if (activeThreadId) {
+        localStorage.setItem('activeThreadId', activeThreadId);
+      } else {
+        localStorage.removeItem('activeThreadId');
+      }
+    } catch (e) {
+      console.error('Failed to persist activeThreadId:', e);
+    }
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    const savedThreadId = (() => {
+      try { return localStorage.getItem('activeThreadId') || undefined; } catch { return undefined; }
+    })();
     fetchConsultationHistory();
-    fetchChatHistory();
+    fetchChatHistory(savedThreadId);
   }, [fetchConsultationHistory, fetchChatHistory]);
 
   useEffect(() => {
@@ -452,7 +470,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-screen">
       <div className="container mx-auto max-w-6xl">
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[900px]">
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[850px]">
             {!isMobile && showHistory && historySidebar}
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center justify-between border-b px-4 py-3">
