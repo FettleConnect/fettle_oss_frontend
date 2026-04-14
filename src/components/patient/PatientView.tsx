@@ -399,7 +399,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-slate-500" />
-          <h3 className="text-sm font-semibold text-slate-800">Consultations</h3>
+          {/* CHANGE 1: "Consultations" sidebar header → font-bold */}
+          <h3 className="text-sm font-bold text-slate-800">Consultations</h3>
         </div>
         <div className="flex items-center gap-1">
           {/* REMOVED: Plus icon New Consultation button */}
@@ -429,7 +430,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                       : 'border-slate-200 bg-white hover:bg-slate-50'
                   )}
                 >
-                  <div className="truncate text-sm font-semibold text-slate-800">
+                  {/* CHANGE 2: Consultation item title → font-bold */}
+                  <div className="truncate text-sm font-bold text-slate-800">
                     {title}
                   </div>
                   {/* FIX: Show formatted date instead of raw item.mode */}
@@ -465,8 +467,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                     </Button>
                   )}
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-900">
-                   
+                    {/* CHANGE 3: "Dermatology Chat" header → font-bold */}
+                    <h2 className="text-sm font-bold text-slate-900">
                       Dermatology Chat
                     </h2>
                     <p className="text-xs text-slate-500">
