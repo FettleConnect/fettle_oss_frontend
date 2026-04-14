@@ -364,6 +364,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   };
 
+  const handlePaymentSuccess = async () => {
+    setShowPayment(false);
+    await fetchChatHistory(activeThreadId || undefined);
+    toast({
+      title: 'Payment Successful',
+      description: 'You can now proceed with the clinical intake.',
+    });
+  };
+
+  const handlePaymentCancel = () => {
+    setShowPayment(false);
+  };
+
   const transformedMessages = resolvedMessages.map((msg) => {
     let role: 'patient' | 'ai' | 'doctor' | 'system' = 'patient';
     if (msg.role === 'AI' || msg.role === 'ai') role = 'ai';
@@ -440,7 +453,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   );
 
   return (
-    <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-[80vh] flex items-center">
+    <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-screen">
       <div className="container mx-auto max-w-6xl">
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[700px]">
@@ -512,8 +525,11 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           </Sheet>
         )}
         {showPayment && (
-          <div className="mt-6">
-            <PaymentPage />
+          <div className="mt-8 pb-12">
+            <PaymentPage 
+              onPaymentSuccess={handlePaymentSuccess}
+              onCancel={handlePaymentCancel}
+            />
           </div>
         )}
       </div>
