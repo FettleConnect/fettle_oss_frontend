@@ -466,7 +466,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   )}
                   <div>
                     <h2 className="text-sm font-semibold text-slate-900">
-                    <h2 className="text-sm font-bold text-slate-900">
+                   
                       Dermatology Chat
                     </h2>
                     <p className="text-xs text-slate-500">
