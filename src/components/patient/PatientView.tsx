@@ -9,7 +9,6 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle2,
-  Plus,
 } from 'lucide-react';
 import { ConversationMode } from '@/types/dermatology';
 import { useToast } from '@/hooks/use-toast';
@@ -403,14 +402,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
           <h3 className="text-sm font-semibold text-slate-800">Consultations</h3>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNewConsultation}
-            title="New Consultation"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          {/* REMOVED: Plus icon New Consultation button */}
           <Button variant="ghost" size="icon" onClick={handleRefresh} title="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -513,7 +505,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
                   showDisclaimer={resolvedMessages.length === 0}
                   intakeComplete={intakeComplete}
                   patientLabel="You"
-                  onNewConsultation={handleNewConsultation}
+                  onNewConsultation={undefined}
                 />
               </div>
             </div>
