@@ -107,12 +107,15 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const [cachedMessages, setCachedMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ConversationMode>('general_education');
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
+    try { return localStorage.getItem('activeThreadId') || null; } catch { return null; }
+  });
   const [history, setHistory] = useState<ConsultationHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
   const intakeComplete = mode === 'dermatologist_review' || mode === 'final_output';
   const isSendingRef = useRef(false);
+  const lastSentRef = useRef<{ content: string; time: number } | null>(null);
   const EDUCATIONAL_MESSAGE_LIMIT = 3;
 
   const getEducationAiReplyCount = useCallback((chatMessages: ChatMessage[]) => {
@@ -127,7 +130,14 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   );
 
   const resolvedMessages = useMemo(() => {
-    return messages.length > 0 ? messages : cachedMessages;
+    const base = messages.length > 0 ? messages : cachedMessages;
+    // Deduplicate by id to guard against any double-load race conditions
+    const seen = new Set<string>();
+    return base.filter((m) => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
   }, [messages, cachedMessages]);
 
   const remainingMessages = useMemo(() => {
@@ -149,9 +159,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     }
   }, []);
 
-  const fetchChatHistory = useCallback(async (threadId?: string) => {
+  const fetchChatHistory = useCallback(async (threadId?: string, silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       const authToken = localStorage.getItem('authToken');
       const url = new URL(`${BASE_URL}/api/chat_history/`);
       if (threadId) {
@@ -190,13 +200,29 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
         setMessages([]);
       }
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
+  // Persist active thread so it survives page refresh
   useEffect(() => {
+    try {
+      if (activeThreadId) {
+        localStorage.setItem('activeThreadId', activeThreadId);
+      } else {
+        localStorage.removeItem('activeThreadId');
+      }
+    } catch (e) {
+      console.error('Failed to persist activeThreadId:', e);
+    }
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    const savedThreadId = (() => {
+      try { return localStorage.getItem('activeThreadId') || undefined; } catch { return undefined; }
+    })();
     fetchConsultationHistory();
-    fetchChatHistory();
+    fetchChatHistory(savedThreadId);
   }, [fetchConsultationHistory, fetchChatHistory]);
 
   useEffect(() => {
@@ -286,10 +312,19 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
   const handleSendMessage = async (content: string, images?: File[]) => {
     if (isSendingRef.current || isLoading) return;
     if (!content?.trim() && (!images || images.length === 0)) return;
+    // Prevent duplicate sends of the same message within 3 seconds
+    const now = Date.now();
+    if (
+      lastSentRef.current &&
+      lastSentRef.current.content === content.trim() &&
+      now - lastSentRef.current.time < 3000
+    ) return;
+    lastSentRef.current = { content: content.trim(), time: now };
     isSendingRef.current = true;
 
+    // Optimistic user message — will be replaced by server fetch after send
     const tempUserMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-temp-${Date.now()}`,
       role: 'user',
       content,
       images: [],
@@ -332,22 +367,9 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
       if (data.thread_id) {
         setActiveThreadId(data.thread_id);
       }
-      if (data.result) {
-        const aiRole =
-          data.role === 'system'
-            ? 'system'
-            : data.mode === 'doctor_patient'
-              ? 'system'
-              : 'ai';
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${aiRole}-${Date.now()}`,
-            role: aiRole,
-            content: formatMessageContent(data.result),
-          },
-        ]);
-      }
+      // Always reload from server — avoids duplicate messages from dual-source conflict
+      // silent=true so it doesn't reset isLoading and break the send guard
+      await fetchChatHistory(data.thread_id || activeThreadId || undefined, true);
       await fetchConsultationHistory();
     } catch (e) {
       console.error('Send message failed:', e);
@@ -452,7 +474,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-screen">
       <div className="container mx-auto max-w-6xl">
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[900px]">
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[850px]">
             {!isMobile && showHistory && historySidebar}
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center justify-between border-b px-4 py-3">
