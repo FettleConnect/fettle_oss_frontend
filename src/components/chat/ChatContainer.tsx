@@ -116,7 +116,7 @@ const OptionButtons: React.FC<OptionButtonsProps> = ({ options, onSelect, disabl
         })}
       </div>
       {showOtherInput && !selected && (
-        <div className="flex gap-2 items-center animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="flex gap-2 items-center">
           <input
             ref={inputRef}
             type="text"
@@ -198,17 +198,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-scrolling disabled per user request
-  /*
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'end',
-      });
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [messages.length, isLoading, streamingContent]);
-  */
 
   // FIX: Added 'payment_page' and 'doctor_patient' cases so the badge
   // never shows raw mode strings.
