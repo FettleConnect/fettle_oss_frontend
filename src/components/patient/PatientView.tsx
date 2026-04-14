@@ -458,7 +458,7 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
     <section className="bg-gray-50 py-12 px-4 md:px-6 min-h-screen">
       <div className="container mx-auto max-w-6xl">
         <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[700px]">
+          <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[850px]">
             {!isMobile && showHistory && historySidebar}
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center justify-between border-b px-4 py-3">

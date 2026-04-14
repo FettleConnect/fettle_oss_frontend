@@ -233,11 +233,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [mode]);
 
   const showConsentConfirm = mode === 'consent_clarification';
-  const aiReplyCount = messages.filter((m) => m.role === 'ai').length;
+  const aiReplyCount = messages.filter((m) => m.role.toLowerCase() === 'ai').length;
   const freeTierExhausted = mode === 'general_education' && aiReplyCount >= 3;
 
-  // FIX: Also hide chat input during payment_page mode — user should not be able
-  // to type while the payment overlay is open.
+  // Allow typing in intake, review, and final output modes.
+  // Hide only during consent flow or when free tier is exhausted.
   const hideInput = showConsentConfirm || freeTierExhausted || mode === 'payment_page';
   const showNextStepCTA = mode === 'general_education' && aiReplyCount >= 1;
 
