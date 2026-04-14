@@ -366,6 +366,8 @@ export const PatientView: React.FC<PatientViewProps> = ({ user, onLogout }) => {
 
   const handlePaymentSuccess = async () => {
     setShowPayment(false);
+    // Explicitly notify backend to transition mode
+    await handleSendMessage('payment_confirmed');
     await fetchChatHistory(activeThreadId || undefined);
     toast({
       title: 'Payment Successful',
