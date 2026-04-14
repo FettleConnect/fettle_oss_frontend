@@ -216,14 +216,6 @@ export const AIReviewAssistant: React.FC<AIReviewAssistantProps> = ({
   const hasConsumedPrefill = useRef(false);
 
   // Auto-scrolling disabled per user request
-  /*
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [messages, isLoading]);
-  */
 
   useEffect(() => {
     if (prefillMessage && prefillMessage.trim() && !hasConsumedPrefill.current) {
