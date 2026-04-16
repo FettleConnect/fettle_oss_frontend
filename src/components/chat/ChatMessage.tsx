@@ -54,7 +54,7 @@ const MarkdownLi = ({ children }: MarkdownProps) => (
   <li className="text-sm leading-relaxed">{children}</li>
 );
 const MarkdownA = ({ href, children }: MarkdownProps) => (
-  
+  <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
@@ -145,8 +145,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       .map((line) => {
         const trimmed = line.trim();
         if (trimmed.length < 2) return line;
-        if (/^\d+\.\s/.test(trimmed)) return line;
         if (trimmed.startsWith('#')) return trimmed;
+
+        // ADDED: numbered list items (e.g. "1.", "2.", "1)") → render entire line bold
+        if (/^\d+[\.\)]\s/.test(trimmed)) return `**${trimmed}**`;
+
         const stripped = trimmed
           .replace(/\*\*/g, '')
           .replace(/[:\-]\s*$/, '')
@@ -170,6 +173,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         });
         if (isHeader) {
           return `### ${stripped}`;
+        }
+
+        // ADDED: lines ending with ":" (section headings) → bold block heading
+        if (
+          trimmed.endsWith(':') &&
+          trimmed.length > 2 &&
+          !trimmed.startsWith('-') &&
+          !trimmed.startsWith('*')
+        ) {
+          return `### ${trimmed.replace(/:$/, '').trim()}`;
+        }
+
+        // lines fully wrapped in **...** → bold block via BoldHeading
+        if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
+          return `### ${trimmed.replace(/^\*\*|\*\*$/g, '').trim()}`;
         }
         if (trimmed.startsWith('**')) return trimmed;
         if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
@@ -257,7 +275,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         )}
       >
         {isDoctor ? (
-          
+          <a
             href="https://www.onlineskinspecialist.com/consultant-dermatologist/"
             target="_blank"
             rel="noopener noreferrer"
