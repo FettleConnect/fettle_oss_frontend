@@ -54,7 +54,7 @@ const MarkdownLi = ({ children }: MarkdownProps) => (
   <li className="text-sm leading-relaxed">{children}</li>
 );
 const MarkdownA = ({ href, children }: MarkdownProps) => (
-  <a
+  
     href={href}
     target="_blank"
     rel="noopener noreferrer"
@@ -171,11 +171,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         if (isHeader) {
           return `### ${stripped}`;
         }
-        // FIX: lines fully wrapped in **...** are converted to ### headings
-        // so they render via BoldHeading as a bold block element, not inline.
-        if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
-          return `### ${trimmed.replace(/^\*\*|\*\*$/g, '').trim()}`;
-        }
         if (trimmed.startsWith('**')) return trimmed;
         if (/^[A-Z][A-Za-z\s\/()\-]+:?\s*$/.test(trimmed)) {
           return `**${trimmed}**`;
@@ -262,7 +257,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         )}
       >
         {isDoctor ? (
-          <a
+          
             href="https://www.onlineskinspecialist.com/consultant-dermatologist/"
             target="_blank"
             rel="noopener noreferrer"
